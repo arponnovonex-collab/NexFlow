@@ -291,12 +291,16 @@ export const UnifiedInboxPage = () => {
             });
 
             // Append message locally
+            const newMsg = res.data.data;
+            if (newMsg && !newMsg.sender_user && user) {
+                newMsg.sender_user = { id: user.id, name: user.name, role: user.role };
+            }
             setActiveConversation((prev) => ({
                 ...prev,
                 is_human_takeover: isInternalNote ? prev.is_human_takeover : true,
-                messages: [...(prev.messages || []), res.data.data],
+                messages: [...(prev.messages || []), newMsg],
             }));
-            lastMsgIdRef.current = res.data.data.id;
+            lastMsgIdRef.current = newMsg?.id || Date.now();
             setReplyText('');
             setIsInternalNote(false);
             setSuggestedData(null);
@@ -654,11 +658,14 @@ export const UnifiedInboxPage = () => {
                                     const isAi = msg.sender_type === 'ai';
                                     const isMod = msg.sender_type === 'moderator';
                                     const isNote = msg.is_internal_note;
+                                    const senderName = msg.sender_user?.name || msg.senderUser?.name;
 
                                     if (isNote) {
                                         return (
                                             <div key={msg.id} className="mx-auto max-w-lg p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
-                                                <span className="font-semibold block mb-0.5">Internal Team Note:</span>
+                                                <span className="font-semibold block mb-0.5">
+                                                    Internal Team Note{senderName ? ` (by ${senderName})` : ''}:
+                                                </span>
                                                 {msg.text}
                                             </div>
                                         );
@@ -683,9 +690,19 @@ export const UnifiedInboxPage = () => {
                                                         <Sparkles className="w-3 h-3" /> NexFlow AI Automated Reply
                                                     </div>
                                                 )}
+                                                {isMod && (
+                                                    <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-200 mb-1">
+                                                        <User className="w-3 h-3" /> {senderName || 'Team Moderator'}
+                                                    </div>
+                                                )}
                                                 <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                                             </div>
                                             <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1">
+                                                {isMod && (
+                                                    <span className="text-slate-400 font-medium">
+                                                        Sent by {senderName || 'Moderator'} · 
+                                                    </span>
+                                                )}
                                                 <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                 {!isCustomer && <CheckCheck className="w-3 h-3 text-indigo-400" />}
                                             </div>

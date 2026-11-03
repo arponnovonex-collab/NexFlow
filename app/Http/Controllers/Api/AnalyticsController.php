@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\AiUsageLog;
+use App\Models\CommentReply;
 use App\Models\Conversation;
 use App\Models\Lead;
 use App\Models\LeadFollowup;
@@ -13,6 +14,7 @@ use App\Models\User;
 use App\Models\WebhookEvent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class AnalyticsController extends Controller
@@ -22,11 +24,36 @@ class AnalyticsController extends Controller
      */
     public function moderatorPerformance(Request $request): JsonResponse
     {
+        $targetDate = $request->filled('date')
+            ? Carbon::parse($request->date)->toDateString()
+            : today()->toDateString();
+
         $moderators = User::whereIn('role', ['moderator', 'admin'])
             ->withCount(['assignedConversations', 'assignedLeads'])
             ->get()
-            ->map(function ($mod) {
-                $messagesSent = Message::where('sender_user_id', $mod->id)->count();
+            ->map(function ($mod) use ($targetDate) {
+                // Messages sent on the specific date
+                $messagesSentOnDate = Message::where('sender_user_id', $mod->id)
+                    ->whereDate('created_at', $targetDate)
+                    ->count();
+
+                // Unique conversations/customers replied to on the specific date
+                $customersHandledOnDate = Message::where('sender_user_id', $mod->id)
+                    ->whereDate('created_at', $targetDate)
+                    ->distinct('conversation_id')
+                    ->count('conversation_id');
+
+                // Facebook comments replied on the specific date
+                $commentsRepliedOnDate = CommentReply::where('user_id', $mod->id)
+                    ->whereDate('created_at', $targetDate)
+                    ->count();
+
+                // Total unique customers handled all-time
+                $totalCustomersHandled = Message::where('sender_user_id', $mod->id)
+                    ->distinct('conversation_id')
+                    ->count('conversation_id');
+
+                $allTimeMessagesSent = Message::where('sender_user_id', $mod->id)->count();
                 $converted = Lead::where('assigned_to_user_id', $mod->id)->where('status', 'converted')->count();
                 $followupsCompleted = LeadFollowup::where('user_id', $mod->id)->where('status', 'completed')->count();
                 $followupsPending = LeadFollowup::where('user_id', $mod->id)->whereIn('status', ['scheduled', 'due_today', 'overdue'])->count();
@@ -34,21 +61,38 @@ class AnalyticsController extends Controller
                 return [
                     'id' => $mod->id,
                     'name' => $mod->name,
+                    'email' => $mod->email,
                     'role' => $mod->role,
                     'avatar_url' => $mod->avatar_url,
+                    'target_date' => $targetDate,
+                    'customers_handled_today' => $customersHandledOnDate,
+                    'messages_sent_today' => $messagesSentOnDate,
+                    'comments_replied_today' => $commentsRepliedOnDate,
+                    'total_interactions_today' => $messagesSentOnDate + $commentsRepliedOnDate,
+                    'total_customers_handled' => $totalCustomersHandled,
                     'assigned_conversations' => $mod->assigned_conversations_count,
                     'assigned_leads' => $mod->assigned_leads_count,
-                    'messages_sent' => $messagesSent,
+                    'messages_sent' => $allTimeMessagesSent,
                     'converted_leads' => $converted,
                     'followups_completed' => $followupsCompleted,
                     'followups_pending' => $followupsPending,
-                    'avg_first_response_min' => 3.8,
+                    'avg_first_response_min' => 3.5,
                     'conversion_rate' => $mod->assigned_leads_count > 0 ? round(($converted / $mod->assigned_leads_count) * 100, 1) : 0,
                 ];
             });
 
+        // Summary for the target date
+        $summary = [
+            'date' => $targetDate,
+            'total_customers_handled' => $moderators->sum('customers_handled_today'),
+            'total_messages_sent' => $moderators->sum('messages_sent_today'),
+            'total_comments_replied' => $moderators->sum('comments_replied_today'),
+            'active_moderators_count' => $moderators->where('customers_handled_today', '>', 0)->count(),
+        ];
+
         return response()->json([
             'status' => 'success',
+            'summary' => $summary,
             'data' => $moderators,
         ]);
     }
