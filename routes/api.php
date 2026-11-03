@@ -47,6 +47,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Social Accounts & Channels
     Route::apiResource('social-accounts', SocialAccountController::class);
     Route::get('/social-accounts/{socialAccount}/diagnostics', [SocialAccountController::class, 'diagnostics']);
+    Route::post('/social-accounts/{socialAccount}/disconnect', [SocialAccountController::class, 'disconnect']);
+    Route::post('/social-accounts/{socialAccount}/reconnect', [SocialAccountController::class, 'reconnect']);
 
     // Product Catalog
     Route::get('/product-categories', [ProductController::class, 'categories']);

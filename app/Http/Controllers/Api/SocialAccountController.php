@@ -158,7 +158,42 @@ class SocialAccountController extends Controller
     }
 
     /**
-     * Delete a connected channel.
+     * Disconnect a connected account (pauses integration without deleting data).
+     */
+    public function disconnect(SocialAccount $socialAccount): JsonResponse
+    {
+        $socialAccount->update([
+            'status' => 'disconnected',
+            'is_active' => false,
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Channel '{$socialAccount->name}' has been disconnected.",
+            'data' => $socialAccount,
+        ]);
+    }
+
+    /**
+     * Reconnect an account.
+     */
+    public function reconnect(SocialAccount $socialAccount): JsonResponse
+    {
+        $socialAccount->update([
+            'status' => 'connected',
+            'is_active' => true,
+            'last_synced_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Channel '{$socialAccount->name}' has been reconnected successfully.",
+            'data' => $socialAccount,
+        ]);
+    }
+
+    /**
+     * Delete a connected channel permanently.
      */
     public function destroy(SocialAccount $socialAccount): JsonResponse
     {

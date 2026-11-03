@@ -26,6 +26,7 @@ export const SocialConnectionsPage = () => {
     const [connectModal, setConnectModal] = useState(false);
     const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+    const [actionLoadingId, setActionLoadingId] = useState(null);
     const [connectForm, setConnectForm] = useState({
         platform: 'facebook_page',
         name: '',
@@ -71,6 +72,35 @@ export const SocialConnectionsPage = () => {
             fetchAccounts();
         } catch (err) {
             alert(err.response?.data?.message || 'Failed to connect account');
+        }
+    };
+
+    const handleDisconnectChannel = async (account) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to disconnect "${account.name}"?\n\nThe connection will be paused, and you will have the option to reconnect or permanently delete it.`
+        );
+        if (!confirmed) return;
+
+        setActionLoadingId(account.id);
+        try {
+            await api.post(`/social-accounts/${account.id}/disconnect`);
+            fetchAccounts();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to disconnect channel.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handleReconnectChannel = async (account) => {
+        setActionLoadingId(account.id);
+        try {
+            await api.post(`/social-accounts/${account.id}/reconnect`);
+            fetchAccounts();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to reconnect channel.');
+        } finally {
+            setActionLoadingId(null);
         }
     };
 
@@ -146,8 +176,8 @@ export const SocialConnectionsPage = () => {
                                                 <p className="text-xs text-slate-400">@{acc.username || acc.account_id}</p>
                                             </div>
                                         </div>
-                                        <Badge variant={acc.status === 'connected' ? 'success' : 'danger'} size="xs">
-                                            {acc.status}
+                                        <Badge variant={acc.status === 'connected' ? 'success' : 'neutral'} size="xs">
+                                            {acc.status === 'connected' ? 'Connected' : 'Disconnected'}
                                         </Badge>
                                     </div>
 
@@ -170,39 +200,72 @@ export const SocialConnectionsPage = () => {
                                     {/* Permissions & Webhook Status */}
                                     <div className="mt-3 space-y-1.5 text-xs text-slate-400">
                                         <div className="flex items-center justify-between">
-                                            <span>Webhook Status:</span>
-                                            <span className="flex items-center gap-1 text-emerald-400 font-medium">
-                                                <CheckCircle2 className="w-3.5 h-3.5" /> Active & Verified
-                                            </span>
+                                            <span>Channel Status:</span>
+                                            {acc.status === 'connected' ? (
+                                                <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                                                    <CheckCircle2 className="w-3.5 h-3.5" /> Active & Verified
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center gap-1 text-amber-400 font-medium">
+                                                    <AlertTriangle className="w-3.5 h-3.5" /> Disconnected
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="flex items-center justify-between">
                                             <span>AI Automation:</span>
                                             <span className="text-indigo-400 font-medium">
-                                                {acc.settings?.ai_mode === 'auto' ? 'Full Auto' : 'Suggestion Only'}
+                                                {acc.status === 'connected' ? (acc.settings?.ai_mode === 'auto' ? 'Full Auto' : 'Suggestion Only') : 'Paused'}
                                             </span>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
-                                    <Button
-                                        variant="secondary"
-                                        size="xs"
-                                        icon={Activity}
-                                        onClick={() => runDiagnostics(acc)}
-                                    >
-                                        Diagnostics
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="xs"
-                                        className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
-                                        icon={Trash2}
-                                        loading={deletingId === acc.id}
-                                        onClick={() => handleDeleteChannel(acc)}
-                                    >
-                                        Delete Channel
-                                    </Button>
+                                    {acc.status === 'connected' ? (
+                                        <>
+                                            <Button
+                                                variant="secondary"
+                                                size="xs"
+                                                icon={Activity}
+                                                onClick={() => runDiagnostics(acc)}
+                                            >
+                                                Diagnostics
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="xs"
+                                                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
+                                                icon={Sliders}
+                                                loading={actionLoadingId === acc.id}
+                                                onClick={() => handleDisconnectChannel(acc)}
+                                            >
+                                                Disconnect
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Button
+                                                variant="primary"
+                                                size="xs"
+                                                className="bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                                icon={CheckCircle2}
+                                                loading={actionLoadingId === acc.id}
+                                                onClick={() => handleReconnectChannel(acc)}
+                                            >
+                                                Connect
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="xs"
+                                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+                                                icon={Trash2}
+                                                loading={deletingId === acc.id}
+                                                onClick={() => handleDeleteChannel(acc)}
+                                            >
+                                                Delete Channel
+                                            </Button>
+                                        </>
+                                    )}
                                 </div>
                             </Card>
                         );
