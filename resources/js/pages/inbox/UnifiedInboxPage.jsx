@@ -441,11 +441,16 @@ export const UnifiedInboxPage = () => {
                                     </div>
 
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-semibold text-slate-200 truncate">
+                                        <div className="flex items-center justify-between gap-1">
+                                            <span className="text-xs font-semibold text-slate-200 truncate" title={`${c.customer?.name || 'Customer'} ${c.social_account?.name ? `(${c.social_account.name})` : ''}`}>
                                                 {c.customer?.name}
+                                                {c.social_account?.name && (
+                                                    <span className="text-[11px] font-normal text-slate-400 ml-1">
+                                                        ({c.social_account.name})
+                                                    </span>
+                                                )}
                                             </span>
-                                            <span className="text-[10px] text-slate-400">
+                                            <span className="text-[10px] text-slate-400 shrink-0">
                                                 {c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                             </span>
                                         </div>
@@ -499,8 +504,13 @@ export const UnifiedInboxPage = () => {
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h2 className="text-sm font-semibold text-white">
-                                            {activeConversation.customer?.name}
+                                        <h2 className="text-sm font-semibold text-white flex items-center gap-1.5 truncate">
+                                            <span>{activeConversation.customer?.name}</span>
+                                            {activeConversation.social_account?.name && (
+                                                <span className="text-xs font-normal text-slate-400">
+                                                    ({activeConversation.social_account.name})
+                                                </span>
+                                            )}
                                         </h2>
                                         <Badge
                                             variant={
@@ -723,7 +733,10 @@ export const UnifiedInboxPage = () => {
                             className="w-16 h-16 rounded-full mx-auto object-cover ring-2 ring-indigo-500/20"
                         />
                         <h3 className="text-sm font-bold text-slate-100 mt-2">{activeConversation.customer?.name}</h3>
-                        <p className="text-xs text-slate-400">{activeConversation.customer?.phone || 'No phone recorded'}</p>
+                        {activeConversation.social_account?.name && (
+                            <p className="text-[11px] text-indigo-400 font-medium">({activeConversation.social_account.name})</p>
+                        )}
+                        <p className="text-xs text-slate-400 mt-0.5">{activeConversation.customer?.phone || 'No phone recorded'}</p>
                     </div>
 
                     {/* Quick Lead Status Selector */}

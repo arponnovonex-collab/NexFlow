@@ -191,26 +191,71 @@ class MetaWebhookController extends Controller
         $text = $messageObj['text'];
         $mid = $messageObj['mid'] ?? ('mid_' . uniqid());
 
-        // Find or create customer
-        $customer = Customer::firstOrCreate(
-            ['phone' => null, 'name' => 'Facebook Customer (' . substr($senderPsid, -4) . ')'],
-            [
-                'avatar_url' => 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80',
-            ]
-        );
+        // Check if customer channel identity already exists
+        $identity = CustomerChannelIdentity::where('social_account_id', $account?->id ?? 1)
+            ->where('platform', 'facebook_page')
+            ->where('platform_customer_id', (string) $senderPsid)
+            ->first();
 
-        // Map channel identity
-        CustomerChannelIdentity::firstOrCreate(
-            [
+        $customer = $identity?->customer;
+
+        // Fetch real Facebook name and profile picture from Graph API
+        $profileName = $customer?->name;
+        $avatarUrl = $customer?->avatar_url;
+        $needsProfileFetch = ! $customer || str_starts_with($customer->name, 'Facebook Customer');
+
+        if ($needsProfileFetch && $account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+            try {
+                $version = config('services.meta.graph_version', 'v19.0');
+                $profileRes = Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$senderPsid}", [
+                    'fields' => 'name,first_name,last_name,profile_pic',
+                    'access_token' => $account->access_token,
+                ]);
+
+                if ($profileRes->successful()) {
+                    $profileData = $profileRes->json();
+                    if (! empty($profileData['name'])) {
+                        $profileName = $profileData['name'];
+                    }
+                    if (! empty($profileData['profile_pic'])) {
+                        $avatarUrl = $profileData['profile_pic'];
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch FB profile for PSID ' . $senderPsid . ': ' . $e->getMessage());
+            }
+        }
+
+        if (! $profileName) {
+            $profileName = 'Facebook Customer (' . substr($senderPsid, -4) . ')';
+        }
+        if (! $avatarUrl) {
+            $avatarUrl = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80';
+        }
+
+        if (! $customer) {
+            $customer = Customer::create([
+                'name' => $profileName,
+                'avatar_url' => $avatarUrl,
+            ]);
+
+            $identity = CustomerChannelIdentity::create([
                 'social_account_id' => $account?->id ?? 1,
                 'platform' => 'facebook_page',
                 'platform_customer_id' => (string) $senderPsid,
-            ],
-            [
                 'customer_id' => $customer->id,
-                'profile_name' => $customer->name,
-            ]
-        );
+                'profile_name' => $profileName,
+            ]);
+        } else {
+            // Update customer with verified name and profile picture
+            $customer->update([
+                'name' => $profileName,
+                'avatar_url' => $avatarUrl,
+            ]);
+            $identity->update([
+                'profile_name' => $profileName,
+            ]);
+        }
 
         // Find or create conversation
         $conversation = Conversation::firstOrCreate(

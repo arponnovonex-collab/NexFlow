@@ -109,6 +109,36 @@ class ConversationController extends Controller
             },
         ]);
 
+        // Auto-enrich customer profile from Meta Graph API if still named 'Facebook Customer'
+        if ($conversation->platform === 'facebook_page' && $conversation->customer && str_starts_with($conversation->customer->name, 'Facebook Customer')) {
+            $psid = str_replace('t_', '', $conversation->channel_conversation_id);
+            $token = $conversation->socialAccount?->access_token;
+            if ($token && ! str_starts_with($token, 'EAAXMOCK')) {
+                try {
+                    $version = config('services.meta.graph_version', 'v19.0');
+                    $res = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$psid}", [
+                        'fields' => 'name,first_name,last_name,profile_pic',
+                        'access_token' => $token,
+                    ]);
+                    if ($res->successful()) {
+                        $data = $res->json();
+                        if (! empty($data['name'])) {
+                            $conversation->customer->update([
+                                'name' => $data['name'],
+                                'avatar_url' => $data['profile_pic'] ?? $conversation->customer->avatar_url,
+                            ]);
+                            $conversation->customer->channelIdentities()
+                                ->where('platform', 'facebook_page')
+                                ->update(['profile_name' => $data['name']]);
+                            $conversation->load('customer');
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Silently ignore
+                }
+            }
+        }
+
         // Reset unread count when opened
         $conversation->update(['unread_count' => 0]);
 
