@@ -67,6 +67,20 @@ export const CommentAutomationPage = () => {
         }
     };
 
+    const handleTogglePostAutoReply = async (post) => {
+        try {
+            const newStatus = !post.is_auto_reply_enabled;
+            await api.put(`/posts/${post.id}`, {
+                is_auto_reply_enabled: newStatus,
+            });
+            setPosts((prev) =>
+                prev.map((p) => (p.id === post.id ? { ...p, is_auto_reply_enabled: newStatus } : p))
+            );
+        } catch (err) {
+            alert('Failed to update post auto-reply status');
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -98,9 +112,16 @@ export const CommentAutomationPage = () => {
                                     <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
                                         <Facebook className="w-3 h-3" /> {post.social_account?.name}
                                     </span>
-                                    <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs">
-                                        {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
-                                    </Badge>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTogglePostAutoReply(post)}
+                                        title="Click to toggle auto-reply for this post"
+                                        className="focus:outline-none"
+                                    >
+                                        <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs" className="cursor-pointer hover:opacity-80">
+                                            {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
+                                        </Badge>
+                                    </button>
                                 </div>
                                 <p className="text-xs text-slate-200 line-clamp-2 mt-1">{post.message}</p>
                                 <div className="flex flex-wrap items-center gap-2 mt-2">

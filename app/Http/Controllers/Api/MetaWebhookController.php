@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AiSetting;
 use App\Models\Conversation;
 use App\Models\Customer;
 use App\Models\CustomerChannelIdentity;
@@ -146,8 +147,16 @@ class MetaWebhookController extends Controller
             ]
         );
 
-        // If post auto reply is enabled and account is active
-        if ($post->is_auto_reply_enabled && (! $account || $account->is_active)) {
+        // Check master kill switch from AI Control Center and channel AI mode
+        $commentAutoReplyEnabled = AiSetting::getBool('comment_auto_reply_enabled', true);
+        $channelAiAllowed = ! $account || ($account->settings['ai_mode'] ?? 'auto') !== 'paused';
+
+        if (! $commentAutoReplyEnabled) {
+            Log::info("Comment auto-reply skipped for comment {$commentId}: comment_auto_reply_enabled is turned off in AI Control Center.");
+        }
+
+        // If comment auto-reply is globally enabled, channel allows AI, post auto-reply is enabled, and account is active
+        if ($commentAutoReplyEnabled && $channelAiAllowed && $post->is_auto_reply_enabled && (! $account || $account->is_active)) {
             $context = $this->knowledgeService->getVerifiedContextForPost($post);
             $aiDecision = $this->aiService->generateStructuredReply(
                 $message,
@@ -308,8 +317,16 @@ class MetaWebhookController extends Controller
             'unread_count' => $conversation->unread_count + 1,
         ]);
 
-        // Auto-reply if AI is enabled and human takeover is false
-        if (! $conversation->is_human_takeover && $conversation->ai_mode === 'auto') {
+        // Check master kill switch from AI Control Center and channel AI mode
+        $messengerAutoReplyEnabled = AiSetting::getBool('messenger_auto_reply_enabled', true);
+        $channelAiAllowed = ! $account || ($account->settings['ai_mode'] ?? 'auto') !== 'paused';
+
+        if (! $messengerAutoReplyEnabled) {
+            Log::info("Messenger auto-reply skipped for conversation {$conversation->id}: messenger_auto_reply_enabled is turned off in AI Control Center.");
+        }
+
+        // Auto-reply if messenger auto reply is globally enabled, channel allows AI, human takeover is false, and AI mode is auto
+        if ($messengerAutoReplyEnabled && $channelAiAllowed && ! $conversation->is_human_takeover && $conversation->ai_mode === 'auto') {
             $relatedProduct = $conversation->socialAccount?->products()->first();
             $context = $relatedProduct
                 ? ['products' => [$this->knowledgeService->getVerifiedContextForProduct($relatedProduct)]]

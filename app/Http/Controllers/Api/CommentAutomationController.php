@@ -10,6 +10,8 @@ use App\Services\OpenAIService;
 use App\Services\ProductKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class CommentAutomationController extends Controller
 {
@@ -121,6 +123,37 @@ class CommentAutomationController extends Controller
             'platform_reply_id' => 'mock_fb_reply_' . uniqid(),
         ]);
 
+        // Publish live to Meta Graph API if active connection
+        $account = $post->socialAccount;
+        if ($status === 'published' && $account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+            $version = config('services.meta.graph_version', 'v19.0');
+            $commentId = $comment->platform_comment_id;
+            if ($commentId) {
+                try {
+                    $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                        'message' => $replyText,
+                        'access_token' => $account->access_token,
+                    ]);
+                    if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
+                        $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                            'fields' => 'access_token',
+                            'access_token' => $account->access_token,
+                        ]);
+                        if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                            $pageToken = $pageRes->json('access_token');
+                            $account->update(['access_token' => $pageToken]);
+                            Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                                'message' => $replyText,
+                                'access_token' => $pageToken,
+                            ]);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to publish manual comment reply to FB: ' . $e->getMessage());
+                }
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => $status === 'published' ? 'Comment replied successfully' : 'Draft created for approval',
@@ -154,6 +187,37 @@ class CommentAutomationController extends Controller
             'status' => 'published',
             'platform_reply_id' => 'pub_reply_' . uniqid(),
         ]);
+
+        // Publish live to Meta Graph API if active connection
+        $account = $comment->post?->socialAccount;
+        if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+            $version = config('services.meta.graph_version', 'v19.0');
+            $commentId = $comment->platform_comment_id;
+            if ($commentId) {
+                try {
+                    $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                        'message' => $validated['reply_text'],
+                        'access_token' => $account->access_token,
+                    ]);
+                    if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
+                        $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                            'fields' => 'access_token',
+                            'access_token' => $account->access_token,
+                        ]);
+                        if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                            $pageToken = $pageRes->json('access_token');
+                            $account->update(['access_token' => $pageToken]);
+                            Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                                'message' => $validated['reply_text'],
+                                'access_token' => $pageToken,
+                            ]);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to publish approved comment reply to FB: ' . $e->getMessage());
+                }
+            }
+        }
 
         return response()->json([
             'status' => 'success',
