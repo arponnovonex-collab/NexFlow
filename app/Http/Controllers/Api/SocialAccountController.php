@@ -109,6 +109,66 @@ class SocialAccountController extends Controller
     }
 
     /**
+     * Show social account details.
+     */
+    public function show(SocialAccount $socialAccount): JsonResponse
+    {
+        $socialAccount->loadCount(['conversations', 'posts', 'products']);
+        $socialAccount->makeHidden(['access_token', 'refresh_token']);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $socialAccount,
+        ]);
+    }
+
+    /**
+     * Subscribe Facebook Page to Meta webhooks (feed and messages).
+     */
+    public function subscribeWebhooks(SocialAccount $socialAccount): JsonResponse
+    {
+        if ($socialAccount->platform !== 'facebook_page') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Only Facebook Pages can be subscribed via Graph API.',
+            ], 422);
+        }
+
+        $version = config('services.meta.graph_version', 'v19.0');
+        $token = $socialAccount->access_token;
+        $pageId = $socialAccount->account_id;
+
+        // Try subscribing feed, messages, messaging_postbacks
+        $res = Http::post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
+            'subscribed_fields' => 'feed,messages,messaging_postbacks',
+            'access_token' => $token,
+        ]);
+
+        if ($res->successful()) {
+            return response()->json([
+                'status' => 'success',
+                'feed_subscribed' => true,
+                'message' => 'Facebook Page feed (comments) and messages are both successfully subscribed!',
+                'data' => $res->json(),
+            ]);
+        }
+
+        // If feed fails (e.g. missing pages_manage_metadata), fallback to messages
+        $fallback = Http::post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
+            'subscribed_fields' => 'messages,messaging_postbacks',
+            'access_token' => $token,
+        ]);
+
+        return response()->json([
+            'status' => 'partial',
+            'feed_subscribed' => false,
+            'messages_subscribed' => $fallback->successful(),
+            'meta_error' => $res->json('error.message'),
+            'message' => 'Messages subscribed, but feed (comments) requires pages_manage_metadata permission.',
+        ]);
+    }
+
+    /**
      * Toggle active state or update settings for a social account.
      */
     public function update(Request $request, SocialAccount $socialAccount): JsonResponse

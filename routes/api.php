@@ -49,6 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/social-accounts/{socialAccount}/diagnostics', [SocialAccountController::class, 'diagnostics']);
     Route::post('/social-accounts/{socialAccount}/disconnect', [SocialAccountController::class, 'disconnect']);
     Route::post('/social-accounts/{socialAccount}/reconnect', [SocialAccountController::class, 'reconnect']);
+    Route::post('/social-accounts/{socialAccount}/subscribe-webhooks', [SocialAccountController::class, 'subscribeWebhooks']);
 
     // Product Catalog
     Route::get('/product-categories', [ProductController::class, 'categories']);
