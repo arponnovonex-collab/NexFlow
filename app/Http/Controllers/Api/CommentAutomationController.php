@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CommentReply;
+use App\Models\SocialAccount;
 use App\Models\SocialComment;
 use App\Models\SocialPost;
 use App\Services\OpenAIService;
 use App\Services\ProductKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -32,11 +34,85 @@ class CommentAutomationController extends Controller
             $query->where('social_account_id', $request->social_account_id);
         }
 
-        $posts = $query->orderByDesc('published_at')->paginate($request->integer('per_page', 15));
+        $posts = $query->orderByDesc('published_at')->paginate($request->integer('per_page', 50));
 
         return response()->json([
             'status' => 'success',
             'data' => $posts,
+        ]);
+    }
+
+    /**
+     * Sync published posts from connected Facebook pages.
+     */
+    public function syncPosts(Request $request): JsonResponse
+    {
+        $version = config('services.meta.graph_version', 'v19.0');
+        $query = SocialAccount::where('status', 'connected')->where('platform', 'facebook_page');
+
+        if ($request->filled('social_account_id')) {
+            $query->where('id', $request->social_account_id);
+        }
+
+        $accounts = $query->get();
+        $syncedCount = 0;
+
+        foreach ($accounts as $account) {
+            if (! $account->access_token || str_starts_with($account->access_token, 'EAAXMOCK')) {
+                continue;
+            }
+
+            try {
+                $token = $account->access_token;
+                $res = Http::timeout(10)->get("https://graph.facebook.com/{$version}/{$account->account_id}/published_posts", [
+                    'fields' => 'id,message,created_time,full_picture,permalink_url',
+                    'limit' => 50,
+                    'access_token' => $token,
+                ]);
+
+                // Fallback if token was User token
+                if (! $res->successful() && ($res->status() === 400 || $res->status() === 403)) {
+                    $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                        'fields' => 'access_token',
+                        'access_token' => $token,
+                    ]);
+                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                        $token = $pageRes->json('access_token');
+                        $account->update(['access_token' => $token]);
+                        $res = Http::timeout(10)->get("https://graph.facebook.com/{$version}/{$account->account_id}/published_posts", [
+                            'fields' => 'id,message,created_time,full_picture,permalink_url',
+                            'limit' => 50,
+                            'access_token' => $token,
+                        ]);
+                    }
+                }
+
+                if ($res->successful()) {
+                    $items = $res->json('data') ?? [];
+                    foreach ($items as $item) {
+                        SocialPost::updateOrCreate(
+                            ['platform_post_id' => (string) $item['id']],
+                            [
+                                'social_account_id' => $account->id,
+                                'message' => ! empty($item['message']) ? $item['message'] : 'Facebook Post #' . $item['id'],
+                                'media_url' => $item['full_picture'] ?? null,
+                                'permalink' => $item['permalink_url'] ?? null,
+                                'published_at' => isset($item['created_time']) ? Carbon::parse($item['created_time']) : now(),
+                                'is_auto_reply_enabled' => true,
+                            ]
+                        );
+                        $syncedCount++;
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning("Failed to sync posts for account {$account->id}: " . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Successfully synchronized {$syncedCount} posts from Facebook.",
+            'synced_count' => $syncedCount,
         ]);
     }
 

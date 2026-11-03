@@ -57,6 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Comment Automation
     Route::get('/posts', [CommentAutomationController::class, 'posts']);
+    Route::post('/posts/sync', [CommentAutomationController::class, 'syncPosts']);
     Route::put('/posts/{post}', [CommentAutomationController::class, 'updatePost']);
     Route::get('/comments', [CommentAutomationController::class, 'comments']);
     Route::post('/comments/{comment}/reply', [CommentAutomationController::class, 'replyToComment']);

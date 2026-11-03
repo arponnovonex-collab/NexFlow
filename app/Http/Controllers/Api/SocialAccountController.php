@@ -131,6 +131,34 @@ class SocialAccountController extends Controller
             ]
         );
 
+        // Automatically trigger initial post sync for facebook_page
+        if ($account->platform === 'facebook_page' && ! str_starts_with($accessToken, 'EAAXMOCK')) {
+            try {
+                $postRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$accountId}/published_posts", [
+                    'fields' => 'id,message,created_time,full_picture,permalink_url',
+                    'limit' => 50,
+                    'access_token' => $accessToken,
+                ]);
+                if ($postRes->successful()) {
+                    foreach ($postRes->json('data') ?? [] as $item) {
+                        \App\Models\SocialPost::updateOrCreate(
+                            ['platform_post_id' => (string) $item['id']],
+                            [
+                                'social_account_id' => $account->id,
+                                'message' => ! empty($item['message']) ? $item['message'] : 'Facebook Post #' . $item['id'],
+                                'media_url' => $item['full_picture'] ?? null,
+                                'permalink' => $item['permalink_url'] ?? null,
+                                'published_at' => isset($item['created_time']) ? \Illuminate\Support\Carbon::parse($item['created_time']) : now(),
+                                'is_auto_reply_enabled' => true,
+                            ]
+                        );
+                    }
+                }
+            } catch (\Exception $e) {
+                // Silently continue
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Social account connected successfully',

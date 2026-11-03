@@ -22,13 +22,14 @@ export const CommentAutomationPage = () => {
     const [comments, setComments] = useState([]);
     const [selectedPost, setSelectedPost] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
     const [replyingCommentId, setReplyingCommentId] = useState(null);
 
     const fetchData = async () => {
         try {
             setLoading(true);
             const [postsRes, commentsRes] = await Promise.all([
-                api.get('/posts'),
+                api.get('/posts?per_page=50'),
                 api.get('/comments'),
             ]);
             setPosts(postsRes.data.data.data || []);
@@ -37,6 +38,18 @@ export const CommentAutomationPage = () => {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSyncPosts = async () => {
+        setSyncing(true);
+        try {
+            await api.post('/posts/sync');
+            await fetchData();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setSyncing(false);
         }
     };
 
@@ -92,8 +105,8 @@ export const CommentAutomationPage = () => {
                         AI-powered comment replies contextually grounded in verified MySQL product specs, stock & pricing.
                     </p>
                 </div>
-                <Button variant="secondary" size="sm" icon={RefreshCw} onClick={fetchData}>
-                    Refresh Feed
+                <Button variant="secondary" size="sm" icon={RefreshCw} loading={syncing} onClick={handleSyncPosts}>
+                    Sync Facebook Feed
                 </Button>
             </div>
 

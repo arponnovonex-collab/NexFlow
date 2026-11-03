@@ -12,12 +12,15 @@ import {
     CheckCircle2,
     Sliders,
     Plus,
+    RefreshCw,
+    ExternalLink,
 } from 'lucide-react';
 
 export const PostProductMappingPage = () => {
     const [posts, setPosts] = useState([]);
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
     const [mappingModal, setMappingModal] = useState(null);
     const [selectedProductIds, setSelectedProductIds] = useState([]);
 
@@ -25,7 +28,7 @@ export const PostProductMappingPage = () => {
         try {
             setLoading(true);
             const [postsRes, prodsRes] = await Promise.all([
-                api.get('/posts'),
+                api.get('/posts?per_page=50'),
                 api.get('/products'),
             ]);
             setPosts(postsRes.data.data.data || []);
@@ -40,6 +43,19 @@ export const PostProductMappingPage = () => {
     useEffect(() => {
         fetchData();
     }, []);
+
+    const handleSyncPosts = async () => {
+        setSyncing(true);
+        try {
+            const res = await api.post('/posts/sync');
+            await fetchData();
+            alert(res.data?.message || 'Posts synchronized successfully from Facebook!');
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to sync posts from Facebook');
+        } finally {
+            setSyncing(false);
+        }
+    };
 
     const openMappingModal = (post) => {
         setMappingModal(post);
@@ -67,74 +83,130 @@ export const PostProductMappingPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                    Post-to-Product Mapping Engine
-                </h1>
-                <p className="text-xs text-slate-400 mt-1">
-                    Map each Facebook or Instagram post to verified catalog products so AI only quotes relevant pricing and stock.
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                        Post-to-Product Mapping Engine
+                        <Badge variant="primary" size="xs">
+                            {posts.length} Posts
+                        </Badge>
+                    </h1>
+                    <p className="text-xs text-slate-400 mt-1">
+                        Map each Facebook post to verified catalog products so AI only quotes accurate pricing, stock and details.
+                    </p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        icon={RefreshCw}
+                        loading={syncing}
+                        onClick={handleSyncPosts}
+                    >
+                        Sync Facebook Posts
+                    </Button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {posts.map((post) => (
-                    <Card key={post.id} className="relative flex flex-col justify-between">
-                        <div>
-                            <div className="flex items-start gap-3">
-                                <img
-                                    src={post.media_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200'}
-                                    alt="Post media"
-                                    className="w-20 h-20 rounded-xl object-cover ring-1 ring-slate-800 shrink-0"
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
-                                            <Facebook className="w-3 h-3" /> {post.social_account?.name}
-                                        </span>
-                                        <span className="text-[10px] text-slate-400">Post ID: {post.platform_post_id}</span>
-                                    </div>
-                                    <p className="text-xs text-slate-200 line-clamp-2 mt-1">{post.message}</p>
-                                </div>
-                            </div>
-
-                            {/* Mapped Products */}
-                            <div className="mt-4 pt-3 border-t border-slate-800 space-y-1.5">
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                                    Mapped Products ({post.products?.length || 0}):
-                                </span>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {post.products?.length > 0 ? (
-                                        post.products.map((p) => (
-                                            <span
-                                                key={p.id}
-                                                className="text-xs px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1.5"
-                                            >
-                                                <ShoppingBag className="w-3 h-3 text-indigo-400" />
-                                                <strong>{p.name}</strong> · {p.selling_price} BDT
+            {loading ? (
+                <div className="py-20 text-center text-xs text-slate-400">Loading posts and products...</div>
+            ) : posts.length === 0 ? (
+                <Card className="py-12 text-center">
+                    <Layers className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+                    <h3 className="text-sm font-semibold text-slate-200">No posts found yet</h3>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1 mb-4">
+                        Fetch your published Facebook Page posts to start mapping them with your catalog products.
+                    </p>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        icon={RefreshCw}
+                        loading={syncing}
+                        onClick={handleSyncPosts}
+                    >
+                        Fetch Facebook Posts Now
+                    </Button>
+                </Card>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {posts.map((post) => (
+                        <Card key={post.id} className="relative flex flex-col justify-between">
+                            <div>
+                                <div className="flex items-start gap-3">
+                                    <img
+                                        src={post.media_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200'}
+                                        alt="Post media"
+                                        className="w-20 h-20 rounded-xl object-cover ring-1 ring-slate-800 shrink-0 bg-slate-900"
+                                        onError={(e) => {
+                                            e.target.src = 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200';
+                                        }}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
+                                                <Facebook className="w-3 h-3" /> {post.social_account?.name || 'Facebook Page'}
                                             </span>
-                                        ))
-                                    ) : (
-                                        <span className="text-xs text-amber-400 italic">
-                                            No product mapped. AI will reply with general brand details.
-                                        </span>
-                                    )}
+                                            {post.permalink && (
+                                                <a
+                                                    href={post.permalink}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5"
+                                                >
+                                                    View on FB <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-slate-200 line-clamp-3 mt-1 font-medium">
+                                            {post.message || <span className="italic text-slate-400">(Photo/Video Post)</span>}
+                                        </p>
+                                        {post.published_at && (
+                                            <span className="text-[10px] text-slate-400 block mt-1">
+                                                Published: {new Date(post.published_at).toLocaleDateString([], { dateStyle: 'medium' })}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Mapped Products */}
+                                <div className="mt-4 pt-3 border-t border-slate-800 space-y-1.5">
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                                        Mapped Products ({post.products?.length || 0}):
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {post.products?.length > 0 ? (
+                                            post.products.map((p) => (
+                                                <span
+                                                    key={p.id}
+                                                    className="text-xs px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 flex items-center gap-1.5"
+                                                >
+                                                    <ShoppingBag className="w-3 h-3 text-indigo-400" />
+                                                    <strong>{p.name}</strong> · {p.selling_price} BDT
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span className="text-xs text-amber-400 italic">
+                                                No product mapped yet. AI will reply with general brand knowledge.
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-end">
-                            <Button
-                                variant="secondary"
-                                size="xs"
-                                icon={Link}
-                                onClick={() => openMappingModal(post)}
-                            >
-                                Edit Product Mapping
-                            </Button>
-                        </div>
-                    </Card>
-                ))}
-            </div>
+                            <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-end">
+                                <Button
+                                    variant="secondary"
+                                    size="xs"
+                                    icon={Link}
+                                    onClick={() => openMappingModal(post)}
+                                >
+                                    Edit Product Mapping
+                                </Button>
+                            </div>
+                        </Card>
+                    ))}
+                </div>
+            )}
 
             {/* Edit Mapping Modal */}
             <Modal
