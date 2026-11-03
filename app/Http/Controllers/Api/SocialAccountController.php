@@ -168,6 +168,22 @@ class SocialAccountController extends Controller
         $token = $socialAccount->access_token;
         $pageId = $socialAccount->account_id;
 
+        // Ensure token is Page token
+        if (! str_starts_with($token, 'EAAXMOCK')) {
+            try {
+                $pageRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$pageId}", [
+                    'fields' => 'access_token',
+                    'access_token' => $token,
+                ]);
+                if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                    $token = $pageRes->json('access_token');
+                    $socialAccount->update(['access_token' => $token]);
+                }
+            } catch (\Exception $e) {
+                // Silently continue
+            }
+        }
+
         // Try subscribing feed, messages, messaging_postbacks
         $res = Http::post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
             'subscribed_fields' => 'feed,messages,messaging_postbacks',

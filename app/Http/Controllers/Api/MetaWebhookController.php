@@ -172,6 +172,24 @@ class MetaWebhookController extends Controller
                     'message' => $replyText,
                     'access_token' => $account->access_token,
                 ]);
+
+                // Fallback: If 400/403 (e.g. token was User token instead of Page token), resolve Page token and retry
+                if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
+                    Log::warning("Comment reply failed for {$commentId} with status {$publishRes->status()}. Attempting to resolve Page token...");
+                    $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                        'fields' => 'access_token',
+                        'access_token' => $account->access_token,
+                    ]);
+                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                        $pageToken = $pageRes->json('access_token');
+                        $account->update(['access_token' => $pageToken]);
+                        $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                            'message' => $replyText,
+                            'access_token' => $pageToken,
+                        ]);
+                    }
+                }
+
                 Log::info("Published comment reply for comment {$commentId}: status " . $publishRes->status() . " body: " . $publishRes->body());
             }
         }
@@ -320,11 +338,29 @@ class MetaWebhookController extends Controller
             // If account has live token, send via official Send API
             if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
                 $version = config('services.meta.graph_version', 'v19.0');
-                Http::post("https://graph.facebook.com/{$version}/me/messages", [
+                $sendRes = Http::post("https://graph.facebook.com/{$version}/me/messages", [
                     'recipient' => ['id' => $senderPsid],
                     'message' => ['text' => $replyText],
                     'access_token' => $account->access_token,
                 ]);
+
+                // Fallback: If 400/403, resolve Page token and retry
+                if (! $sendRes->successful() && ($sendRes->status() === 400 || $sendRes->status() === 403)) {
+                    Log::warning("Messenger send failed for {$senderPsid} with status {$sendRes->status()}. Attempting to resolve Page token...");
+                    $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                        'fields' => 'access_token',
+                        'access_token' => $account->access_token,
+                    ]);
+                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                        $pageToken = $pageRes->json('access_token');
+                        $account->update(['access_token' => $pageToken]);
+                        Http::post("https://graph.facebook.com/{$version}/me/messages", [
+                            'recipient' => ['id' => $senderPsid],
+                            'message' => ['text' => $replyText],
+                            'access_token' => $pageToken,
+                        ]);
+                    }
+                }
             }
         }
     }
