@@ -33,8 +33,49 @@ export const LoginPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white">
-            <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+        <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-16 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white relative">
+            {/* Top Fixed Header for Unauthenticated Visitors */}
+            <header className="fixed top-0 left-0 right-0 z-30 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+                <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                    <a href="/" className="flex items-center gap-2.5 hover:opacity-90 transition">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
+                            <Sparkles className="w-4 h-4 text-white" />
+                        </div>
+                        <span className="font-extrabold text-white text-base tracking-tight">
+                            NexFlow <span className="text-indigo-400">AI</span>
+                        </span>
+                    </a>
+
+                    <nav className="flex items-center gap-3 sm:gap-6 text-xs font-medium">
+                        <a
+                            href="/privacy-policy"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-white transition-colors"
+                        >
+                            Privacy Policy
+                        </a>
+                        <a
+                            href="/terms-of-service"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-white transition-colors"
+                        >
+                            Terms of Service
+                        </a>
+                        <a
+                            href="/data-deletion"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-white transition-colors"
+                        >
+                            Data Deletion
+                        </a>
+                    </nav>
+                </div>
+            </header>
+
+            <div className="pt-8 sm:mx-auto sm:w-full sm:max-w-md text-center">
                 <div className="mx-auto w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-xl shadow-indigo-500/25">
                     <Sparkles className="w-6 h-6 text-white" />
                 </div>
@@ -144,6 +185,17 @@ export const LoginPage = () => {
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                     <span>Official Meta Cloud API & OpenAI Enterprise Architecture</span>
                 </div>
+
+                {/* Footer Legal Links */}
+                <footer className="mt-8 text-center text-xs text-slate-500 flex flex-wrap items-center justify-center gap-3">
+                    <span>&copy; 2026 NexFlow AI</span>
+                    <span>·</span>
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Privacy Policy</a>
+                    <span>·</span>
+                    <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Terms of Service</a>
+                    <span>·</span>
+                    <a href="/data-deletion" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Data Deletion</a>
+                </footer>
             </div>
         </div>
     );

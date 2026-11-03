@@ -25,6 +25,7 @@ export const SocialConnectionsPage = () => {
     const [diagnosticsModal, setDiagnosticsModal] = useState(null);
     const [connectModal, setConnectModal] = useState(false);
     const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+    const [deletingId, setDeletingId] = useState(null);
     const [connectForm, setConnectForm] = useState({
         platform: 'facebook_page',
         name: '',
@@ -73,13 +74,21 @@ export const SocialConnectionsPage = () => {
         }
     };
 
-    const handleDisconnect = async (account) => {
-        if (!confirm(`Are you sure you want to disconnect ${account.name}?`)) return;
+    const handleDeleteChannel = async (account) => {
+        const confirmed = window.confirm(
+            `Are you sure you want to permanently delete the channel "${account.name}"?\n\nThis will remove the channel connection and its synchronized messages.`
+        );
+        if (!confirmed) return;
+
+        setDeletingId(account.id);
         try {
-            await api.delete(`/social-accounts/${account.id}`);
+            const res = await api.delete(`/social-accounts/${account.id}`);
+            alert(res.data?.message || 'Channel deleted successfully!');
             fetchAccounts();
         } catch (err) {
-            alert('Failed to disconnect');
+            alert(err.response?.data?.message || 'Failed to delete channel.');
+        } finally {
+            setDeletingId(null);
         }
     };
 
@@ -187,16 +196,36 @@ export const SocialConnectionsPage = () => {
                                     <Button
                                         variant="ghost"
                                         size="xs"
-                                        className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                                        className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
                                         icon={Trash2}
-                                        onClick={() => handleDisconnect(acc)}
+                                        loading={deletingId === acc.id}
+                                        onClick={() => handleDeleteChannel(acc)}
                                     >
-                                        Disconnect
+                                        Delete Channel
                                     </Button>
                                 </div>
                             </Card>
                         );
                     })}
+                </div>
+            )}
+
+            {!loading && accounts.length === 0 && (
+                <div className="py-16 text-center bg-slate-900/40 border border-slate-800 rounded-2xl p-8">
+                    <Share2 className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                    <h3 className="text-base font-semibold text-slate-200">No Connected Channels</h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                        Connect your Facebook Pages, Instagram Accounts, or WhatsApp Numbers to start omnichannel automation.
+                    </p>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        icon={Plus}
+                        className="mt-4"
+                        onClick={() => setConnectModal(true)}
+                    >
+                        Connect First Channel
+                    </Button>
                 </div>
             )}
 

@@ -158,18 +158,24 @@ class SocialAccountController extends Controller
     }
 
     /**
-     * Disconnect an account.
+     * Delete a connected channel.
      */
     public function destroy(SocialAccount $socialAccount): JsonResponse
     {
-        $socialAccount->update([
-            'status' => 'disconnected',
-            'is_active' => false,
-        ]);
+        $name = $socialAccount->name;
+        $platform = $socialAccount->platform;
+
+        // Cascade delete conversations, messages, identities and mappings
+        $socialAccount->conversations()->delete();
+        $socialAccount->posts()->delete();
+        $socialAccount->customerIdentities()->delete();
+        $socialAccount->products()->detach();
+        $socialAccount->assignedUsers()->detach();
+        $socialAccount->delete();
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Account disconnected successfully',
+            'message' => "Channel '{$name}' ({$platform}) has been permanently deleted.",
         ]);
     }
 }

@@ -152,9 +152,35 @@ export const Header = ({ onMenuClick }) => {
                             >
                                 <User className="w-3.5 h-3.5" /> My Profile
                             </a>
+                            <div className="border-t border-slate-800/80 my-1"></div>
+                            <a
+                                href="/privacy-policy"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block px-4 py-1.5 text-[11px] text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                            >
+                                Privacy Policy
+                            </a>
+                            <a
+                                href="/terms-of-service"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block px-4 py-1.5 text-[11px] text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                            >
+                                Terms of Service
+                            </a>
+                            <a
+                                href="/data-deletion"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block px-4 py-1.5 text-[11px] text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors"
+                            >
+                                Data Deletion
+                            </a>
+                            <div className="border-t border-slate-800/80 my-1"></div>
                             <button
                                 onClick={logout}
-                                className="w-full flex items-center gap-2 px-4 py-2 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                                className="w-full flex items-center gap-2 px-4 py-2 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left cursor-pointer"
                             >
                                 <LogOut className="w-3.5 h-3.5" /> Sign Out
                             </button>
