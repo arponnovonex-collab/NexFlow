@@ -17,6 +17,8 @@ import {
     TrendingUp,
     Shield,
     CalendarDays,
+    ArrowRight,
+    Filter,
 } from 'lucide-react';
 import {
     BarChart,
@@ -29,22 +31,62 @@ import {
 } from 'recharts';
 
 export const ModeratorPerformancePage = () => {
-    const getTodayString = () => new Date().toISOString().split('T')[0];
+    const formatDate = (dateObj) => {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
+    const getTodayString = () => formatDate(new Date());
+
     const getYesterdayString = () => {
         const d = new Date();
         d.setDate(d.getDate() - 1);
-        return d.toISOString().split('T')[0];
+        return formatDate(d);
     };
 
-    const [selectedDate, setSelectedDate] = useState(getTodayString);
+    const getLast7DaysString = () => {
+        const d = new Date();
+        d.setDate(d.getDate() - 6);
+        return formatDate(d);
+    };
+
+    const getThisMonthStartString = () => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    };
+
+    const [preset, setPreset] = useState('today'); // 'today' | 'yesterday' | '7days' | 'month' | 'custom'
+    const [startDate, setStartDate] = useState(getTodayString);
+    const [endDate, setEndDate] = useState(getTodayString);
     const [performance, setPerformance] = useState([]);
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    const fetchPerformance = async (date = selectedDate) => {
+    const handlePresetChange = (type) => {
+        setPreset(type);
+        const today = getTodayString();
+        if (type === 'today') {
+            setStartDate(today);
+            setEndDate(today);
+        } else if (type === 'yesterday') {
+            const yesterday = getYesterdayString();
+            setStartDate(yesterday);
+            setEndDate(yesterday);
+        } else if (type === '7days') {
+            setStartDate(getLast7DaysString());
+            setEndDate(today);
+        } else if (type === 'month') {
+            setStartDate(getThisMonthStartString());
+            setEndDate(today);
+        }
+    };
+
+    const fetchPerformance = async (start = startDate, end = endDate) => {
         try {
             setLoading(true);
-            const res = await api.get(`/analytics/moderators?date=${date}`);
+            const res = await api.get(`/analytics/moderators?start_date=${start}&end_date=${end}`);
             setPerformance(res.data.data || []);
             setSummary(res.data.summary || null);
         } catch (err) {
@@ -55,41 +97,48 @@ export const ModeratorPerformancePage = () => {
     };
 
     useEffect(() => {
-        fetchPerformance(selectedDate);
-    }, [selectedDate]);
+        fetchPerformance(startDate, endDate);
+    }, [startDate, endDate]);
 
     const chartData = performance.map((p) => ({
         name: p.name,
-        'Customers Handled': p.customers_handled_today || 0,
-        'Messages Sent': p.messages_sent_today || 0,
-        'Converted Orders': p.converted_leads || 0,
+        'Customers Handled': p.customers_handled ?? p.customers_handled_today ?? 0,
+        'Messages Sent': p.messages_sent_range ?? p.messages_sent_today ?? 0,
+        'Converted Orders': p.converted_leads_range ?? 0,
     }));
 
-    const isToday = selectedDate === getTodayString();
-    const isYesterday = selectedDate === getYesterdayString();
+    const getDateRangeLabel = () => {
+        if (startDate === endDate) {
+            if (startDate === getTodayString()) return 'Today (আজকের পারফরম্যান্স)';
+            if (startDate === getYesterdayString()) return 'Yesterday (গতকালের পারফরম্যান্স)';
+            return `Single Date: ${startDate}`;
+        }
+        return `Custom Range: ${startDate} to ${endDate}`;
+    };
 
     return (
         <div className="space-y-6">
-            {/* Page Header & Date Filter Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            {/* Page Header & Comprehensive Filter Bar */}
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
                         <UserCheck className="w-6 h-6 text-indigo-400" />
-                        Moderator Performance Analytics
+                        Moderator Performance & Handling Analytics
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        Track daily customer interactions, handled customer count, messages sent, and conversion throughput per moderator.
+                        Track customer interactions, handled customer volume, chat replies, and conversion throughput per moderator over any date range.
                     </p>
                 </div>
 
-                {/* Filter Toolbar */}
-                <div className="flex items-center gap-2 flex-wrap">
+                {/* Filter Toolbar with Preset & Custom Range Controls */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* Presets: Today, Yesterday, Last 7 Days, This Month */}
                     <div className="inline-flex rounded-lg bg-slate-900 border border-slate-800 p-1">
                         <button
                             type="button"
-                            onClick={() => setSelectedDate(getTodayString())}
-                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                                isToday
+                            onClick={() => handlePresetChange('today')}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                preset === 'today'
                                     ? 'bg-indigo-600 text-white shadow-sm'
                                     : 'text-slate-400 hover:text-slate-200'
                             }`}
@@ -98,30 +147,72 @@ export const ModeratorPerformancePage = () => {
                         </button>
                         <button
                             type="button"
-                            onClick={() => setSelectedDate(getYesterdayString())}
-                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                                isYesterday
+                            onClick={() => handlePresetChange('yesterday')}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                preset === 'yesterday'
                                     ? 'bg-indigo-600 text-white shadow-sm'
                                     : 'text-slate-400 hover:text-slate-200'
                             }`}
                         >
                             Yesterday
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => handlePresetChange('7days')}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                preset === '7days'
+                                    ? 'bg-indigo-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                        >
+                            Last 7 Days
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handlePresetChange('month')}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                preset === 'month'
+                                    ? 'bg-indigo-600 text-white shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                        >
+                            This Month
+                        </button>
                     </div>
 
+                    {/* Custom Range: Start Date & End Date */}
                     <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300">
-                        <CalendarDays className="w-3.5 h-3.5 text-slate-400" />
+                        <CalendarDays className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span className="text-[11px] text-slate-400 font-medium">From:</span>
                         <input
                             type="date"
-                            value={selectedDate}
-                            onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                            value={startDate}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    setPreset('custom');
+                                    setStartDate(e.target.value);
+                                }
+                            }}
+                            className="bg-transparent text-slate-200 text-xs focus:outline-none cursor-pointer"
+                        />
+                        <ArrowRight className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span className="text-[11px] text-slate-400 font-medium">To:</span>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    setPreset('custom');
+                                    setEndDate(e.target.value);
+                                }
+                            }}
                             className="bg-transparent text-slate-200 text-xs focus:outline-none cursor-pointer"
                         />
                     </div>
 
                     <button
                         type="button"
-                        onClick={() => fetchPerformance(selectedDate)}
+                        onClick={() => fetchPerformance(startDate, endDate)}
                         disabled={loading}
                         className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition-colors disabled:opacity-50"
                         title="Refresh data"
@@ -131,7 +222,21 @@ export const ModeratorPerformancePage = () => {
                 </div>
             </div>
 
-            {/* Daily KPI Metric Cards */}
+            {/* Active Range Indicator Pill */}
+            <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800/80 px-4 py-2 rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-slate-300">
+                    <Filter className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Filtering:</span>
+                    <span className="font-semibold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">
+                        {getDateRangeLabel()}
+                    </span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                    {summary?.is_single_day ? '1 Day Selected' : `From ${startDate} to ${endDate}`}
+                </div>
+            </div>
+
+            {/* Range KPI Metric Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
                     <div className="flex items-center justify-between text-slate-400">
@@ -143,8 +248,8 @@ export const ModeratorPerformancePage = () => {
                     <div className="mt-2 text-2xl font-black text-white">
                         {summary?.total_customers_handled ?? 0}
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-400">
-                        Distinct customers replied on {isToday ? 'today' : selectedDate}
+                    <div className="mt-1 text-[11px] text-slate-400 truncate">
+                        Distinct customers handled in period
                     </div>
                 </div>
 
@@ -158,8 +263,8 @@ export const ModeratorPerformancePage = () => {
                     <div className="mt-2 text-2xl font-black text-white">
                         {summary?.total_messages_sent ?? 0}
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-400">
-                        Inbox chat replies on {isToday ? 'today' : selectedDate}
+                    <div className="mt-1 text-[11px] text-slate-400 truncate">
+                        Total moderator chat replies in period
                     </div>
                 </div>
 
@@ -173,7 +278,7 @@ export const ModeratorPerformancePage = () => {
                     <div className="mt-2 text-2xl font-black text-white">
                         {summary?.total_comments_replied ?? 0}
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-400">
+                    <div className="mt-1 text-[11px] text-slate-400 truncate">
                         Approved & manual comment replies
                     </div>
                 </div>
@@ -188,16 +293,16 @@ export const ModeratorPerformancePage = () => {
                     <div className="mt-2 text-2xl font-black text-white">
                         {summary?.active_moderators_count ?? 0}
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-400">
-                        Moderators active on {isToday ? 'today' : selectedDate}
+                    <div className="mt-1 text-[11px] text-slate-400 truncate">
+                        Active moderators with replies in range
                     </div>
                 </div>
             </div>
 
             {/* Performance Visual Chart */}
             <Card
-                title={`Moderator Activity Breakdown (${isToday ? 'Today' : selectedDate})`}
-                subtitle="Side-by-side comparison of unique customers handled, total messages sent, and converted orders"
+                title={`Moderator Activity Overview (${getDateRangeLabel()})`}
+                subtitle="Comparison of unique customers handled, chat messages sent, and verified order conversions"
             >
                 <div className="h-64 w-full pt-4">
                     <ResponsiveContainer width="100%" height="100%">
@@ -229,7 +334,7 @@ export const ModeratorPerformancePage = () => {
             {/* Performance Table */}
             <Card
                 title="Moderator Performance Details"
-                subtitle={`Showing detailed metrics for ${isToday ? 'today' : selectedDate} and all-time totals`}
+                subtitle={`Showing metrics for selected period (${startDate} to ${endDate}) alongside all-time stats`}
             >
                 <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -237,21 +342,22 @@ export const ModeratorPerformancePage = () => {
                             <tr>
                                 <th className="px-4 py-3">Moderator</th>
                                 <th className="px-4 py-3 text-center">
-                                    <span className="text-indigo-400">Handled on {isToday ? 'Today' : selectedDate}</span>
+                                    <span className="text-indigo-400">Handled in Period</span>
                                 </th>
-                                <th className="px-4 py-3 text-center">Messages Sent (Date)</th>
-                                <th className="px-4 py-3 text-center">FB Comments (Date)</th>
+                                <th className="px-4 py-3 text-center">Messages Sent (Range)</th>
+                                <th className="px-4 py-3 text-center">FB Comments (Range)</th>
+                                <th className="px-4 py-3 text-center">Converted (Range)</th>
                                 <th className="px-4 py-3 text-center">Total Handled (All Time)</th>
                                 <th className="px-4 py-3 text-center">Assigned Chats</th>
-                                <th className="px-4 py-3 text-center">Converted Sales</th>
+                                <th className="px-4 py-3 text-center">All-Time Converted</th>
                                 <th className="px-4 py-3 text-right">Conversion Rate</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
                             {performance.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-8 text-slate-500">
-                                        {loading ? 'Loading moderator metrics...' : 'No moderator data found.'}
+                                    <td colSpan={9} className="text-center py-8 text-slate-500">
+                                        {loading ? 'Loading moderator metrics...' : 'No moderator data found for this date range.'}
                                     </td>
                                 </tr>
                             ) : (
@@ -282,14 +388,17 @@ export const ModeratorPerformancePage = () => {
                                         <td className="px-4 py-3.5 text-center">
                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-bold text-xs">
                                                 <Users className="w-3 h-3 text-indigo-400" />
-                                                {m.customers_handled_today} customers
+                                                {m.customers_handled ?? m.customers_handled_today ?? 0} customers
                                             </span>
                                         </td>
                                         <td className="px-4 py-3.5 text-center font-semibold text-cyan-300">
-                                            {m.messages_sent_today}
+                                            {m.messages_sent_range ?? m.messages_sent_today ?? 0}
                                         </td>
                                         <td className="px-4 py-3.5 text-center text-emerald-400 font-medium">
-                                            {m.comments_replied_today}
+                                            {m.comments_replied_range ?? m.comments_replied_today ?? 0}
+                                        </td>
+                                        <td className="px-4 py-3.5 text-center font-semibold text-emerald-400">
+                                            {m.converted_leads_range ?? 0} orders
                                         </td>
                                         <td className="px-4 py-3.5 text-center font-semibold text-slate-300">
                                             {m.total_customers_handled}

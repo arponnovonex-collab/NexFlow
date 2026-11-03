@@ -24,28 +24,56 @@ class AnalyticsController extends Controller
      */
     public function moderatorPerformance(Request $request): JsonResponse
     {
-        $targetDate = $request->filled('date')
-            ? Carbon::parse($request->date)->toDateString()
-            : today()->toDateString();
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $startDate = Carbon::parse($request->start_date)->startOfDay();
+            $endDate = Carbon::parse($request->end_date)->endOfDay();
+        } elseif ($request->filled('start_date')) {
+            $startDate = Carbon::parse($request->start_date)->startOfDay();
+            $endDate = Carbon::parse($request->start_date)->endOfDay();
+        } elseif ($request->filled('date')) {
+            $startDate = Carbon::parse($request->date)->startOfDay();
+            $endDate = Carbon::parse($request->date)->endOfDay();
+        } else {
+            $startDate = today()->startOfDay();
+            $endDate = today()->endOfDay();
+        }
+
+        if ($startDate->gt($endDate)) {
+            $temp = $startDate;
+            $startDate = $endDate->copy()->startOfDay();
+            $endDate = $temp->copy()->endOfDay();
+        }
 
         $moderators = User::whereIn('role', ['moderator', 'admin'])
             ->withCount(['assignedConversations', 'assignedLeads'])
             ->get()
-            ->map(function ($mod) use ($targetDate) {
-                // Messages sent on the specific date
-                $messagesSentOnDate = Message::where('sender_user_id', $mod->id)
-                    ->whereDate('created_at', $targetDate)
+            ->map(function ($mod) use ($startDate, $endDate) {
+                // Messages sent in the date range
+                $messagesSentInRange = Message::where('sender_user_id', $mod->id)
+                    ->whereBetween('created_at', [$startDate, $endDate])
                     ->count();
 
-                // Unique conversations/customers replied to on the specific date
-                $customersHandledOnDate = Message::where('sender_user_id', $mod->id)
-                    ->whereDate('created_at', $targetDate)
+                // Unique conversations/customers replied to in the date range
+                $customersHandledInRange = Message::where('sender_user_id', $mod->id)
+                    ->whereBetween('created_at', [$startDate, $endDate])
                     ->distinct('conversation_id')
                     ->count('conversation_id');
 
-                // Facebook comments replied on the specific date
-                $commentsRepliedOnDate = CommentReply::where('user_id', $mod->id)
-                    ->whereDate('created_at', $targetDate)
+                // Facebook comments replied in the date range
+                $commentsRepliedInRange = CommentReply::where('user_id', $mod->id)
+                    ->whereBetween('created_at', [$startDate, $endDate])
+                    ->count();
+
+                // Converted leads in date range
+                $convertedInRange = Lead::where('assigned_to_user_id', $mod->id)
+                    ->where('status', 'converted')
+                    ->where(function ($q) use ($startDate, $endDate) {
+                        $q->whereBetween('last_status_change_at', [$startDate, $endDate])
+                            ->orWhere(function ($sub) use ($startDate, $endDate) {
+                                $sub->whereNull('last_status_change_at')
+                                    ->whereBetween('updated_at', [$startDate, $endDate]);
+                            });
+                    })
                     ->count();
 
                 // Total unique customers handled all-time
@@ -54,7 +82,7 @@ class AnalyticsController extends Controller
                     ->count('conversation_id');
 
                 $allTimeMessagesSent = Message::where('sender_user_id', $mod->id)->count();
-                $converted = Lead::where('assigned_to_user_id', $mod->id)->where('status', 'converted')->count();
+                $allTimeConverted = Lead::where('assigned_to_user_id', $mod->id)->where('status', 'converted')->count();
                 $followupsCompleted = LeadFollowup::where('user_id', $mod->id)->where('status', 'completed')->count();
                 $followupsPending = LeadFollowup::where('user_id', $mod->id)->whereIn('status', ['scheduled', 'due_today', 'overdue'])->count();
 
@@ -64,30 +92,37 @@ class AnalyticsController extends Controller
                     'email' => $mod->email,
                     'role' => $mod->role,
                     'avatar_url' => $mod->avatar_url,
-                    'target_date' => $targetDate,
-                    'customers_handled_today' => $customersHandledOnDate,
-                    'messages_sent_today' => $messagesSentOnDate,
-                    'comments_replied_today' => $commentsRepliedOnDate,
-                    'total_interactions_today' => $messagesSentOnDate + $commentsRepliedOnDate,
+                    'start_date' => $startDate->toDateString(),
+                    'end_date' => $endDate->toDateString(),
+                    'customers_handled' => $customersHandledInRange,
+                    'customers_handled_today' => $customersHandledInRange, // backward compatibility
+                    'messages_sent' => $allTimeMessagesSent,
+                    'messages_sent_range' => $messagesSentInRange,
+                    'messages_sent_today' => $messagesSentInRange, // backward compatibility
+                    'comments_replied_range' => $commentsRepliedInRange,
+                    'comments_replied_today' => $commentsRepliedInRange, // backward compatibility
+                    'total_interactions_range' => $messagesSentInRange + $commentsRepliedInRange,
                     'total_customers_handled' => $totalCustomersHandled,
                     'assigned_conversations' => $mod->assigned_conversations_count,
                     'assigned_leads' => $mod->assigned_leads_count,
-                    'messages_sent' => $allTimeMessagesSent,
-                    'converted_leads' => $converted,
+                    'converted_leads' => $allTimeConverted,
+                    'converted_leads_range' => $convertedInRange,
                     'followups_completed' => $followupsCompleted,
                     'followups_pending' => $followupsPending,
                     'avg_first_response_min' => 3.5,
-                    'conversion_rate' => $mod->assigned_leads_count > 0 ? round(($converted / $mod->assigned_leads_count) * 100, 1) : 0,
+                    'conversion_rate' => $mod->assigned_leads_count > 0 ? round(($allTimeConverted / $mod->assigned_leads_count) * 100, 1) : 0,
                 ];
             });
 
-        // Summary for the target date
+        // Summary for the target date range
         $summary = [
-            'date' => $targetDate,
-            'total_customers_handled' => $moderators->sum('customers_handled_today'),
-            'total_messages_sent' => $moderators->sum('messages_sent_today'),
-            'total_comments_replied' => $moderators->sum('comments_replied_today'),
-            'active_moderators_count' => $moderators->where('customers_handled_today', '>', 0)->count(),
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'is_single_day' => $startDate->toDateString() === $endDate->toDateString(),
+            'total_customers_handled' => $moderators->sum('customers_handled'),
+            'total_messages_sent' => $moderators->sum('messages_sent_range'),
+            'total_comments_replied' => $moderators->sum('comments_replied_range'),
+            'active_moderators_count' => $moderators->where('customers_handled', '>', 0)->count(),
         ];
 
         return response()->json([
