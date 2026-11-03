@@ -75,15 +75,43 @@ class SocialAccountController extends Controller
             'settings' => 'nullable|array',
         ]);
 
+        $accessToken = $validated['access_token'];
+        $accountId = $validated['account_id'];
+        $name = $validated['name'];
+        $version = config('services.meta.graph_version', 'v19.0');
+
+        // If Facebook Page, verify and convert User Token to Page Token if necessary
+        if ($validated['platform'] === 'facebook_page' && ! str_starts_with($accessToken, 'EAAXMOCK')) {
+            try {
+                $pageRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$accountId}", [
+                    'fields' => 'access_token,name',
+                    'access_token' => $accessToken,
+                ]);
+
+                if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                    $accessToken = $pageRes->json('access_token');
+                    $name = $pageRes->json('name') ?: $name;
+                }
+
+                // Automatically subscribe feed & messages to this Page
+                Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$accountId}/subscribed_apps", [
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks',
+                    'access_token' => $accessToken,
+                ]);
+            } catch (\Exception $e) {
+                // Silently continue
+            }
+        }
+
         $account = SocialAccount::updateOrCreate(
             [
                 'platform' => $validated['platform'],
-                'account_id' => $validated['account_id'],
+                'account_id' => $accountId,
             ],
             [
-                'name' => $validated['name'],
+                'name' => $name,
                 'username' => $validated['username'] ?? null,
-                'access_token' => $validated['access_token'],
+                'access_token' => $accessToken,
                 'profile_picture_url' => $validated['profile_picture_url'] ?? null,
                 'is_active' => true,
                 'status' => 'connected',
@@ -93,6 +121,7 @@ class SocialAccountController extends Controller
                     'pages_messaging' => 'granted',
                     'pages_manage_posts' => 'granted',
                     'pages_read_engagement' => 'granted',
+                    'pages_manage_metadata' => 'granted',
                 ],
                 'settings' => $validated['settings'] ?? [
                     'ai_mode' => 'auto',

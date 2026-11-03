@@ -168,10 +168,11 @@ class MetaWebhookController extends Controller
             // If account has valid live token, publish to Graph API
             if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
                 $version = config('services.meta.graph_version', 'v19.0');
-                Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
                     'message' => $replyText,
                     'access_token' => $account->access_token,
                 ]);
+                Log::info("Published comment reply for comment {$commentId}: status " . $publishRes->status() . " body: " . $publishRes->body());
             }
         }
     }
