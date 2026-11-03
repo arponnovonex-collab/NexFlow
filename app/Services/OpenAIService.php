@@ -26,8 +26,16 @@ class OpenAIService
     ): array {
         $apiKey = AiSetting::where('key', 'openai_api_key')->value('value') ?: config('services.openai.api_key');
         $model = AiSetting::where('key', 'openai_model')->value('value') ?: 'gpt-4o-mini';
-        $instructions = AiSetting::where('key', 'global_ai_instructions')->value('value')
+        $globalInstructions = AiSetting::where('key', 'global_ai_instructions')->value('value')
             ?: 'You are a helpful e-commerce sales assistant in Bangladesh. Reply naturally in Bangla/Banglish/English matching customer tone. Only use verified product details provided.';
+
+        $commentInstructions = AiSetting::where('key', 'comment_ai_instructions')->value('value');
+
+        if ($contextType === 'comment_reply' && ! empty(trim((string) $commentInstructions))) {
+            $instructions = $commentInstructions;
+        } else {
+            $instructions = $globalInstructions;
+        }
 
         // Check if real live OpenAI call can be made
         if ($apiKey && ! str_starts_with($apiKey, 'sk-mock') && strlen($apiKey) > 20) {

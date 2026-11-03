@@ -42,6 +42,7 @@ class AiController extends Controller
             'openai_model' => 'nullable|string',
             'openai_api_key' => 'nullable|string',
             'global_ai_instructions' => 'nullable|string',
+            'comment_ai_instructions' => 'nullable|string',
             'default_tone' => 'nullable|string',
             'comment_auto_reply_enabled' => 'nullable|string',
             'messenger_auto_reply_enabled' => 'nullable|string',

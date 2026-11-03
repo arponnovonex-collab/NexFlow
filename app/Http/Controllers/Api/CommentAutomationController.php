@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AiSetting;
 use App\Models\CommentReply;
 use App\Models\SocialAccount;
 use App\Models\SocialComment;
@@ -299,6 +300,47 @@ class CommentAutomationController extends Controller
             'status' => 'success',
             'message' => 'Comment reply published successfully',
             'comment' => $comment->fresh(),
+        ]);
+    }
+
+    /**
+     * Get dedicated AI instructions for Facebook comment replies.
+     */
+    public function getCommentInstructions(): JsonResponse
+    {
+        $instructions = AiSetting::where('key', 'comment_ai_instructions')->value('value') ?? '';
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'instructions' => $instructions,
+            ],
+        ]);
+    }
+
+    /**
+     * Update dedicated AI instructions for Facebook comment replies.
+     */
+    public function updateCommentInstructions(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'instructions' => 'nullable|string',
+        ]);
+
+        AiSetting::updateOrCreate(
+            ['key' => 'comment_ai_instructions'],
+            [
+                'value' => $validated['instructions'] ?? '',
+                'description' => 'Dedicated custom prompt instructions for Facebook comment replies',
+            ]
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Comment reply AI instructions updated successfully!',
+            'data' => [
+                'instructions' => $validated['instructions'] ?? '',
+            ],
         ]);
     }
 }

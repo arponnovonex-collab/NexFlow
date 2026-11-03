@@ -62,6 +62,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/comments', [CommentAutomationController::class, 'comments']);
     Route::post('/comments/{comment}/reply', [CommentAutomationController::class, 'replyToComment']);
     Route::post('/comments/{comment}/approve', [CommentAutomationController::class, 'approveReply']);
+    Route::get('/automation/comment-instructions', [CommentAutomationController::class, 'getCommentInstructions']);
+    Route::post('/automation/comment-instructions', [CommentAutomationController::class, 'updateCommentInstructions']);
 
     // Unified Omnichannel Inbox
     Route::apiResource('conversations', ConversationController::class)->only(['index', 'show']);

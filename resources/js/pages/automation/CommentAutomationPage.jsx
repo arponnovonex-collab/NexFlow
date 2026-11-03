@@ -9,12 +9,16 @@ import {
     MessageSquare,
     Sparkles,
     CheckCircle,
+    CheckCircle2,
     Clock,
     AlertCircle,
     ShoppingBag,
     Send,
     ThumbsUp,
     RefreshCw,
+    Save,
+    Bot,
+    FileText,
 } from 'lucide-react';
 
 export const CommentAutomationPage = () => {
@@ -24,16 +28,23 @@ export const CommentAutomationPage = () => {
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
     const [replyingCommentId, setReplyingCommentId] = useState(null);
+    const [commentInstructions, setCommentInstructions] = useState('');
+    const [savingInstructions, setSavingInstructions] = useState(false);
+    const [savedNotice, setSavedNotice] = useState(false);
 
     const fetchData = async () => {
         try {
             setLoading(true);
-            const [postsRes, commentsRes] = await Promise.all([
+            const [postsRes, commentsRes, instRes] = await Promise.all([
                 api.get('/posts?per_page=50'),
                 api.get('/comments'),
+                api.get('/automation/comment-instructions').catch(() => ({ data: { data: { instructions: '' } } })),
             ]);
             setPosts(postsRes.data.data.data || []);
             setComments(commentsRes.data.data.data || []);
+            if (instRes.data?.data?.instructions !== undefined) {
+                setCommentInstructions(instRes.data.data.instructions || '');
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -52,6 +63,43 @@ export const CommentAutomationPage = () => {
             setSyncing(false);
         }
     };
+
+    const handleSaveInstructions = async (e) => {
+        e?.preventDefault();
+        setSavingInstructions(true);
+        try {
+            await api.post('/automation/comment-instructions', {
+                instructions: commentInstructions,
+            });
+            setSavedNotice(true);
+            setTimeout(() => setSavedNotice(false), 4000);
+        } catch (err) {
+            alert('Failed to save comment AI instructions');
+        } finally {
+            setSavingInstructions(false);
+        }
+    };
+
+    const sampleTemplate = `আপনি একজন অত্যন্ত অমায়িক, দক্ষ ও পেশাদার ই-কমার্স সেলস অ্যাসিস্ট্যান্ট।
+ফেসবুক পোস্টের নিচে কাস্টমারদের কমেন্টের উত্তর দেওয়ার সময় নিচের প্রতিটি নির্দেশ অত্যন্ত সতর্কতার সাথে মেনে চলুন:
+
+১. বাচনভঙ্গি ও ভাষা নির্বাচন:
+- কাস্টমার যে ভাষায় প্রশ্ন বা মন্তব্য করবেন (বাংলা, ইংরেজি বা বাংলিশ), আপনিও হুবহু সেই ভাষায় স্বাভাবিক ও আন্তরিক ভঙ্গিতে উত্তর দিন।
+- অতিরিক্ত রোবোটিক ভাব পরিহার করুন। সম্ভাষণে "আসসালামু আলাইকুম প্রিয় গ্রাহক" বা "Hello!" ব্যবহার করতে পারেন।
+
+২. দাম ও সাইজ সংক্রান্ত নিয়ম:
+- কাস্টমার যদি পণ্যের দাম জানতে চায়, সরাসরি এবং স্পষ্টভাবে সঠিক বিক্রয়মূল্য উল্লেখ করুন।
+- শুধুমাত্র আমাদের ডাটাবেজে ভেরিফাইড প্রোডাক্ট ক্যাটালগে থাকা সঠিক মূল্য ও সাইজ (যেমনঃ M, L, XL, Free Size) উল্লেখ করবেন। কোনো অবস্থাতেই মনগড়া তথ্য বা অনুমান করে কথা বলবেন না।
+
+৩. ডেলিভারি চার্জ ও সময়:
+- ডেলিভারি চার্জ: ঢাকার ভেতরে ৭০ টাকা এবং ঢাকার বাইরে ১৩০ টাকা।
+- ডেলিভারি সময়: ঢাকার ভেতর ১-২ কার্যদিবস এবং ঢাকার বাইরে ২-৪ কার্যদিবস।
+
+৪. অর্ডার প্রক্রিয়া:
+- আগ্রহী গ্রাহকদের সহজে অর্ডার নিশ্চিত করতে আপনার সাথে ইনবক্সে/মেসেঞ্জারে যোগাযোগ করতে বলুন অথবা নাম, সম্পূর্ণ ঠিকানা এবং সচল মোবাইল নম্বর লিখে মেসেজ পাঠাতে আন্তরিকভাবে আহ্বান জানান।
+
+৫. স্টক ও অন্যান্য পণ্য:
+- কোনো নির্দিষ্ট সাইজ বা কালার স্টক আউট থাকলে বিনীতভাবে দুঃখ প্রকাশ করুন এবং একই ক্যাটাগরির অন্য ডিজাইন দেখার আমন্ত্রণ জানান।`;
 
     useEffect(() => {
         fetchData();
@@ -109,6 +157,56 @@ export const CommentAutomationPage = () => {
                     Sync Facebook Feed
                 </Button>
             </div>
+
+            {/* AI Comment Reply Custom Prompt & Multi-line Instructions Box */}
+            <Card
+                title="AI Comment Reply Custom Prompt & Instructions"
+                subtitle="Provide custom prompt instructions, guidelines, reply templates, FAQs, or tone rules (up to several thousand lines). AI will strictly follow these instructions when replying to Facebook comments."
+            >
+                <form onSubmit={handleSaveInstructions} className="space-y-3">
+                    <div className="relative">
+                        <textarea
+                            rows={8}
+                            value={commentInstructions}
+                            onChange={(e) => setCommentInstructions(e.target.value)}
+                            placeholder="এখানে আপনি যেভাবে AI রিপ্লাই দিতে চান তার বিস্তারিত নিয়মাবলি ও ইনস্ট্রাকশন লিখে দিন (কয়েক হাজার লাইন পর্যন্ত সাপোর্ট করবে)..."
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 leading-relaxed resize-y min-h-[160px]"
+                        />
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                        <div className="flex items-center gap-3 text-xs text-slate-400">
+                            <span className="flex items-center gap-1 font-mono text-[11px] bg-slate-900 px-2.5 py-1 rounded-md border border-slate-800">
+                                <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                                {commentInstructions ? commentInstructions.split('\n').length : 0} lines · {commentInstructions.length} characters
+                            </span>
+                            {savedNotice && (
+                                <span className="text-emerald-400 font-semibold flex items-center gap-1 text-xs">
+                                    <CheckCircle2 className="w-4 h-4" /> Instructions Saved & Active!
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => setCommentInstructions(sampleTemplate)}
+                            >
+                                Insert Sample Template
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                icon={Save}
+                                loading={savingInstructions}
+                            >
+                                Save AI Instructions
+                            </Button>
+                        </div>
+                    </div>
+                </form>
+            </Card>
 
             {/* Posts Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
