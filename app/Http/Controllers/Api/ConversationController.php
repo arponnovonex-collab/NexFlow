@@ -15,6 +15,8 @@ use App\Services\ProductKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class ConversationController extends Controller
 {
@@ -136,10 +138,10 @@ class ConversationController extends Controller
                 'sender_user_id' => $user->id,
                 'text' => $validated['text'],
                 'message_type' => 'text',
-                'delivery_status' => $isNote ? 'delivered' : 'sent',
+                'delivery_status' => $isNote ? 'delivered' : 'pending',
                 'is_internal_note' => $isNote,
                 'sent_at' => now(),
-                'platform_message_id' => 'mock_out_' . uniqid(),
+                'platform_message_id' => 'out_' . uniqid(),
             ]);
 
             if (! $isNote) {
@@ -149,6 +151,59 @@ class ConversationController extends Controller
                     'is_human_takeover' => true,
                     'status' => 'active',
                 ]);
+
+                // Dispatch to Meta Graph API if active social account token is present
+                $account = $conversation->socialAccount;
+                if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+                    $psid = preg_replace('/^t_/', '', $conversation->channel_conversation_id);
+                    $version = config('services.meta.graph_version', 'v19.0');
+
+                    try {
+                        if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
+                            $res = Http::post("https://graph.facebook.com/{$version}/me/messages", [
+                                'recipient' => ['id' => $psid],
+                                'message' => ['text' => $validated['text']],
+                                'access_token' => $account->access_token,
+                            ]);
+
+                            if ($res->successful()) {
+                                $data = $res->json();
+                                $msg->update([
+                                    'delivery_status' => 'delivered',
+                                    'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
+                                ]);
+                            } else {
+                                Log::error('Meta Send API Error: ' . $res->body());
+                                $msg->update(['delivery_status' => 'failed']);
+                            }
+                        } elseif ($account->platform === 'whatsapp_cloud') {
+                            $phoneId = $account->account_id;
+                            $res = Http::withToken($account->access_token)
+                                ->post("https://graph.facebook.com/{$version}/{$phoneId}/messages", [
+                                    'messaging_product' => 'whatsapp',
+                                    'to' => $psid,
+                                    'type' => 'text',
+                                    'text' => ['body' => $validated['text']],
+                                ]);
+
+                            if ($res->successful()) {
+                                $data = $res->json();
+                                $msg->update([
+                                    'delivery_status' => 'delivered',
+                                    'platform_message_id' => $data['messages'][0]['id'] ?? $msg->platform_message_id,
+                                ]);
+                            } else {
+                                Log::error('WhatsApp Cloud Send API Error: ' . $res->body());
+                                $msg->update(['delivery_status' => 'failed']);
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::error('Outbound Message Send Exception: ' . $e->getMessage());
+                        $msg->update(['delivery_status' => 'failed']);
+                    }
+                } else {
+                    $msg->update(['delivery_status' => 'delivered']);
+                }
             }
 
             return $msg;
