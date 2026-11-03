@@ -69,11 +69,35 @@ export const UnifiedInboxPage = () => {
     });
 
     const messagesEndRef = useRef(null);
+    const activeConvIdRef = useRef(null);
+    const lastMsgIdRef = useRef(null);
+
+    // Play subtle audio alert for inbound messages
+    const playNotificationSound = () => {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+            osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12); // A5
+            gain.gain.setValueAtTime(0.2, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.3);
+        } catch (e) {
+            // Audio context might be restricted before first user gesture; ignore
+        }
+    };
 
     // Fetch conversation list
-    const fetchConversations = async () => {
+    const fetchConversations = async (silent = false) => {
         try {
-            setLoadingList(true);
+            if (!silent) setLoadingList(true);
             const params = {};
             if (filterTab && filterTab !== 'all') params.filter = filterTab;
             if (platformFilter) params.platform = platformFilter;
@@ -83,19 +107,21 @@ export const UnifiedInboxPage = () => {
             const list = res.data.data.data || [];
             setConversations(list);
 
-            // Set active conversation from query param or first item
-            const queryConvId = searchParams.get('conversation');
-            if (queryConvId) {
-                const found = list.find((c) => c.id === parseInt(queryConvId));
-                if (found) loadConversationDetails(found.id);
-                else if (list.length > 0) loadConversationDetails(list[0].id);
-            } else if (!activeConversation && list.length > 0) {
-                loadConversationDetails(list[0].id);
+            if (!silent) {
+                // Set active conversation from query param or first item
+                const queryConvId = searchParams.get('conversation');
+                if (queryConvId) {
+                    const found = list.find((c) => c.id === parseInt(queryConvId));
+                    if (found) loadConversationDetails(found.id);
+                    else if (list.length > 0) loadConversationDetails(list[0].id);
+                } else if (!activeConversation && list.length > 0) {
+                    loadConversationDetails(list[0].id);
+                }
             }
         } catch (err) {
             console.error(err);
         } finally {
-            setLoadingList(false);
+            if (!silent) setLoadingList(false);
         }
     };
 
@@ -121,6 +147,72 @@ export const UnifiedInboxPage = () => {
             setLoadingThread(false);
         }
     };
+
+    // Keep active conversation id & last message id refs updated to avoid stale closures
+    useEffect(() => {
+        activeConvIdRef.current = activeConversation?.id || null;
+        const msgs = activeConversation?.messages || [];
+        if (msgs.length > 0) {
+            lastMsgIdRef.current = msgs[msgs.length - 1].id;
+        } else {
+            lastMsgIdRef.current = null;
+        }
+    }, [activeConversation]);
+
+    // Real-time synchronization poller
+    useEffect(() => {
+        // Poller for new messages in active thread (every 2.2 seconds)
+        const threadInterval = setInterval(async () => {
+            const currentConvId = activeConvIdRef.current;
+            const lastId = lastMsgIdRef.current;
+            if (!currentConvId) return;
+
+            try {
+                const url = lastId
+                    ? `/conversations/${currentConvId}/latest-messages?after_id=${lastId}`
+                    : `/conversations/${currentConvId}/latest-messages`;
+
+                const res = await api.get(url);
+                const newMsgs = res.data?.data?.messages || [];
+
+                if (newMsgs.length > 0) {
+                    const hasCustomerMsg = newMsgs.some((m) => m.sender_type === 'customer');
+                    if (hasCustomerMsg) {
+                        playNotificationSound();
+                    }
+
+                    setActiveConversation((prev) => {
+                        if (!prev || prev.id !== currentConvId) return prev;
+                        const existingIds = new Set((prev.messages || []).map((m) => m.id));
+                        const toAppend = newMsgs.filter((m) => !existingIds.has(m.id));
+                        if (toAppend.length === 0) return prev;
+
+                        return {
+                            ...prev,
+                            is_human_takeover: res.data.data.is_human_takeover ?? prev.is_human_takeover,
+                            status: res.data.data.status ?? prev.status,
+                            messages: [...(prev.messages || []), ...toAppend],
+                        };
+                    });
+
+                    // Silently refresh conversation list so snippets & unread counts update
+                    fetchConversations(true);
+                }
+            } catch (err) {
+                // Ignore silent background poll errors
+            }
+        }, 2200);
+
+        // Poller for conversation sidebar list updates (every 5 seconds)
+        const listInterval = setInterval(() => {
+            fetchConversations(true);
+        }, 5000);
+
+        return () => {
+            clearInterval(threadInterval);
+            clearInterval(listInterval);
+        };
+    }, []);
 
     useEffect(() => {
         fetchConversations();
@@ -148,9 +240,11 @@ export const UnifiedInboxPage = () => {
                 is_human_takeover: isInternalNote ? prev.is_human_takeover : true,
                 messages: [...(prev.messages || []), res.data.data],
             }));
+            lastMsgIdRef.current = res.data.data.id;
             setReplyText('');
             setIsInternalNote(false);
             setSuggestedData(null);
+            fetchConversations(true);
         } catch (err) {
             alert('Failed to send message: ' + (err.response?.data?.message || err.message));
         } finally {
@@ -420,6 +514,13 @@ export const UnifiedInboxPage = () => {
                                         >
                                             {activeConversation.social_account?.name}
                                         </Badge>
+                                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-medium tracking-wide">
+                                            <span className="relative flex h-2 w-2">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                            </span>
+                                            <span>Live Sync</span>
+                                        </div>
                                     </div>
                                     <span className="text-[11px] text-slate-400">
                                         Assigned to: {activeConversation.assigned_user?.name || 'Unassigned'}
@@ -428,6 +529,17 @@ export const UnifiedInboxPage = () => {
                             </div>
 
                             <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        fetchConversations(true);
+                                        if (activeConversation) loadConversationDetails(activeConversation.id);
+                                    }}
+                                    title="Manual Refresh"
+                                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                >
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
                                 <Button
                                     variant={activeConversation.is_human_takeover ? 'warning' : 'secondary'}
                                     size="xs"

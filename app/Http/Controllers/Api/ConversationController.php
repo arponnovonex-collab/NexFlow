@@ -119,6 +119,34 @@ class ConversationController extends Controller
     }
 
     /**
+     * Get only latest messages since last known ID (for real-time polling).
+     */
+    public function latestMessages(Request $request, Conversation $conversation): JsonResponse
+    {
+        $afterId = $request->query('after_id');
+        $query = $conversation->messages()
+            ->with(['senderUser:id,name', 'attachments'])
+            ->orderBy('created_at', 'asc');
+
+        if ($afterId) {
+            $query->where('id', '>', (int) $afterId);
+        }
+
+        $newMessages = $query->get();
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'messages' => $newMessages,
+                'is_human_takeover' => (bool) $conversation->is_human_takeover,
+                'status' => $conversation->status,
+                'ai_mode' => $conversation->ai_mode,
+                'last_message_at' => $conversation->last_message_at,
+            ],
+        ]);
+    }
+
+    /**
      * Send a message from moderator.
      */
     public function sendMessage(Request $request, Conversation $conversation): JsonResponse

@@ -61,6 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Unified Omnichannel Inbox
     Route::apiResource('conversations', ConversationController::class)->only(['index', 'show']);
+    Route::get('/conversations/{conversation}/latest-messages', [ConversationController::class, 'latestMessages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
     Route::post('/conversations/{conversation}/suggest-reply', [ConversationController::class, 'suggestReply']);
     Route::post('/conversations/{conversation}/takeover', [ConversationController::class, 'toggleTakeover']);
