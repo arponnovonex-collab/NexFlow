@@ -29,11 +29,27 @@ import {
     ShieldAlert,
     RefreshCw,
     Bot,
+    PanelRightClose,
+    PanelRightOpen,
+    GripVertical,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
     const { user, isModerator } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
+
+    // Resizable Panels State (with persistence)
+    const [leftWidth, setLeftWidth] = useState(() => {
+        const saved = localStorage.getItem('nexflow_inbox_left_width');
+        return saved ? Math.max(190, Math.min(parseInt(saved, 10), 480)) : 260;
+    });
+    const [rightWidth, setRightWidth] = useState(() => {
+        const saved = localStorage.getItem('nexflow_inbox_right_width');
+        return saved ? Math.max(220, Math.min(parseInt(saved, 10), 450)) : 270;
+    });
+    const [showRightPanel, setShowRightPanel] = useState(true);
+    const [isDraggingLeft, setIsDraggingLeft] = useState(false);
+    const [isDraggingRight, setIsDraggingRight] = useState(false);
 
     const [conversations, setConversations] = useState([]);
     const [activeConversation, setActiveConversation] = useState(null);
@@ -71,6 +87,46 @@ export const UnifiedInboxPage = () => {
     const messagesEndRef = useRef(null);
     const activeConvIdRef = useRef(null);
     const lastMsgIdRef = useRef(null);
+    const containerRef = useRef(null);
+
+    // Mouse drag resize listener
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (isDraggingLeft && containerRef.current) {
+                const rect = containerRef.current.getBoundingClientRect();
+                const newWidth = Math.max(190, Math.min(e.clientX - rect.left, 480));
+                setLeftWidth(newWidth);
+                localStorage.setItem('nexflow_inbox_left_width', newWidth);
+            } else if (isDraggingRight && containerRef.current) {
+                const rect = containerRef.current.getBoundingClientRect();
+                const newWidth = Math.max(220, Math.min(rect.right - e.clientX, 450));
+                setRightWidth(newWidth);
+                localStorage.setItem('nexflow_inbox_right_width', newWidth);
+            }
+        };
+
+        const handleMouseUp = () => {
+            if (isDraggingLeft) setIsDraggingLeft(false);
+            if (isDraggingRight) setIsDraggingRight(false);
+        };
+
+        if (isDraggingLeft || isDraggingRight) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        } else {
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, [isDraggingLeft, isDraggingRight]);
 
     // Play subtle audio alert for inbound messages
     const playNotificationSound = () => {
@@ -337,9 +393,15 @@ export const UnifiedInboxPage = () => {
     };
 
     return (
-        <div className="h-[calc(100vh-6.5rem)] flex flex-col md:flex-row bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-            {/* COLUMN 1: Conversation List (Left Panel) */}
-            <div className="w-full md:w-80 lg:w-96 border-r border-slate-800 flex flex-col bg-slate-950/60 shrink-0">
+        <div
+            ref={containerRef}
+            className="h-[calc(100vh-6.5rem)] flex flex-col md:flex-row bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative"
+        >
+            {/* COLUMN 1: Conversation List (Left Panel - Resizable & Slimmer) */}
+            <div
+                style={{ width: `${leftWidth}px` }}
+                className="w-full md:w-auto border-r border-slate-800 flex flex-col bg-slate-950/60 shrink-0 relative transition-none"
+            >
                 {/* Search & Platform Filter */}
                 <div className="p-3 border-b border-slate-800 space-y-2">
                     <div className="relative">
@@ -421,7 +483,7 @@ export const UnifiedInboxPage = () => {
                                 <div
                                     key={c.id}
                                     onClick={() => loadConversationDetails(c.id)}
-                                    className={`p-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
+                                    className={`p-2.5 flex items-start gap-2.5 transition-colors cursor-pointer ${
                                         isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/60'
                                     }`}
                                 >
@@ -429,14 +491,14 @@ export const UnifiedInboxPage = () => {
                                         <img
                                             src={c.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
                                             alt={c.customer?.name}
-                                            className="w-10 h-10 rounded-full object-cover"
+                                            className="w-8 h-8 rounded-full object-cover"
                                         />
                                         <span
                                             className={`absolute -bottom-1 -right-1 p-0.5 rounded-full text-white ${
                                                 isFB ? 'bg-blue-600' : isIG ? 'bg-pink-600' : 'bg-emerald-600'
                                             }`}
                                         >
-                                            {isFB ? <Facebook className="w-2.5 h-2.5" /> : isIG ? <Instagram className="w-2.5 h-2.5" /> : <PhoneCall className="w-2.5 h-2.5" />}
+                                            {isFB ? <Facebook className="w-2 h-2" /> : isIG ? <Instagram className="w-2 h-2" /> : <PhoneCall className="w-2 h-2" />}
                                         </span>
                                     </div>
 
@@ -445,7 +507,7 @@ export const UnifiedInboxPage = () => {
                                             <span className="text-xs font-semibold text-slate-200 truncate" title={`${c.customer?.name || 'Customer'} ${c.social_account?.name ? `(${c.social_account.name})` : ''}`}>
                                                 {c.customer?.name}
                                                 {c.social_account?.name && (
-                                                    <span className="text-[11px] font-normal text-slate-400 ml-1">
+                                                    <span className="text-[10px] font-normal text-slate-400 ml-1">
                                                         ({c.social_account.name})
                                                     </span>
                                                 )}
@@ -459,7 +521,7 @@ export const UnifiedInboxPage = () => {
                                             {c.latest_message?.text || 'No messages yet'}
                                         </p>
 
-                                        <div className="flex items-center gap-1.5 mt-2">
+                                        <div className="flex items-center gap-1.5 mt-1.5">
                                             {c.lead?.status && (
                                                 <Badge variant={c.lead.status} size="xs">
                                                     {c.lead.status}
@@ -467,11 +529,11 @@ export const UnifiedInboxPage = () => {
                                             )}
                                             {c.is_human_takeover ? (
                                                 <Badge variant="warning" size="xs">
-                                                    Human Taken
+                                                    Human
                                                 </Badge>
                                             ) : (
                                                 <Badge variant="primary" size="xs">
-                                                    AI Auto
+                                                    AI
                                                 </Badge>
                                             )}
                                             {c.unread_count > 0 && (
@@ -486,6 +548,17 @@ export const UnifiedInboxPage = () => {
                         })
                     )}
                 </div>
+            </div>
+
+            {/* Draggable Divider between Left Panel and Center Chat */}
+            <div
+                onMouseDown={() => setIsDraggingLeft(true)}
+                className={`hidden md:flex w-2 hover:w-2.5 bg-slate-950/90 hover:bg-indigo-500/70 cursor-col-resize items-center justify-center transition-colors group shrink-0 z-10 border-x border-slate-800/80 ${
+                    isDraggingLeft ? 'bg-indigo-500 w-2.5' : ''
+                }`}
+                title="Drag to resize customer list (মাউস দিয়ে টেনে বড়-ছোট করুন)"
+            >
+                <div className="w-0.5 h-7 bg-slate-700 group-hover:bg-white rounded-full transition-colors" />
             </div>
 
             {/* COLUMN 2: Center Message Thread & Composer */}
@@ -557,6 +630,16 @@ export const UnifiedInboxPage = () => {
                                     icon={Bot}
                                 >
                                     {activeConversation.is_human_takeover ? 'Human Takeover (AI Paused)' : 'AI Auto-Reply Active'}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() => setShowRightPanel((prev) => !prev)}
+                                    icon={showRightPanel ? PanelRightClose : PanelRightOpen}
+                                    title={showRightPanel ? 'Hide Details Panel (Expand Chat)' : 'Show Customer Details'}
+                                    className="hidden md:flex text-slate-400 hover:text-white"
+                                >
+                                    {showRightPanel ? 'Hide Details' : 'Details'}
                                 </Button>
                             </div>
                         </div>
@@ -722,9 +805,25 @@ export const UnifiedInboxPage = () => {
                 )}
             </div>
 
-            {/* COLUMN 3: Customer CRM & Details (Right Panel) */}
-            {activeConversation && (
-                <div className="w-full md:w-72 lg:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-5 overflow-y-auto space-y-5 shrink-0">
+            {/* Draggable Divider between Center Chat and Right CRM Panel */}
+            {activeConversation && showRightPanel && (
+                <div
+                    onMouseDown={() => setIsDraggingRight(true)}
+                    className={`hidden md:flex w-2 hover:w-2.5 bg-slate-950/90 hover:bg-indigo-500/70 cursor-col-resize items-center justify-center transition-colors group shrink-0 z-10 border-x border-slate-800/80 ${
+                        isDraggingRight ? 'bg-indigo-500 w-2.5' : ''
+                    }`}
+                    title="Drag to resize customer details panel (মাউস দিয়ে টেনে বড়-ছোট করুন)"
+                >
+                    <div className="w-0.5 h-7 bg-slate-700 group-hover:bg-white rounded-full transition-colors" />
+                </div>
+            )}
+
+            {/* COLUMN 3: Customer CRM & Details (Right Panel - Resizable & Collapsible) */}
+            {activeConversation && showRightPanel && (
+                <div
+                    style={{ width: `${rightWidth}px` }}
+                    className="w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-5 overflow-y-auto space-y-5 shrink-0 flex flex-col"
+                >
                     {/* Customer Identity */}
                     <div className="text-center">
                         <img
