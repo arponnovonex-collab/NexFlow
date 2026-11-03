@@ -9,6 +9,7 @@ use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -128,6 +129,7 @@ class ProductController extends Controller
     {
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
+            'sku' => ['sometimes', 'required', 'string', Rule::unique('products', 'sku')->ignore($product->id)],
             'category_id' => 'nullable|exists:product_categories,id',
             'short_description' => 'nullable|string',
             'full_description' => 'nullable|string',
@@ -135,19 +137,59 @@ class ProductController extends Controller
             'selling_price' => 'sometimes|required|numeric|min:0',
             'discount_price' => 'nullable|numeric|min:0',
             'material' => 'nullable|string',
+            'features' => 'nullable|array',
             'availability' => 'sometimes|required|in:in_stock,out_of_stock,pre_order',
             'delivery_charge_inside_dhaka' => 'nullable|numeric',
             'delivery_charge_outside_dhaka' => 'nullable|numeric',
+            'estimated_delivery_time' => 'nullable|string',
             'return_policy' => 'nullable|string',
             'exchange_policy' => 'nullable|string',
+            'internal_notes' => 'nullable|string',
             'is_active' => 'nullable|boolean',
             'social_account_ids' => 'nullable|array',
+            'variants' => 'nullable|array',
+            'variants.*.id' => 'nullable|integer',
+            'variants.*.size' => 'nullable|string',
+            'variants.*.color' => 'nullable|string',
+            'variants.*.sku' => 'nullable|string',
+            'variants.*.price' => 'nullable|numeric',
+            'variants.*.stock' => 'nullable|integer',
         ]);
 
         $product->update($validated);
 
         if (isset($validated['social_account_ids'])) {
             $product->socialAccounts()->sync($validated['social_account_ids']);
+        }
+
+        // Handle variants synchronization
+        if (isset($validated['variants'])) {
+            $incomingIds = array_filter(array_column($validated['variants'], 'id'));
+            $product->variants()->whereNotIn('id', $incomingIds)->delete();
+
+            foreach ($validated['variants'] as $v) {
+                if (! empty($v['id'])) {
+                    ProductVariant::where('id', $v['id'])
+                        ->where('product_id', $product->id)
+                        ->update([
+                            'size' => $v['size'] ?? null,
+                            'color' => $v['color'] ?? null,
+                            'sku' => $v['sku'] ?? ($product->sku . '-' . Str::random(3)),
+                            'price' => $v['price'] ?? $product->selling_price,
+                            'stock' => $v['stock'] ?? 0,
+                        ]);
+                } else {
+                    ProductVariant::create([
+                        'product_id' => $product->id,
+                        'size' => $v['size'] ?? null,
+                        'color' => $v['color'] ?? null,
+                        'sku' => $v['sku'] ?? ($product->sku . '-' . Str::random(3)),
+                        'price' => $v['price'] ?? $product->selling_price,
+                        'stock' => $v['stock'] ?? 0,
+                        'is_active' => true,
+                    ]);
+                }
+            }
         }
 
         return response()->json([
