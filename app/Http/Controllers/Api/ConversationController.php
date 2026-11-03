@@ -99,7 +99,7 @@ class ConversationController extends Controller
     {
         $conversation->load([
             'customer.channelIdentities',
-            'socialAccount:id,platform,name,username,status',
+            'socialAccount',
             'assignedUser:id,name,role',
             'lead.relatedProduct',
             'tags',
@@ -116,7 +116,7 @@ class ConversationController extends Controller
             if ($token && ! str_starts_with($token, 'EAAXMOCK')) {
                 try {
                     $version = config('services.meta.graph_version', 'v19.0');
-                    $res = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$psid}", [
+                    $res = Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$psid}", [
                         'fields' => 'name,first_name,last_name,profile_pic',
                         'access_token' => $token,
                     ]);
@@ -134,10 +134,13 @@ class ConversationController extends Controller
                         }
                     }
                 } catch (\Exception $e) {
-                    // Silently ignore
+                    Log::warning('Failed auto-enriching customer profile: ' . $e->getMessage());
                 }
             }
         }
+
+        // Hide sensitive token before returning
+        $conversation->socialAccount?->makeHidden(['access_token', 'refresh_token']);
 
         // Reset unread count when opened
         $conversation->update(['unread_count' => 0]);
