@@ -155,3 +155,4 @@ class FacebookProfileService
             ->update(['profile_name' => $name]);
     }
 }
+

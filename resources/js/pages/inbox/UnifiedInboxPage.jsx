@@ -35,6 +35,8 @@ import {
     GripVertical,
     Edit3,
     Users,
+    ArrowLeft,
+    Info,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -53,6 +55,20 @@ export const UnifiedInboxPage = () => {
     const [showRightPanel, setShowRightPanel] = useState(true);
     const [isDraggingLeft, setIsDraggingLeft] = useState(false);
     const [isDraggingRight, setIsDraggingRight] = useState(false);
+
+    // Mobile Navigation State: 'list' | 'chat' | 'details' (Messenger style on phone)
+    const [mobileView, setMobileView] = useState(() => {
+        return searchParams.get('conversation') && typeof window !== 'undefined' && window.innerWidth < 768 ? 'chat' : 'list';
+    });
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const [conversations, setConversations] = useState([]);
     const [activeConversation, setActiveConversation] = useState(null);
@@ -220,12 +236,16 @@ export const UnifiedInboxPage = () => {
         }
     };
 
-    const loadConversationDetails = async (id) => {
+    const loadConversationDetails = async (id, isExplicitUserClick = false) => {
         try {
             setLoadingThread(true);
             const res = await api.get(`/conversations/${id}`);
             setActiveConversation(res.data.data);
             setSearchParams({ conversation: id });
+
+            if (isExplicitUserClick) {
+                setMobileView('chat');
+            }
 
             // Prefill order modal if customer exists
             const cust = res.data.data.customer;
@@ -529,12 +549,14 @@ export const UnifiedInboxPage = () => {
     return (
         <div
             ref={containerRef}
-            className="h-[calc(100vh-6.5rem)] flex flex-col md:flex-row bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative"
+            className="h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-6.5rem)] flex flex-col md:flex-row bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-2xl overflow-hidden shadow-2xl relative"
         >
             {/* COLUMN 1: Conversation List (Left Panel - Resizable & Slimmer) */}
             <div
-                style={{ width: `${leftWidth}px` }}
-                className="w-full md:w-auto border-r border-slate-800 flex flex-col bg-slate-950/60 shrink-0 relative transition-none"
+                style={isMobile ? undefined : { width: `${leftWidth}px` }}
+                className={`${
+                    mobileView === 'list' ? 'flex' : 'hidden'
+                } md:flex flex-col w-full md:w-auto border-r border-slate-800 bg-slate-950/60 shrink-0 relative transition-none h-full`}
             >
                 {/* Search & Platform Filter */}
                 <div className="p-3 border-b border-slate-800 space-y-2">
@@ -629,7 +651,10 @@ export const UnifiedInboxPage = () => {
                             return (
                                 <div
                                     key={c.id}
-                                    onClick={() => loadConversationDetails(c.id)}
+                                    onClick={() => {
+                                        loadConversationDetails(c.id, true);
+                                        setMobileView('chat');
+                                    }}
                                     className={`p-2.5 flex items-start gap-2.5 transition-colors cursor-pointer ${
                                         isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/60'
                                     }`}
@@ -711,25 +736,39 @@ export const UnifiedInboxPage = () => {
             </div>
 
             {/* COLUMN 2: Center Message Thread & Composer */}
-            <div className="flex-1 flex flex-col min-w-0 bg-slate-900">
+            <div
+                className={`${
+                    mobileView === 'chat' ? 'flex' : 'hidden'
+                } md:flex flex-1 flex-col min-w-0 bg-slate-900 h-full`}
+            >
                 {activeConversation ? (
                     <>
                         {/* Conversation Header */}
-                        <div className="h-16 px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                            <div className="flex items-center gap-3">
-                                <div className="relative">
+                        <div className="h-16 px-3 md:px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40 shrink-0">
+                            <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                                {/* Mobile Back Button to Conversation List (Messenger Style) */}
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileView('list')}
+                                    title="Back to conversation list"
+                                    className="md:hidden p-1.5 -ml-1 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                                >
+                                    <ArrowLeft className="w-5 h-5 text-indigo-400" />
+                                </button>
+
+                                <div className="relative shrink-0">
                                     <img
                                         src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
                                         alt={activeConversation.customer?.name}
-                                        className="w-9 h-9 rounded-full object-cover"
+                                        className="w-8 h-8 md:w-9 md:h-9 rounded-full object-cover"
                                     />
                                 </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h2 className="text-sm font-bold text-white flex items-center gap-1.5 truncate">
-                                            <span>{activeConversation.customer?.name || 'Customer'}</span>
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <h2 className="text-xs md:text-sm font-bold text-white flex items-center gap-1 min-w-0 truncate">
+                                            <span className="truncate">{activeConversation.customer?.name || 'Customer'}</span>
                                             {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
-                                                <span className="text-xs font-semibold text-cyan-300">
+                                                <span className="text-[11px] md:text-xs font-semibold text-cyan-400 shrink-0">
                                                     ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
                                                 </span>
                                             )}
@@ -743,24 +782,25 @@ export const UnifiedInboxPage = () => {
                                                     : 'whatsapp'
                                             }
                                             size="xs"
+                                            className="hidden sm:inline-flex"
                                         >
                                             {activeConversation.social_account?.name || activeConversation.socialAccount?.name}
                                         </Badge>
-                                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-medium tracking-wide">
-                                            <span className="relative flex h-2 w-2">
+                                        <div className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[9px] font-medium tracking-wide shrink-0">
+                                            <span className="relative flex h-1.5 w-1.5">
                                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                                             </span>
-                                            <span>Live Sync</span>
+                                            <span>Live</span>
                                         </div>
                                     </div>
-                                    <span className="text-[11px] text-slate-400">
+                                    <span className="text-[10px] text-slate-400 truncate block">
                                         Assigned to: {activeConversation.assigned_user?.name || 'Unassigned'}
                                     </span>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 md:gap-2 shrink-0">
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -786,9 +826,21 @@ export const UnifiedInboxPage = () => {
                                     size="xs"
                                     onClick={handleToggleTakeover}
                                     icon={Bot}
+                                    className="hidden sm:flex"
                                 >
-                                    {activeConversation.is_human_takeover ? 'Human Takeover (AI Paused)' : 'AI Auto-Reply Active'}
+                                    {activeConversation.is_human_takeover ? 'Human' : 'AI Active'}
                                 </Button>
+
+                                {/* Mobile Customer Details Button (Messenger Style Info Icon) */}
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileView('details')}
+                                    title="View Customer Details & CRM"
+                                    className="md:hidden p-1.5 text-slate-300 hover:text-cyan-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer bg-slate-900 border border-slate-800 shrink-0"
+                                >
+                                    <Info className="w-4 h-4 text-cyan-400" />
+                                </button>
+
                                 <Button
                                     variant="ghost"
                                     size="xs"
@@ -942,27 +994,27 @@ export const UnifiedInboxPage = () => {
                         )}
 
                         {/* Message Composer Area */}
-                        <div className="p-4 border-t border-slate-800 bg-slate-950/60">
+                        <div className="p-2.5 md:p-4 border-t border-slate-800 bg-slate-950/60 shrink-0">
                             {/* Human Takeover Notice */}
                             {activeConversation.is_human_takeover && (
-                                <div className="flex items-center justify-between px-3.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-xs text-amber-300 mb-2.5 animate-fade-in">
-                                    <span className="flex items-center gap-1.5">
-                                        <Bot className="w-3.5 h-3.5 text-amber-400" />
-                                        <span>এই কাস্টমারের জন্য <strong>AI অটো-রিপ্লাই সাময়িক পজ</strong> রয়েছে (হিউম্যান টেকওভার সক্রিয়)।</span>
+                                <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-[11px] text-amber-300 mb-2 animate-fade-in">
+                                    <span className="flex items-center gap-1.5 truncate">
+                                        <Bot className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                        <span className="truncate">AI সাময়িক পজ (হিউম্যান টেকওভার সক্রিয়)</span>
                                     </span>
                                     <button
                                         type="button"
                                         onClick={handleToggleTakeover}
-                                        className="font-bold underline text-amber-200 hover:text-white cursor-pointer ml-2 text-xs whitespace-nowrap"
+                                        className="font-bold underline text-amber-200 hover:text-white cursor-pointer ml-2 text-[10px] whitespace-nowrap shrink-0"
                                     >
-                                        AI অটো-রিপ্লাই চালু করুন
+                                        AI চালু করুন
                                     </button>
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="space-y-2">
+                            <form onSubmit={handleSendMessage} className="space-y-1.5 md:space-y-2">
                                 <div className="flex items-center justify-between text-xs">
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1.5 md:gap-3 overflow-x-auto pb-0.5 max-w-full">
                                         <Button
                                             type="button"
                                             variant="secondary"
@@ -970,9 +1022,9 @@ export const UnifiedInboxPage = () => {
                                             loading={suggesting}
                                             onClick={handleAiSuggest}
                                             icon={Sparkles}
-                                            className="text-violet-400 border-violet-500/30 hover:bg-violet-500/10"
+                                            className="text-violet-400 border-violet-500/30 hover:bg-violet-500/10 shrink-0 text-[11px]"
                                         >
-                                            AI Suggest Reply
+                                            AI Suggest
                                         </Button>
 
                                         <Button
@@ -981,30 +1033,30 @@ export const UnifiedInboxPage = () => {
                                             size="xs"
                                             onClick={() => setOrderModal(true)}
                                             icon={ShoppingBag}
-                                            className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer font-medium"
+                                            className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
                                             title="Create Customer Order"
                                         >
-                                            Create Order
+                                            Order
                                         </Button>
 
-                                        <label className="flex items-center gap-1.5 text-slate-400 text-xs cursor-pointer">
+                                        <label className="flex items-center gap-1 text-slate-400 text-[11px] cursor-pointer shrink-0">
                                             <input
                                                 type="checkbox"
                                                 checked={isInternalNote}
                                                 onChange={(e) => setIsInternalNote(e.target.checked)}
                                                 className="rounded bg-slate-900 border-slate-800 text-amber-500"
                                             />
-                                            <span>Internal Note</span>
+                                            <span>Note</span>
                                         </label>
                                     </div>
-                                    <span className="text-[10px] text-slate-400">
-                                        Press Enter to send reply
+                                    <span className="text-[10px] text-slate-400 hidden sm:inline">
+                                        Press Enter to send
                                     </span>
                                 </div>
 
                                 <div className="relative">
                                     <textarea
-                                        rows={3}
+                                        rows={2}
                                         value={replyText}
                                         onChange={(e) => setReplyText(e.target.value)}
                                         onKeyDown={(e) => {
@@ -1015,25 +1067,25 @@ export const UnifiedInboxPage = () => {
                                         }}
                                         placeholder={
                                             isInternalNote
-                                                ? 'Add an internal team note (visible to moderators only)...'
-                                                : 'Type response to customer in Bangla, English, or Banglish...'
+                                                ? 'Add an internal team note...'
+                                                : 'Type message...'
                                         }
-                                        className={`w-full rounded-xl p-3 text-xs text-slate-100 placeholder-slate-400 focus:outline-none transition-all ${
+                                        className={`w-full rounded-xl p-2.5 pr-20 md:p-3 md:pr-24 text-xs text-slate-100 placeholder-slate-400 focus:outline-none transition-all resize-none ${
                                             isInternalNote
                                                 ? 'bg-amber-950/20 border border-amber-500/30 focus:border-amber-500'
                                                 : 'bg-slate-900 border border-slate-800 focus:border-indigo-500'
                                         }`}
                                     />
-                                    <div className="absolute right-2.5 bottom-2.5">
+                                    <div className="absolute right-2 bottom-2">
                                         <Button
                                             type="submit"
                                             variant={isInternalNote ? 'warning' : 'primary'}
-                                            size="sm"
+                                            size="xs"
                                             loading={sending}
                                             disabled={!replyText.trim()}
                                             icon={Send}
                                         >
-                                            {isInternalNote ? 'Save Note' : 'Send'}
+                                            Send
                                         </Button>
                                     </div>
                                 </div>
@@ -1061,11 +1113,24 @@ export const UnifiedInboxPage = () => {
             )}
 
             {/* COLUMN 3: Customer CRM & Details (Right Panel - Resizable & Collapsible) */}
-            {activeConversation && showRightPanel && (
+            {activeConversation && (showRightPanel || mobileView === 'details') && (
                 <div
-                    style={{ width: `${rightWidth}px` }}
-                    className="w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-5 overflow-y-auto space-y-5 shrink-0 flex flex-col"
+                    style={isMobile ? undefined : { width: `${rightWidth}px` }}
+                    className={`${
+                        mobileView === 'details' ? 'flex' : 'hidden'
+                    } md:flex flex-col w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-4 md:p-5 overflow-y-auto space-y-4 md:space-y-5 shrink-0 h-full`}
                 >
+                    {/* Mobile Back Button to return to Chat (Messenger style) */}
+                    <div className="md:hidden flex items-center justify-between pb-3 border-b border-slate-800">
+                        <button
+                            type="button"
+                            onClick={() => setMobileView('chat')}
+                            className="flex items-center gap-1.5 text-xs text-indigo-400 font-semibold hover:text-indigo-300 p-1 rounded-lg hover:bg-slate-900 cursor-pointer"
+                        >
+                            <ArrowLeft className="w-4 h-4" /> Back to Chat
+                        </button>
+                        <span className="text-xs font-bold text-slate-200">Customer CRM</span>
+                    </div>
                     {/* Customer Identity */}
                     <div className="text-center">
                         <img
