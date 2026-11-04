@@ -19,6 +19,10 @@ Route::get('/data-deletion', function () {
     return view('data-deletion');
 });
 
+Route::get('/login', function () {
+    return view('app');
+})->name('login');
+
 /*
 |--------------------------------------------------------------------------
 | System Maintenance & Cache Invalidation
@@ -36,10 +40,14 @@ Route::get('/maintenance/clear-cache', function () {
     if (file_exists($lockFile)) {
         $lockDeleted = @unlink($lockFile);
     }
+    $convCount = \App\Models\Conversation::count();
+    $msgCount = \App\Models\Message::count();
     return response()->json([
         'status' => 'success',
         'view_cleared' => true,
         'composer_lock_deleted' => $lockDeleted,
+        'conversations_count' => $convCount,
+        'messages_count' => $msgCount,
     ]);
 });
 
