@@ -27,3 +27,4 @@ class CourierSetting extends Model
         ];
     }
 }
+

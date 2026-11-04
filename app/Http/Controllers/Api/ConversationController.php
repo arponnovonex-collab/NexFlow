@@ -117,7 +117,7 @@ class ConversationController extends Controller
             if ($token && ! str_starts_with($token, 'EAAXMOCK')) {
                 try {
                     $version = config('services.meta.graph_version', 'v19.0');
-                    $res = Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$psid}", [
+                    $res = Http::timeout(1.5)->get("https://graph.facebook.com/{$version}/{$psid}", [
                         'fields' => 'name,first_name,last_name,profile_pic',
                         'access_token' => $token,
                     ]);
@@ -226,7 +226,7 @@ class ConversationController extends Controller
 
                     try {
                         if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
-                            $res = Http::withToken($account->access_token)
+                            $res = Http::timeout(8)->withToken($account->access_token)
                                 ->post("https://graph.facebook.com/{$version}/me/messages", [
                                     'recipient' => ['id' => $psid],
                                     'messaging_type' => 'RESPONSE',
@@ -235,14 +235,14 @@ class ConversationController extends Controller
 
                             // Fallback: If 400 or 403, attempt to resolve Page token from Page ID
                             if (! $res->successful() && ($res->status() === 400 || $res->status() === 403)) {
-                                $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                                $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
                                     'fields' => 'access_token',
                                     'access_token' => $account->access_token,
                                 ]);
                                 if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                                     $pageToken = $pageRes->json('access_token');
                                     $account->update(['access_token' => $pageToken]);
-                                    $res = Http::withToken($pageToken)
+                                    $res = Http::timeout(8)->withToken($pageToken)
                                         ->post("https://graph.facebook.com/{$version}/me/messages", [
                                             'recipient' => ['id' => $psid],
                                             'messaging_type' => 'RESPONSE',

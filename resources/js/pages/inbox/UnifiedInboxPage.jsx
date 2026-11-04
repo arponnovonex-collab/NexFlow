@@ -94,6 +94,7 @@ export const UnifiedInboxPage = () => {
     const activeConvIdRef = useRef(null);
     const lastMsgIdRef = useRef(null);
     const containerRef = useRef(null);
+    const prevUnreadTotalRef = useRef(0);
 
     // Mouse drag resize listener
     useEffect(() => {
@@ -168,6 +169,12 @@ export const UnifiedInboxPage = () => {
             const res = await api.get('/conversations', { params });
             const list = res.data.data.data || [];
             setConversations(list);
+
+            const totalUnread = list.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+            if (silent && totalUnread > prevUnreadTotalRef.current) {
+                playNotificationSound();
+            }
+            prevUnreadTotalRef.current = totalUnread;
 
             if (!silent) {
                 // Set active conversation from query param or first item
@@ -263,12 +270,12 @@ export const UnifiedInboxPage = () => {
             } catch (err) {
                 // Ignore silent background poll errors
             }
-        }, 2200);
+        }, 1200);
 
-        // Poller for conversation sidebar list updates (every 5 seconds)
+        // Poller for conversation sidebar list updates (every 2.5 seconds)
         const listInterval = setInterval(() => {
             fetchConversations(true);
-        }, 5000);
+        }, 2500);
 
         return () => {
             clearInterval(threadInterval);

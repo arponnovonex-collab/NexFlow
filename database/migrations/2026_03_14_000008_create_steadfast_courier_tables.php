@@ -54,3 +54,4 @@ return new class extends Migration
         Schema::dropIfExists('courier_settings');
     }
 };
+
