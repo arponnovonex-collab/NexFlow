@@ -28,6 +28,7 @@ import {
     Activity,
     Radio,
     Send,
+    Truck,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -41,6 +42,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
         products: true,
         leads: true,
         sms: true,
+        steadfast: true,
         team: true,
         analytics: false,
         system: false,
@@ -287,6 +289,29 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <NavLink to="/sms/auto-sms" className={linkClasses}>
                                     <Zap className="w-4 h-4 shrink-0 text-emerald-400" />
                                     {!isCollapsed && <span>Auto SMS (Order)</span>}
+                                </NavLink>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Steadfast Courier */}
+                {isAdmin && (
+                    <div>
+                        {!isCollapsed ? (
+                            <button
+                                onClick={() => toggleSection('steadfast')}
+                                className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                            >
+                                <span>Steadfast</span>
+                                {openSections.steadfast ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                        ) : null}
+                        {(openSections.steadfast || isCollapsed) && (
+                            <div className="space-y-1">
+                                <NavLink to="/courier/steadfast" className={linkClasses}>
+                                    <Truck className="w-4 h-4 shrink-0 text-cyan-400" />
+                                    {!isCollapsed && <span>Steadfast Configuration</span>}
                                 </NavLink>
                             </div>
                         )}

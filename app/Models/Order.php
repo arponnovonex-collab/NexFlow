@@ -24,6 +24,12 @@ class Order extends Model
         'customer_address',
         'customer_phone',
         'notes',
+        'courier_name',
+        'consignment_id',
+        'tracking_code',
+        'courier_status',
+        'courier_sent_at',
+        'courier_response',
     ];
 
     protected function casts(): array
@@ -33,6 +39,8 @@ class Order extends Model
             'unit_price' => 'decimal:2',
             'delivery_charge' => 'decimal:2',
             'total_amount' => 'decimal:2',
+            'courier_sent_at' => 'datetime',
+            'courier_response' => 'array',
         ];
     }
 

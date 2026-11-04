@@ -28,6 +28,7 @@ import { ProfilePage } from './pages/profile/ProfilePage';
 import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
 import { SmsMarketingPage } from './pages/sms/SmsMarketingPage';
 import { AutoSmsPage } from './pages/sms/AutoSmsPage';
+import { SteadfastPage } from './pages/courier/SteadfastPage';
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -89,6 +90,9 @@ export const App = () => {
                         <Route path="sms/gateway" element={<SmsGatewayPage />} />
                         <Route path="sms/marketing" element={<SmsMarketingPage />} />
                         <Route path="sms/auto-sms" element={<AutoSmsPage />} />
+
+                        {/* Steadfast Courier */}
+                        <Route path="courier/steadfast" element={<SteadfastPage />} />
 
                         {/* Team */}
                         <Route path="team" element={<TeamManagementPage />} />

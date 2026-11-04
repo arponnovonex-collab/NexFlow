@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\SocialAccountController;
+use App\Http\Controllers\Api\SteadfastController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -99,6 +100,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sms/marketing/send', [SmsController::class, 'sendMarketingCampaign']);
     Route::get('/sms/campaigns', [SmsController::class, 'getCampaigns']);
     Route::get('/sms/logs', [SmsController::class, 'getLogs']);
+
+    // Steadfast Courier Integration
+    Route::get('/courier/steadfast/settings', [SteadfastController::class, 'getSettings']);
+    Route::post('/courier/steadfast/settings', [SteadfastController::class, 'saveSettings']);
+    Route::get('/courier/steadfast/balance', [SteadfastController::class, 'checkBalance']);
+    Route::post('/courier/steadfast/send-order/{order}', [SteadfastController::class, 'sendOrder']);
+    Route::post('/courier/steadfast/send-bulk', [SteadfastController::class, 'sendBulk']);
 
     // AI Control Center, Rules & Playground
     Route::get('/ai/settings', [AiController::class, 'settings']);
