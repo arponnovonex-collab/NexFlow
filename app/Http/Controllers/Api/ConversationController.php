@@ -189,49 +189,78 @@ class ConversationController extends Controller
     }
 
     /**
-     * Send a message from moderator (supports optional photo attachment).
+     * Send a message from moderator (supports photo, video, audio/voice, and documents).
      */
     public function sendMessage(Request $request, Conversation $conversation): JsonResponse
     {
         $validated = $request->validate([
             'text' => 'nullable|string',
             'is_internal_note' => 'nullable',
-            'image' => 'nullable|file|mimes:jpeg,jpg,png,gif,webp|max:10240', // 10MB max
+            'file' => 'nullable|file|max:25600', // 25MB max (Meta's limit)
+            'image' => 'nullable|file|max:25600',
+            'audio' => 'nullable|file|max:25600',
         ]);
 
         $user = $request->user();
         $isNote = filter_var($request->input('is_internal_note'), FILTER_VALIDATE_BOOLEAN);
         $text = $request->input('text');
-        $hasImage = $request->hasFile('image');
+        $uploadedFile = $request->file('file') ?? $request->file('image') ?? $request->file('audio');
 
-        if (empty(trim((string) $text)) && ! $hasImage) {
+        if (empty(trim((string) $text)) && ! $uploadedFile) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Please enter a message or select an image to send.',
+                'message' => 'Please enter a message or attach a file/photo/voice note to send.',
             ], 422);
         }
 
         $attachmentData = null;
-        if ($hasImage) {
-            $file = $request->file('image');
-            $extension = $file->getClientOriginalExtension() ?: 'jpg';
-            $filename = 'out_img_' . uniqid() . '.' . $extension;
+        if ($uploadedFile) {
+            $mime = $uploadedFile->getMimeType() ?: 'application/octet-stream';
+            $clientExt = strtolower($uploadedFile->getClientOriginalExtension() ?: '');
+            $originalName = $uploadedFile->getClientOriginalName() ?: 'attachment';
 
+            $category = 'file';
+            $placeholder = '📎 [Attachment]';
+
+            if (str_starts_with($mime, 'image/') || in_array($clientExt, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])) {
+                $category = 'image';
+                $placeholder = '📷 [Photo]';
+                $ext = $clientExt ?: 'jpg';
+            } elseif (str_starts_with($mime, 'video/') || in_array($clientExt, ['mp4', 'mov', 'webm', 'avi', 'mkv'])) {
+                $category = 'video';
+                $placeholder = '🎥 [Video]';
+                $ext = $clientExt ?: 'mp4';
+            } elseif (str_starts_with($mime, 'audio/') || in_array($clientExt, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'webm'])) {
+                $category = 'audio';
+                $placeholder = '🎤 [Voice Note]';
+                $ext = $clientExt ?: 'webm';
+            } elseif ($clientExt === 'pdf' || $mime === 'application/pdf') {
+                $category = 'file';
+                $placeholder = '📄 [PDF Document]';
+                $ext = 'pdf';
+            } else {
+                $category = 'file';
+                $placeholder = '📎 [' . ($originalName ?: 'File') . ']';
+                $ext = $clientExt ?: 'bin';
+            }
+
+            $filename = 'out_' . $category . '_' . uniqid() . '.' . $ext;
             $destDir = public_path('uploads/chat_attachments');
             if (! file_exists($destDir)) {
                 mkdir($destDir, 0755, true);
             }
-            $file->move($destDir, $filename);
+            $uploadedFile->move($destDir, $filename);
 
             $fileUrl = '/uploads/chat_attachments/' . $filename;
             $fullLocalPath = $destDir . DIRECTORY_SEPARATOR . $filename;
 
             $attachmentData = [
                 'file_url' => $fileUrl,
-                'file_type' => 'image',
-                'file_name' => $file->getClientOriginalName(),
+                'file_type' => $category,
+                'file_name' => $originalName,
                 'file_size' => file_exists($fullLocalPath) ? filesize($fullLocalPath) : 0,
                 'local_path' => $fullLocalPath,
+                'placeholder' => $placeholder,
             ];
         }
 
@@ -240,7 +269,7 @@ class ConversationController extends Controller
         $message = DB::transaction(function () use ($conversation, $text, $user, $isNote, $attachmentData, &$deliveryError) {
             $displayText = $text;
             if (empty(trim((string) $displayText)) && $attachmentData) {
-                $displayText = '📷 [Photo]';
+                $displayText = $attachmentData['placeholder'] ?? '📎 [Attachment]';
             }
 
             $msg = Message::create([
@@ -248,7 +277,7 @@ class ConversationController extends Controller
                 'sender_type' => $isNote ? 'system' : 'moderator',
                 'sender_user_id' => $user->id,
                 'text' => $displayText,
-                'message_type' => $attachmentData ? 'image' : 'text',
+                'message_type' => $attachmentData ? $attachmentData['file_type'] : 'text',
                 'delivery_status' => $isNote ? 'delivered' : 'pending',
                 'is_internal_note' => $isNote,
                 'sent_at' => now(),
@@ -286,16 +315,20 @@ class ConversationController extends Controller
                         if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
                             $pageToken = $account->access_token;
 
-                            // 1. If image attachment present, stream binary image to Facebook Messenger
+                            // 1. If attachment present, stream binary media to Facebook Messenger
                             if ($attachmentData && ! empty($attachmentData['local_path']) && file_exists($attachmentData['local_path'])) {
                                 $handle = fopen($attachmentData['local_path'], 'r');
-                                $imageRes = Http::timeout(25)->withToken($pageToken)
-                                    ->attach('filedata', $handle, basename($attachmentData['local_path']))
+                                $metaType = in_array($attachmentData['file_type'], ['image', 'video', 'audio', 'file'])
+                                    ? $attachmentData['file_type']
+                                    : 'file';
+
+                                $mediaRes = Http::timeout(45)->withToken($pageToken)
+                                    ->attach('filedata', $handle, $attachmentData['file_name'])
                                     ->post("https://graph.facebook.com/{$version}/me/messages", [
                                         'recipient' => json_encode(['id' => $psid]),
                                         'message' => json_encode([
                                             'attachment' => [
-                                                'type' => 'image',
+                                                'type' => $metaType,
                                                 'payload' => [
                                                     'is_reusable' => true,
                                                 ],
@@ -308,7 +341,7 @@ class ConversationController extends Controller
                                 }
 
                                 // Fallback: If 400 or 403, attempt to resolve Page token from Page ID
-                                if (! $imageRes->successful() && in_array($imageRes->status(), [400, 403])) {
+                                if (! $mediaRes->successful() && in_array($mediaRes->status(), [400, 403])) {
                                     $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
                                         'fields' => 'access_token',
                                         'access_token' => $pageToken,
@@ -318,13 +351,13 @@ class ConversationController extends Controller
                                         $account->update(['access_token' => $pageToken]);
 
                                         $retryHandle = fopen($attachmentData['local_path'], 'r');
-                                        $imageRes = Http::timeout(25)->withToken($pageToken)
-                                            ->attach('filedata', $retryHandle, basename($attachmentData['local_path']))
+                                        $mediaRes = Http::timeout(45)->withToken($pageToken)
+                                            ->attach('filedata', $retryHandle, $attachmentData['file_name'])
                                             ->post("https://graph.facebook.com/{$version}/me/messages", [
                                                 'recipient' => json_encode(['id' => $psid]),
                                                 'message' => json_encode([
                                                     'attachment' => [
-                                                        'type' => 'image',
+                                                        'type' => $metaType,
                                                         'payload' => [
                                                             'is_reusable' => true,
                                                         ],
@@ -337,17 +370,17 @@ class ConversationController extends Controller
                                     }
                                 }
 
-                                if ($imageRes->successful()) {
-                                    $data = $imageRes->json();
+                                if ($mediaRes->successful()) {
+                                    $data = $mediaRes->json();
                                     $msg->update([
                                         'delivery_status' => 'delivered',
                                         'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
                                     ]);
                                 } else {
-                                    $errData = $imageRes->json('error');
-                                    $deliveryError = $errData['message'] ?? $imageRes->body();
+                                    $errData = $mediaRes->json('error');
+                                    $deliveryError = $errData['message'] ?? $mediaRes->body();
                                     $errorCode = $errData['code'] ?? null;
-                                    Log::error("Meta Send Image Attachment Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
+                                    Log::error("Meta Send Attachment Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
 
                                     $msg->update([
                                         'delivery_status' => 'failed',
@@ -365,6 +398,123 @@ class ConversationController extends Controller
                                     }
                                 }
                             }
+
+                            // 2. If text was also provided, send the text message to Meta
+                            if (! empty(trim((string) $text))) {
+                                $textRes = Http::timeout(8)->withToken($pageToken)
+                                    ->post("https://graph.facebook.com/{$version}/me/messages", [
+                                        'recipient' => ['id' => $psid],
+                                        'messaging_type' => 'RESPONSE',
+                                        'message' => ['text' => $text],
+                                    ]);
+
+                                if (! $textRes->successful() && in_array($textRes->status(), [400, 403])) {
+                                    $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                                        'fields' => 'access_token',
+                                        'access_token' => $pageToken,
+                                    ]);
+                                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                                        $pageToken = $pageRes->json('access_token');
+                                        $account->update(['access_token' => $pageToken]);
+                                        $textRes = Http::timeout(8)->withToken($pageToken)
+                                            ->post("https://graph.facebook.com/{$version}/me/messages", [
+                                                'recipient' => ['id' => $psid],
+                                                'messaging_type' => 'RESPONSE',
+                                                'message' => ['text' => $text],
+                                            ]);
+                                    }
+                                }
+
+                                if ($textRes->successful()) {
+                                    $data = $textRes->json();
+                                    $msg->update([
+                                        'delivery_status' => 'delivered',
+                                        'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
+                                    ]);
+                                } else {
+                                    $errData = $textRes->json('error');
+                                    $deliveryError = $errData['message'] ?? $textRes->body();
+                                    $errorCode = $errData['code'] ?? null;
+                                    Log::error("Meta Send Text Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
+
+                                    $msg->update([
+                                        'delivery_status' => 'failed',
+                                        'metadata' => [
+                                            'error' => $deliveryError,
+                                            'error_code' => $errorCode,
+                                        ],
+                                    ]);
+
+                                    if ($errorCode === 190 || str_contains($deliveryError, 'expired') || str_contains($deliveryError, 'access token')) {
+                                        $account->update([
+                                            'status' => 'expired',
+                                            'last_error' => $deliveryError,
+                                        ]);
+                                    }
+                                }
+                            }
+                        } elseif ($account->platform === 'whatsapp_cloud') {
+                            $phoneId = $account->account_id;
+                            $publicUrl = $attachmentData ? url($attachmentData['file_url']) : null;
+                            if ($publicUrl) {
+                                $waType = match ($attachmentData['file_type']) {
+                                    'image' => 'image',
+                                    'video' => 'video',
+                                    'audio' => 'audio',
+                                    default => 'document',
+                                };
+                                $waPayload = [
+                                    'messaging_product' => 'whatsapp',
+                                    'to' => $psid,
+                                    'type' => $waType,
+                                    $waType => array_filter([
+                                        'link' => $publicUrl,
+                                        'caption' => ! empty(trim((string) $text)) ? $text : null,
+                                        'filename' => $attachmentData['file_name'],
+                                    ]),
+                                ];
+                            } else {
+                                $waPayload = [
+                                    'messaging_product' => 'whatsapp',
+                                    'to' => $psid,
+                                    'type' => 'text',
+                                    'text' => ['body' => $text],
+                                ];
+                            }
+
+                            $res = Http::withToken($account->access_token)
+                                ->post("https://graph.facebook.com/{$version}/{$phoneId}/messages", $waPayload);
+
+                            if ($res->successful()) {
+                                $data = $res->json();
+                                $msg->update([
+                                    'delivery_status' => 'delivered',
+                                    'platform_message_id' => $data['messages'][0]['id'] ?? $msg->platform_message_id,
+                                ]);
+                            } else {
+                                $deliveryError = $res->json('error.message') ?? $res->body();
+                                Log::error('WhatsApp Cloud Send API Error: ' . $deliveryError);
+                                $msg->update([
+                                    'delivery_status' => 'failed',
+                                    'metadata' => ['error' => $deliveryError],
+                                ]);
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        $deliveryError = $e->getMessage();
+                        Log::error('Outbound Message Send Exception: ' . $deliveryError);
+                        $msg->update([
+                            'delivery_status' => 'failed',
+                            'metadata' => ['error' => $deliveryError],
+                        ]);
+                    }
+                } else {
+                    $msg->update(['delivery_status' => 'delivered']);
+                }
+            }
+
+            return $msg;
+        });
 
                             // 2. If text was also provided, send the text message to Meta
                             if (! empty(trim((string) $text))) {

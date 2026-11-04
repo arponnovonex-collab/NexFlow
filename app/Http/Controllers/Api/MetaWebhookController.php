@@ -296,6 +296,7 @@ class MetaWebhookController extends Controller
                     'image' => '📷 [Photo]',
                     'audio' => '🎤 [Voice Message]',
                     'video' => '🎥 [Video]',
+                    'file' => '📄 [Document]',
                     default => '📎 [Attachment]',
                 };
             } elseif (! empty($messageObj['sticker_id'])) {
@@ -381,8 +382,14 @@ class MetaWebhookController extends Controller
         // 8. Store customer message IMMEDIATELY (< 5ms)
         $msgType = 'text';
         if (! empty($attachments)) {
-            $firstType = $attachments[0]['type'] ?? 'image';
-            $msgType = ($firstType === 'image') ? 'image' : 'attachment';
+            $firstType = $attachments[0]['type'] ?? 'file';
+            $msgType = match ($firstType) {
+                'image' => 'image',
+                'video' => 'video',
+                'audio' => 'audio',
+                'file' => 'file',
+                default => 'attachment',
+            };
         }
 
         $msg = Message::create([

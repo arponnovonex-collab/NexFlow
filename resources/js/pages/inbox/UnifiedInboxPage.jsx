@@ -40,6 +40,12 @@ import {
     Image as ImageIcon,
     Paperclip,
     X,
+    Mic,
+    Video,
+    Volume2,
+    Download,
+    File,
+    Square,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -83,35 +89,113 @@ export const UnifiedInboxPage = () => {
     const [suggesting, setSuggesting] = useState(false);
     const [suggestedData, setSuggestedData] = useState(null);
 
-    // Photo / Image attachment state
-    const [selectedImage, setSelectedImage] = useState(null);
-    const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+    // File / Media attachment state (Images, Videos, PDFs, Documents, Audio)
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [filePreviewUrl, setFilePreviewUrl] = useState('');
+    const [fileTypeCategory, setFileTypeCategory] = useState(''); // 'image' | 'video' | 'audio' | 'pdf' | 'file'
     const fileInputRef = useRef(null);
 
-    const handleImageSelect = (e) => {
+    // Voice recording state
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const timerRef = useRef(null);
+
+    const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (!file.type.startsWith('image/')) {
-                alert('অনুগ্রহ করে ইমেজ ফাইল (JPG, PNG, WebP) সিলেক্ট করুন।');
+            if (file.size > 25 * 1024 * 1024) {
+                alert('ফাইলের সাইজ সর্বোচ্চ 25MB হতে পারে।');
                 return;
             }
-            if (file.size > 10 * 1024 * 1024) {
-                alert('ছবির সাইজ সর্বোচ্চ 10MB হতে পারে।');
-                return;
+            setSelectedFile(file);
+            setFilePreviewUrl(URL.createObjectURL(file));
+
+            const mime = file.type || '';
+            const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
+            if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+                setFileTypeCategory('image');
+            } else if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'avi', 'mkv'].includes(ext)) {
+                setFileTypeCategory('video');
+            } else if (mime.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext)) {
+                setFileTypeCategory('audio');
+            } else if (ext === 'pdf' || mime === 'application/pdf') {
+                setFileTypeCategory('pdf');
+            } else {
+                setFileTypeCategory('file');
             }
-            setSelectedImage(file);
-            setImagePreviewUrl(URL.createObjectURL(file));
         }
     };
 
-    const handleRemoveImage = () => {
-        setSelectedImage(null);
-        if (imagePreviewUrl) {
-            URL.revokeObjectURL(imagePreviewUrl);
-            setImagePreviewUrl('');
+    const handleRemoveFile = () => {
+        setSelectedFile(null);
+        if (filePreviewUrl) {
+            URL.revokeObjectURL(filePreviewUrl);
+            setFilePreviewUrl('');
         }
+        setFileTypeCategory('');
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
+        }
+    };
+
+    const startRecording = async () => {
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('আপনার ব্রাউজারে অডিও রেকর্ডিং সাপোর্ট করে না।');
+                return;
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunksRef.current = [];
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const voiceFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+                setSelectedFile(voiceFile);
+                setFilePreviewUrl(URL.createObjectURL(audioBlob));
+                setFileTypeCategory('audio');
+
+                stream.getTracks().forEach((track) => track.stop());
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+            setRecordingTime(0);
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = setInterval(() => {
+                setRecordingTime((prev) => prev + 1);
+            }, 1000);
+        } catch (err) {
+            console.error('Microphone access denied:', err);
+            alert('ভয়েস রেকর্ড করতে মাইক্রোফোন পারমিশন প্রয়োজন। ব্রাউজার সেটিংসে মাইক্রোফোন অ্যালাউ করুন।');
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            if (timerRef.current) clearInterval(timerRef.current);
+        }
+    };
+
+    const cancelRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.onstop = null;
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            if (timerRef.current) clearInterval(timerRef.current);
+            mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
         }
     };
 
@@ -378,21 +462,21 @@ export const UnifiedInboxPage = () => {
         }
     }, [activeConversation?.messages, mobileView, isMobile]);
 
-    // Send Message (supports text and/or photo attachment)
+    // Send Message (supports text, photo, video, audio, and documents)
     const handleSendMessage = async (e) => {
         e.preventDefault();
-        if ((!replyText.trim() && !selectedImage) || !activeConversation) return;
+        if ((!replyText.trim() && !selectedFile) || !activeConversation) return;
 
         setSending(true);
         try {
             let res;
-            if (selectedImage) {
+            if (selectedFile) {
                 const formData = new FormData();
                 if (replyText.trim()) {
                     formData.append('text', replyText.trim());
                 }
                 formData.append('is_internal_note', isInternalNote ? '1' : '0');
-                formData.append('image', selectedImage);
+                formData.append('file', selectedFile);
 
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
             } else {
@@ -414,7 +498,7 @@ export const UnifiedInboxPage = () => {
             }));
             lastMsgIdRef.current = newMsg?.id || Date.now();
             setReplyText('');
-            handleRemoveImage();
+            handleRemoveFile();
             setIsInternalNote(false);
             setSuggestedData(null);
             fetchConversations(true);
@@ -980,14 +1064,23 @@ export const UnifiedInboxPage = () => {
                                                     </div>
                                                 )}
 
-                                                {/* Attachments rendering (Images, photos, stickers, files) */}
+                                                {/* Attachments rendering (Images, Videos, Voice/Audio, PDFs, Documents) */}
                                                 {msg.attachments && msg.attachments.length > 0 && (
                                                     <div className="space-y-1.5 mb-1.5">
                                                         {msg.attachments.map((att) => {
-                                                            const isImage = !att.file_type || att.file_type.startsWith('image') || att.file_type === 'image';
+                                                            const rawType = (att.file_type || '').toLowerCase();
+                                                            const name = (att.file_name || '').toLowerCase();
+                                                            const url = (att.file_url || '').toLowerCase();
+                                                            const ext = (name.split('.').pop() || url.split('.').pop() || '').split('?')[0];
+
+                                                            const isImage = rawType.startsWith('image') || rawType === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
+                                                            const isVideo = rawType.startsWith('video') || rawType === 'video' || ['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v'].includes(ext);
+                                                            const isAudio = rawType.startsWith('audio') || rawType === 'audio' || ['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext) || (ext === 'webm' && !isVideo);
+                                                            const isPdf = rawType.includes('pdf') || ext === 'pdf';
+
                                                             if (isImage) {
                                                                 return (
-                                                                    <div key={att.id} className="relative group">
+                                                                    <div key={att.id} className="relative group my-1">
                                                                         <a
                                                                             href={att.file_url}
                                                                             target="_blank"
@@ -997,7 +1090,7 @@ export const UnifiedInboxPage = () => {
                                                                         >
                                                                             <img
                                                                                 src={att.file_url}
-                                                                                alt="Photo"
+                                                                                alt={att.file_name || 'Photo'}
                                                                                 className="max-h-64 w-auto rounded-xl object-contain bg-slate-950/40 hover:scale-[1.02] transition-transform"
                                                                                 loading="lazy"
                                                                             />
@@ -1005,24 +1098,136 @@ export const UnifiedInboxPage = () => {
                                                                     </div>
                                                                 );
                                                             }
+
+                                                            if (isVideo) {
+                                                                return (
+                                                                    <div key={att.id} className="my-1.5 max-w-[280px] md:max-w-xs rounded-xl overflow-hidden border border-slate-700/70 bg-black/80 shadow-md">
+                                                                        <video
+                                                                            controls
+                                                                            preload="metadata"
+                                                                            className="w-full max-h-72 rounded-t-xl bg-black"
+                                                                        >
+                                                                            <source src={att.file_url} />
+                                                                            Your browser does not support playing this video.
+                                                                        </video>
+                                                                        {att.file_name && (
+                                                                            <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-900/90 text-[10px] text-slate-300">
+                                                                                <span className="flex items-center gap-1.5 truncate">
+                                                                                    <Video className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                                                                    <span className="truncate">{att.file_name}</span>
+                                                                                </span>
+                                                                                <a
+                                                                                    href={att.file_url}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    download={att.file_name}
+                                                                                    className="text-cyan-400 hover:text-cyan-300 ml-2 shrink-0 p-1"
+                                                                                    title="Download video"
+                                                                                >
+                                                                                    <Download className="w-3.5 h-3.5" />
+                                                                                </a>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isAudio) {
+                                                                return (
+                                                                    <div key={att.id} className="my-1.5 p-2.5 rounded-xl bg-slate-900/95 border border-slate-700/70 max-w-[280px] md:max-w-xs shadow-md">
+                                                                        <div className="flex items-center justify-between mb-1.5 text-[11px] text-indigo-300">
+                                                                            <span className="flex items-center gap-1.5 font-medium">
+                                                                                <Mic className="w-3.5 h-3.5 text-indigo-400" />
+                                                                                <span>Voice Note / Audio</span>
+                                                                            </span>
+                                                                            {att.file_size ? (
+                                                                                <span className="text-[10px] text-slate-400">
+                                                                                    {(att.file_size / 1024).toFixed(0)} KB
+                                                                                </span>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <audio controls preload="metadata" className="w-full h-8 rounded">
+                                                                            <source src={att.file_url} />
+                                                                            Your browser does not support audio playback.
+                                                                        </audio>
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            if (isPdf) {
+                                                                return (
+                                                                    <a
+                                                                        key={att.id}
+                                                                        href={att.file_url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="flex items-center gap-3 p-2.5 my-1.5 rounded-xl bg-slate-900/95 border border-rose-500/30 hover:border-rose-400/60 text-slate-200 transition-all max-w-[280px] md:max-w-xs shadow-md group"
+                                                                        title="Open / Download PDF"
+                                                                    >
+                                                                        <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-400 group-hover:scale-105 transition-transform shrink-0">
+                                                                            <FileText className="w-5 h-5" />
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-xs font-medium text-slate-100 truncate group-hover:text-rose-300 transition-colors">
+                                                                                {att.file_name || 'Document.pdf'}
+                                                                            </p>
+                                                                            <p className="text-[10px] text-rose-400/80">
+                                                                                PDF Document {att.file_size ? `· ${(att.file_size / 1024).toFixed(0)} KB` : ''}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="p-1.5 text-slate-400 group-hover:text-white shrink-0">
+                                                                            <Download className="w-4 h-4" />
+                                                                        </div>
+                                                                    </a>
+                                                                );
+                                                            }
+
                                                             return (
                                                                 <a
                                                                     key={att.id}
                                                                     href={att.file_url}
                                                                     target="_blank"
                                                                     rel="noopener noreferrer"
-                                                                    className="flex items-center gap-2 p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 text-xs text-indigo-300 hover:text-white max-w-xs"
+                                                                    className="flex items-center gap-3 p-2.5 my-1.5 rounded-xl bg-slate-900/95 border border-cyan-500/30 hover:border-cyan-400/60 text-slate-200 transition-all max-w-[280px] md:max-w-xs shadow-md group"
+                                                                    title="Download file"
                                                                 >
-                                                                    <Paperclip className="w-4 h-4 shrink-0" />
-                                                                    <span className="truncate">{att.file_name || 'Download file'}</span>
+                                                                    <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 group-hover:scale-105 transition-transform shrink-0">
+                                                                        <File className="w-5 h-5" />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-xs font-medium text-slate-100 truncate group-hover:text-cyan-300 transition-colors">
+                                                                            {att.file_name || 'Attached File'}
+                                                                        </p>
+                                                                        <p className="text-[10px] text-cyan-400/80">
+                                                                            Attachment {att.file_size ? `· ${(att.file_size / 1024).toFixed(0)} KB` : ''}
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="p-1.5 text-slate-400 group-hover:text-white shrink-0">
+                                                                        <Download className="w-4 h-4" />
+                                                                    </div>
                                                                 </a>
                                                             );
                                                         })}
                                                     </div>
                                                 )}
 
-                                                {/* Message Text (Hide placeholder if photo is already displayed) */}
-                                                {msg.text && (msg.text !== '📷 [Photo]' || !msg.attachments || msg.attachments.length === 0) && (
+                                                {/* Message Text (Hide placeholder if attachment is already displayed) */}
+                                                {msg.text && (
+                                                    !msg.attachments ||
+                                                    msg.attachments.length === 0 ||
+                                                    ![
+                                                        '📷 [Photo]',
+                                                        '[Photo]',
+                                                        '🎥 [Video]',
+                                                        '[Video]',
+                                                        '🎤 [Voice Message]',
+                                                        '[Voice Message]',
+                                                        '📄 [Document]',
+                                                        '[Document]',
+                                                        '📎 [Attachment]',
+                                                        '[Attachment]',
+                                                    ].includes(msg.text.trim())
+                                                ) && (
                                                     <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                                                 )}
                                                 {isFailed && (
@@ -1142,19 +1347,33 @@ export const UnifiedInboxPage = () => {
                                             variant="secondary"
                                             size="xs"
                                             onClick={() => fileInputRef.current?.click()}
-                                            icon={ImageIcon}
+                                            icon={Paperclip}
                                             className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
-                                            title="Attach Photo / Image"
+                                            title="Attach File (Image, Video, Audio, PDF, Document)"
                                         >
-                                            Photo
+                                            File
                                         </Button>
                                         <input
                                             type="file"
                                             ref={fileInputRef}
-                                            accept="image/jpeg,image/png,image/webp,image/gif"
-                                            onChange={handleImageSelect}
+                                            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"
+                                            onChange={handleFileSelect}
                                             className="hidden"
                                         />
+
+                                        {!isRecording ? (
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="xs"
+                                                onClick={startRecording}
+                                                icon={Mic}
+                                                className="text-rose-400 border-rose-500/30 hover:bg-rose-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                                title="Record Voice Note"
+                                            >
+                                                Voice
+                                            </Button>
+                                        ) : null}
 
                                         <label className="flex items-center gap-1 text-slate-400 text-[11px] cursor-pointer shrink-0">
                                             <input
@@ -1171,25 +1390,94 @@ export const UnifiedInboxPage = () => {
                                     </span>
                                 </div>
 
-                                {/* Selected Image Preview Chip */}
-                                {selectedImage && imagePreviewUrl && (
-                                    <div className="flex items-center gap-2 p-1.5 px-2 bg-slate-900 border border-cyan-500/40 rounded-xl animate-fade-in max-w-sm">
-                                        <img
-                                            src={imagePreviewUrl}
-                                            alt="Selected"
-                                            className="w-9 h-9 object-cover rounded-lg border border-slate-700 shrink-0"
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedImage.name}</p>
-                                            <p className="text-[10px] text-cyan-400">{(selectedImage.size / 1024).toFixed(0)} KB · Ready to send</p>
+                                {/* Active Voice Recording Status Bar */}
+                                {isRecording && (
+                                    <div className="flex items-center justify-between p-2 px-3 bg-rose-950/60 border border-rose-500/40 rounded-xl animate-fade-in text-xs">
+                                        <div className="flex items-center gap-2">
+                                            <span className="relative flex h-2.5 w-2.5">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                                            </span>
+                                            <span className="font-semibold text-rose-300">ভয়েস রেকর্ড হচ্ছে...</span>
+                                            <span className="font-mono text-rose-200 bg-rose-900/60 px-1.5 py-0.5 rounded border border-rose-700/50">
+                                                {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
+                                            </span>
                                         </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={cancelRecording}
+                                                className="text-[11px] text-slate-400 hover:text-rose-300 px-2 py-1 rounded hover:bg-rose-900/40 transition-colors cursor-pointer"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={stopRecording}
+                                                className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-500 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shadow-sm"
+                                            >
+                                                <Square className="w-3 h-3 fill-white" />
+                                                Done
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Selected File / Media Preview Chip */}
+                                {selectedFile && (
+                                    <div className="flex items-center gap-2.5 p-2 px-3 bg-slate-900 border border-indigo-500/40 rounded-xl animate-fade-in max-w-md">
+                                        {fileTypeCategory === 'image' && filePreviewUrl && (
+                                            <img
+                                                src={filePreviewUrl}
+                                                alt="Selected"
+                                                className="w-10 h-10 object-cover rounded-lg border border-slate-700 shrink-0"
+                                            />
+                                        )}
+                                        {fileTypeCategory === 'video' && (
+                                            <div className="w-10 h-10 rounded-lg bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center shrink-0 text-cyan-400">
+                                                <Video className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                        {fileTypeCategory === 'audio' && (
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                <div className="w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400">
+                                                    <Mic className="w-4 h-4" />
+                                                </div>
+                                                {filePreviewUrl && (
+                                                    <audio controls src={filePreviewUrl} className="h-7 max-w-[190px] sm:max-w-xs" />
+                                                )}
+                                            </div>
+                                        )}
+                                        {fileTypeCategory === 'pdf' && (
+                                            <div className="w-10 h-10 rounded-lg bg-rose-950/60 border border-rose-500/30 flex items-center justify-center shrink-0 text-rose-400">
+                                                <FileText className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                        {fileTypeCategory === 'file' && (
+                                            <div className="w-10 h-10 rounded-lg bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400">
+                                                <File className="w-5 h-5" />
+                                            </div>
+                                        )}
+
+                                        {fileTypeCategory !== 'audio' && (
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedFile.name}</p>
+                                                <p className="text-[10px] text-indigo-400">
+                                                    {selectedFile.size > 1024 * 1024
+                                                        ? `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`
+                                                        : `${(selectedFile.size / 1024).toFixed(0)} KB`}{' '}
+                                                    · Ready to send
+                                                </p>
+                                            </div>
+                                        )}
+
                                         <button
                                             type="button"
-                                            onClick={handleRemoveImage}
-                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
-                                            title="Remove photo"
+                                            onClick={handleRemoveFile}
+                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0 ml-auto"
+                                            title="Remove attachment"
                                         >
-                                            <X className="w-3.5 h-3.5" />
+                                            <X className="w-4 h-4" />
                                         </button>
                                     </div>
                                 )}
@@ -1208,8 +1496,8 @@ export const UnifiedInboxPage = () => {
                                         placeholder={
                                             isInternalNote
                                                 ? 'Add an internal team note...'
-                                                : selectedImage
-                                                ? 'Add a caption to your photo (optional)...'
+                                                : selectedFile
+                                                ? `Add a message/caption to this ${fileTypeCategory === 'audio' ? 'voice note' : fileTypeCategory} (optional)...`
                                                 : 'Type message...'
                                         }
                                         className={`w-full rounded-xl p-2.5 pr-20 md:p-3 md:pr-24 text-xs text-slate-100 placeholder-slate-400 focus:outline-none transition-all resize-none ${
@@ -1224,7 +1512,7 @@ export const UnifiedInboxPage = () => {
                                             variant={isInternalNote ? 'warning' : 'primary'}
                                             size="xs"
                                             loading={sending}
-                                            disabled={!replyText.trim() && !selectedImage}
+                                            disabled={(!replyText.trim() && !selectedFile) || isRecording}
                                             icon={Send}
                                         >
                                             Send
