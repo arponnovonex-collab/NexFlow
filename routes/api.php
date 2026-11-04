@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/automation/comment-instructions', [CommentAutomationController::class, 'updateCommentInstructions']);
 
     // Unified Omnichannel Inbox
+    Route::post('/conversations/sync-names', [ConversationController::class, 'syncNames']);
     Route::apiResource('conversations', ConversationController::class)->only(['index', 'show']);
     Route::get('/conversations/{conversation}/latest-messages', [ConversationController::class, 'latestMessages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);

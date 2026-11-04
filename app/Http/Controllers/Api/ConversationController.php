@@ -110,62 +110,11 @@ class ConversationController extends Controller
             },
         ]);
 
-        // Auto-enrich customer profile from comments or Meta Graph API if still named 'Facebook Customer'
+        // Auto-enrich customer profile if still named 'Facebook Customer'
         if ($conversation->platform === 'facebook_page' && $conversation->customer && str_starts_with($conversation->customer->name, 'Facebook Customer')) {
             $psid = str_replace('t_', '', $conversation->channel_conversation_id);
-
-            // 1. Check if user previously commented on a post with real name
-            $commentAuthor = \App\Models\SocialComment::where('platform_user_id', (string) $psid)
-                ->whereNotNull('customer_name')
-                ->where('customer_name', '!=', '')
-                ->where('customer_name', '!=', 'Facebook User')
-                ->latest()
-                ->value('customer_name');
-
-            if ($commentAuthor) {
-                $conversation->customer->update(['name' => $commentAuthor]);
-                $conversation->customer->channelIdentities()
-                    ->where('platform', 'facebook_page')
-                    ->update(['profile_name' => $commentAuthor]);
-                $conversation->load('customer');
-            } else {
-                // 2. Try Graph API
-                $token = $conversation->socialAccount?->access_token;
-                if ($token && ! str_starts_with($token, 'EAAXMOCK')) {
-                    try {
-                        $version = config('services.meta.graph_version', 'v19.0');
-                        $res = Http::timeout(2.5)->get("https://graph.facebook.com/{$version}/{$psid}", [
-                            'fields' => 'name,first_name,last_name,profile_pic',
-                            'access_token' => $token,
-                        ]);
-                        if ($res->successful()) {
-                            $data = $res->json();
-                            $resolvedName = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
-                            if (empty($resolvedName) && ! empty($data['name'])) {
-                                $resolvedName = trim($data['name']);
-                            }
-                            $updates = [];
-                            if (! empty($resolvedName)) {
-                                $updates['name'] = $resolvedName;
-                            }
-                            if (! empty($data['profile_pic'])) {
-                                $updates['avatar_url'] = $data['profile_pic'];
-                            }
-                            if (! empty($updates)) {
-                                $conversation->customer->update($updates);
-                                if (! empty($resolvedName)) {
-                                    $conversation->customer->channelIdentities()
-                                        ->where('platform', 'facebook_page')
-                                        ->update(['profile_name' => $resolvedName]);
-                                }
-                                $conversation->load('customer');
-                            }
-                        }
-                    } catch (\Exception $e) {
-                        Log::warning('Failed auto-enriching customer profile: ' . $e->getMessage());
-                    }
-                }
-            }
+            \App\Services\FacebookProfileService::resolveCustomerName($conversation->socialAccount, $psid, $conversation->customer);
+            $conversation->load('customer');
         }
 
         // Hide sensitive token before returning
@@ -474,6 +423,20 @@ class ConversationController extends Controller
             'status' => 'success',
             'message' => 'Conversation assigned successfully',
             'data' => $conversation->load('assignedUser'),
+        ]);
+    }
+
+    /**
+     * Bulk sync real customer names from Facebook page conversations.
+     */
+    public function syncNames(): JsonResponse
+    {
+        $updated = \App\Services\FacebookProfileService::syncAllPagesRecentConversations();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Successfully synced {$updated} customer name(s) from Facebook.",
+            'updated_count' => $updated,
         ]);
     }
 }

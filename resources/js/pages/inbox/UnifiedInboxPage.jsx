@@ -34,6 +34,7 @@ import {
     PanelRightOpen,
     GripVertical,
     Edit3,
+    Users,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -96,12 +97,14 @@ export const UnifiedInboxPage = () => {
     const [custEditName, setCustEditName] = useState('');
     const [custEditPhone, setCustEditPhone] = useState('');
     const [savingCustomer, setSavingCustomer] = useState(false);
+    const [syncingNames, setSyncingNames] = useState(false);
 
     const messagesEndRef = useRef(null);
     const activeConvIdRef = useRef(null);
     const lastMsgIdRef = useRef(null);
     const containerRef = useRef(null);
     const prevUnreadTotalRef = useRef(0);
+    const hasSyncedNamesRef = useRef(false);
 
     // Mouse drag resize listener
     useEffect(() => {
@@ -182,6 +185,22 @@ export const UnifiedInboxPage = () => {
                 playNotificationSound();
             }
             prevUnreadTotalRef.current = totalUnread;
+
+            // Auto-enrich any generic customer names silently from Facebook
+            const hasGenericFacebookCustomer = list.some((c) => c.customer?.name?.startsWith('Facebook'));
+            if (hasGenericFacebookCustomer && !hasSyncedNamesRef.current) {
+                hasSyncedNamesRef.current = true;
+                api.post('/conversations/sync-names')
+                    .then((syncRes) => {
+                        if (syncRes.data?.updated_count > 0) {
+                            fetchConversations(true);
+                            if (activeConvIdRef.current) {
+                                loadConversationDetails(activeConvIdRef.current);
+                            }
+                        }
+                    })
+                    .catch(() => {});
+            }
 
             if (!silent) {
                 // Set active conversation from query param or first item
@@ -405,6 +424,24 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    // Bulk sync real customer names from Facebook
+    const handleSyncNames = async () => {
+        try {
+            setSyncingNames(true);
+            const res = await api.post('/conversations/sync-names');
+            alert(res.data.message || 'Customer names synchronized successfully!');
+            fetchConversations(true);
+            if (activeConversation) {
+                loadConversationDetails(activeConversation.id);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to sync names from Facebook.');
+        } finally {
+            setSyncingNames(false);
+        }
+    };
+
     // AI Suggest Reply
     const handleAiSuggest = async () => {
         if (!activeConversation) return;
@@ -501,16 +538,27 @@ export const UnifiedInboxPage = () => {
             >
                 {/* Search & Platform Filter */}
                 <div className="p-3 border-b border-slate-800 space-y-2">
-                    <div className="relative">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                            type="text"
-                            placeholder="Search inbox..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && fetchConversations()}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
-                        />
+                    <div className="flex items-center gap-1.5">
+                        <div className="relative flex-1">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                                type="text"
+                                placeholder="Search inbox..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && fetchConversations()}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleSyncNames}
+                            disabled={syncingNames}
+                            title="Sync Customer Real Names from Facebook"
+                            className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                        >
+                            <Users className={`w-3.5 h-3.5 ${syncingNames ? 'animate-spin text-cyan-400' : ''}`} />
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -723,6 +771,15 @@ export const UnifiedInboxPage = () => {
                                     className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
                                 >
                                     <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSyncNames}
+                                    disabled={syncingNames}
+                                    title="Sync Real Customer Names from Facebook"
+                                    className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                    <Users className={`w-3.5 h-3.5 ${syncingNames ? 'animate-spin text-cyan-400' : ''}`} />
                                 </button>
                                 <Button
                                     variant={activeConversation.is_human_takeover ? 'warning' : 'secondary'}
