@@ -21,6 +21,30 @@ Route::get('/data-deletion', function () {
 
 /*
 |--------------------------------------------------------------------------
+| System Maintenance & Cache Invalidation
+|--------------------------------------------------------------------------
+*/
+Route::get('/maintenance/clear-cache', function () {
+    \Illuminate\Support\Facades\Artisan::call('view:clear');
+    \Illuminate\Support\Facades\Artisan::call('cache:clear');
+    \Illuminate\Support\Facades\Artisan::call('config:clear');
+    if (function_exists('opcache_reset')) {
+        @opcache_reset();
+    }
+    $lockFile = base_path('composer.lock');
+    $lockDeleted = false;
+    if (file_exists($lockFile)) {
+        $lockDeleted = @unlink($lockFile);
+    }
+    return response()->json([
+        'status' => 'success',
+        'view_cleared' => true,
+        'composer_lock_deleted' => $lockDeleted,
+    ]);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Web Routes - SPA Catch-All
 |--------------------------------------------------------------------------
 */
