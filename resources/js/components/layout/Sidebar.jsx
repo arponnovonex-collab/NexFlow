@@ -91,6 +91,13 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                 >
                     <Menu className="w-4 h-4" />
                 </button>
+                <button
+                    onClick={() => setMobileOpen && setMobileOpen(false)}
+                    className="md:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800/70"
+                    title="Close Menu"
+                >
+                    <X className="w-5 h-5" />
+                </button>
             </div>
 
             {/* Navigation links */}

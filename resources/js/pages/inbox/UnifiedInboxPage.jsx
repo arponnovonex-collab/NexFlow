@@ -223,9 +223,13 @@ export const UnifiedInboxPage = () => {
                 const queryConvId = searchParams.get('conversation');
                 if (queryConvId) {
                     const found = list.find((c) => c.id === parseInt(queryConvId));
-                    if (found) loadConversationDetails(found.id);
-                    else if (list.length > 0) loadConversationDetails(list[0].id);
-                } else if (!activeConversation && list.length > 0) {
+                    if (found) {
+                        loadConversationDetails(found.id);
+                        if (isMobile) setMobileView('chat');
+                    } else if (list.length > 0 && !isMobile) {
+                        loadConversationDetails(list[0].id);
+                    }
+                } else if (!activeConversation && list.length > 0 && !isMobile) {
                     loadConversationDetails(list[0].id);
                 }
             }
@@ -334,8 +338,10 @@ export const UnifiedInboxPage = () => {
     }, [filterTab, platformFilter]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [activeConversation?.messages]);
+        if (!isMobile || mobileView === 'chat') {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [activeConversation?.messages, mobileView, isMobile]);
 
     // Send Message
     const handleSendMessage = async (e) => {
@@ -549,15 +555,14 @@ export const UnifiedInboxPage = () => {
     return (
         <div
             ref={containerRef}
-            className="h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-6.5rem)] flex flex-col md:flex-row bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-2xl overflow-hidden shadow-2xl relative"
+            className="w-full h-full flex-1 flex flex-col md:flex-row bg-slate-900 border-0 md:border border-slate-800 rounded-none md:rounded-2xl overflow-hidden shadow-2xl relative min-h-0"
         >
             {/* COLUMN 1: Conversation List (Left Panel - Resizable & Slimmer) */}
-            <div
-                style={isMobile ? undefined : { width: `${leftWidth}px` }}
-                className={`${
-                    mobileView === 'list' ? 'flex' : 'hidden'
-                } md:flex flex-col w-full md:w-auto border-r border-slate-800 bg-slate-950/60 shrink-0 relative transition-none h-full`}
-            >
+            {(!isMobile || mobileView === 'list') && (
+                <div
+                    style={isMobile ? undefined : { width: `${leftWidth}px` }}
+                    className="flex flex-col w-full md:w-auto border-r border-slate-800 bg-slate-950/60 shrink-0 relative transition-none h-full min-h-0 overflow-hidden"
+                >
                 {/* Search & Platform Filter */}
                 <div className="p-3 border-b border-slate-800 space-y-2">
                     <div className="flex items-center gap-1.5">
@@ -635,7 +640,7 @@ export const UnifiedInboxPage = () => {
                 </div>
 
                 {/* Conversation Items List */}
-                <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40">
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 min-h-0 overscroll-contain">
                     {loadingList ? (
                         <div className="p-8 text-center text-xs text-slate-400">Loading inbox...</div>
                     ) : conversations.length === 0 ? (
@@ -723,24 +728,24 @@ export const UnifiedInboxPage = () => {
                     )}
                 </div>
             </div>
+            )}
 
             {/* Draggable Divider between Left Panel and Center Chat */}
-            <div
-                onMouseDown={() => setIsDraggingLeft(true)}
-                className={`hidden md:flex w-2 hover:w-2.5 bg-slate-950/90 hover:bg-indigo-500/70 cursor-col-resize items-center justify-center transition-colors group shrink-0 z-10 border-x border-slate-800/80 ${
-                    isDraggingLeft ? 'bg-indigo-500 w-2.5' : ''
-                }`}
-                title="Drag to resize customer list (মাউস দিয়ে টেনে বড়-ছোট করুন)"
-            >
-                <div className="w-0.5 h-7 bg-slate-700 group-hover:bg-white rounded-full transition-colors" />
-            </div>
+            {!isMobile && (
+                <div
+                    onMouseDown={() => setIsDraggingLeft(true)}
+                    className={`hidden md:flex w-2 hover:w-2.5 bg-slate-950/90 hover:bg-indigo-500/70 cursor-col-resize items-center justify-center transition-colors group shrink-0 z-10 border-x border-slate-800/80 ${
+                        isDraggingLeft ? 'bg-indigo-500 w-2.5' : ''
+                    }`}
+                    title="Drag to resize customer list (মাউস দিয়ে টেনে বড়-ছোট করুন)"
+                >
+                    <div className="w-0.5 h-7 bg-slate-700 group-hover:bg-white rounded-full transition-colors" />
+                </div>
+            )}
 
             {/* COLUMN 2: Center Message Thread & Composer */}
-            <div
-                className={`${
-                    mobileView === 'chat' ? 'flex' : 'hidden'
-                } md:flex flex-1 flex-col min-w-0 bg-slate-900 h-full`}
-            >
+            {(!isMobile || mobileView === 'chat') && (
+                <div className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full min-h-0 overflow-hidden">
                 {activeConversation ? (
                     <>
                         {/* Conversation Header */}
@@ -877,7 +882,7 @@ export const UnifiedInboxPage = () => {
                         )}
 
                         {/* Messages Scroll Area */}
-                        <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-4">
+                        <div className="flex-1 p-3 md:p-6 overflow-y-auto space-y-3 md:space-y-4 min-h-0 overscroll-contain">
                             {loadingThread ? (
                                 <div className="py-20 text-center text-xs text-slate-400">Loading conversation...</div>
                             ) : (
@@ -994,7 +999,7 @@ export const UnifiedInboxPage = () => {
                         )}
 
                         {/* Message Composer Area */}
-                        <div className="p-2.5 md:p-4 border-t border-slate-800 bg-slate-950/60 shrink-0">
+                        <div className="p-2.5 md:p-4 border-t border-slate-800 bg-slate-950/95 shrink-0 z-10">
                             {/* Human Takeover Notice */}
                             {activeConversation.is_human_takeover && (
                                 <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-[11px] text-amber-300 mb-2 animate-fade-in">
@@ -1098,9 +1103,10 @@ export const UnifiedInboxPage = () => {
                     </div>
                 )}
             </div>
+            )}
 
             {/* Draggable Divider between Center Chat and Right CRM Panel */}
-            {activeConversation && showRightPanel && (
+            {!isMobile && activeConversation && showRightPanel && (
                 <div
                     onMouseDown={() => setIsDraggingRight(true)}
                     className={`hidden md:flex w-2 hover:w-2.5 bg-slate-950/90 hover:bg-indigo-500/70 cursor-col-resize items-center justify-center transition-colors group shrink-0 z-10 border-x border-slate-800/80 ${
@@ -1113,12 +1119,10 @@ export const UnifiedInboxPage = () => {
             )}
 
             {/* COLUMN 3: Customer CRM & Details (Right Panel - Resizable & Collapsible) */}
-            {activeConversation && (showRightPanel || mobileView === 'details') && (
+            {activeConversation && ((!isMobile && showRightPanel) || (isMobile && mobileView === 'details')) && (
                 <div
                     style={isMobile ? undefined : { width: `${rightWidth}px` }}
-                    className={`${
-                        mobileView === 'details' ? 'flex' : 'hidden'
-                    } md:flex flex-col w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-4 md:p-5 overflow-y-auto space-y-4 md:space-y-5 shrink-0 h-full`}
+                    className="flex flex-col w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-4 md:p-5 overflow-y-auto space-y-4 md:space-y-5 shrink-0 h-full min-h-0 overscroll-contain"
                 >
                     {/* Mobile Back Button to return to Chat (Messenger style) */}
                     <div className="md:hidden flex items-center justify-between pb-3 border-b border-slate-800">

@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
 export const AppLayout = () => {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
+    const location = useLocation();
+    const isInbox = location.pathname.startsWith('/inbox');
+
+    // Automatically close mobile drawer when navigating
+    useEffect(() => {
+        setMobileOpen(false);
+    }, [location.pathname]);
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex">
+        <div className="h-screen min-h-screen bg-slate-950 text-slate-100 flex overflow-hidden">
             {/* Mobile backdrop */}
             {mobileOpen && (
                 <div
@@ -27,12 +34,16 @@ export const AppLayout = () => {
 
             {/* Main Content Area */}
             <div
-                className={`flex-1 flex flex-col min-w-0 transition-all duration-200 ${
+                className={`flex-1 flex flex-col min-w-0 h-full transition-all duration-200 overflow-hidden ${
                     isCollapsed ? 'md:ml-20' : 'md:ml-64'
                 }`}
             >
                 <Header onMenuClick={() => setMobileOpen(true)} />
-                <main className="flex-1 p-2 sm:p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto overflow-y-auto">
+                <main className={`flex-1 min-w-0 w-full mx-auto flex flex-col min-h-0 ${
+                    isInbox
+                        ? 'p-0 md:p-6 lg:p-8 max-w-7xl overflow-hidden h-[calc(100dvh-4rem)]'
+                        : 'p-4 md:p-6 lg:p-8 max-w-7xl overflow-y-auto'
+                }`}>
                     <Outlet />
                 </main>
             </div>
