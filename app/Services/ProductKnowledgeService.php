@@ -16,6 +16,20 @@ class ProductKnowledgeService
             $q->where('is_active', true);
         }])->where('is_active', true)->get();
 
+        // Fallback to social account's mapped products
+        if ($products->isEmpty() && $post->socialAccount) {
+            $products = $post->socialAccount->products()->with(['variants' => function ($q) {
+                $q->where('is_active', true);
+            }])->where('is_active', true)->get();
+        }
+
+        // Fallback to top store products
+        if ($products->isEmpty()) {
+            $products = Product::with(['variants' => function ($q) {
+                $q->where('is_active', true);
+            }])->where('is_active', true)->limit(5)->get();
+        }
+
         if ($products->isEmpty()) {
             return [
                 'has_product' => false,

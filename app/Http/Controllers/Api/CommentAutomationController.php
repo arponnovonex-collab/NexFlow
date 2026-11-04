@@ -207,10 +207,11 @@ class CommentAutomationController extends Controller
             $commentId = $comment->platform_comment_id;
             if ($commentId) {
                 try {
-                    $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
-                        'message' => $replyText,
-                        'access_token' => $account->access_token,
-                    ]);
+                    $publishRes = Http::withToken($account->access_token)
+                        ->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                            'message' => $replyText,
+                        ]);
+
                     if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
                         $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
                             'fields' => 'access_token',
@@ -219,11 +220,21 @@ class CommentAutomationController extends Controller
                         if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                             $pageToken = $pageRes->json('access_token');
                             $account->update(['access_token' => $pageToken]);
-                            Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                            $publishRes = Http::withToken($pageToken)->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
                                 'message' => $replyText,
-                                'access_token' => $pageToken,
                             ]);
                         }
+                    }
+
+                    // Also send Private Messenger Reply (DM)
+                    try {
+                        $tokenToUse = $account->fresh()->access_token;
+                        Http::withToken($tokenToUse)->post("https://graph.facebook.com/{$version}/me/messages", [
+                            'recipient' => ['comment_id' => (string) $commentId],
+                            'message' => ['text' => $replyText],
+                        ]);
+                    } catch (\Exception $dmE) {
+                        Log::warning('Private reply exception: ' . $dmE->getMessage());
                     }
                 } catch (\Exception $e) {
                     Log::warning('Failed to publish manual comment reply to FB: ' . $e->getMessage());
@@ -272,10 +283,11 @@ class CommentAutomationController extends Controller
             $commentId = $comment->platform_comment_id;
             if ($commentId) {
                 try {
-                    $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
-                        'message' => $validated['reply_text'],
-                        'access_token' => $account->access_token,
-                    ]);
+                    $publishRes = Http::withToken($account->access_token)
+                        ->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                            'message' => $validated['reply_text'],
+                        ]);
+
                     if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
                         $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
                             'fields' => 'access_token',
@@ -284,11 +296,21 @@ class CommentAutomationController extends Controller
                         if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                             $pageToken = $pageRes->json('access_token');
                             $account->update(['access_token' => $pageToken]);
-                            Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                            $publishRes = Http::withToken($pageToken)->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
                                 'message' => $validated['reply_text'],
-                                'access_token' => $pageToken,
                             ]);
                         }
+                    }
+
+                    // Also send Private Messenger Reply (DM)
+                    try {
+                        $tokenToUse = $account->fresh()->access_token;
+                        Http::withToken($tokenToUse)->post("https://graph.facebook.com/{$version}/me/messages", [
+                            'recipient' => ['comment_id' => (string) $commentId],
+                            'message' => ['text' => $validated['reply_text']],
+                        ]);
+                    } catch (\Exception $dmE) {
+                        Log::warning('Private reply exception on approve: ' . $dmE->getMessage());
                     }
                 } catch (\Exception $e) {
                     Log::warning('Failed to publish approved comment reply to FB: ' . $e->getMessage());

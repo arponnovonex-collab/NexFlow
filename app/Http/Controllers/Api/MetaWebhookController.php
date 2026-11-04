@@ -178,10 +178,12 @@ class MetaWebhookController extends Controller
             // If account has valid live token, publish to Graph API
             if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
                 $version = config('services.meta.graph_version', 'v19.0');
-                $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
-                    'message' => $replyText,
-                    'access_token' => $account->access_token,
-                ]);
+                
+                // 1. Send Public Comment Reply directly under the comment
+                $publishRes = Http::withToken($account->access_token)
+                    ->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                        'message' => $replyText,
+                    ]);
 
                 // Fallback: If 400/403 (e.g. token was User token instead of Page token), resolve Page token and retry
                 if (! $publishRes->successful() && ($publishRes->status() === 400 || $publishRes->status() === 403)) {
@@ -193,11 +195,22 @@ class MetaWebhookController extends Controller
                     if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                         $pageToken = $pageRes->json('access_token');
                         $account->update(['access_token' => $pageToken]);
-                        $publishRes = Http::post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
+                        $publishRes = Http::withToken($pageToken)->post("https://graph.facebook.com/{$version}/{$commentId}/comments", [
                             'message' => $replyText,
-                            'access_token' => $pageToken,
                         ]);
                     }
+                }
+
+                // 2. Also send Private Message (DM) to customer's Messenger inbox!
+                try {
+                    $tokenToUse = $account->fresh()->access_token;
+                    $dmRes = Http::withToken($tokenToUse)->post("https://graph.facebook.com/{$version}/me/messages", [
+                        'recipient' => ['comment_id' => (string) $commentId],
+                        'message' => ['text' => $replyText],
+                    ]);
+                    Log::info("Private Messenger Reply for comment {$commentId}: status " . $dmRes->status() . " body: " . $dmRes->body());
+                } catch (\Exception $e) {
+                    Log::warning("Private Reply Exception for comment {$commentId}: " . $e->getMessage());
                 }
 
                 Log::info("Published comment reply for comment {$commentId}: status " . $publishRes->status() . " body: " . $publishRes->body());
