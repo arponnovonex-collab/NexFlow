@@ -1113,13 +1113,13 @@ export const UnifiedInboxPage = () => {
             <CreateOrderModal
                 isOpen={orderModal}
                 onClose={() => setOrderModal(false)}
-                initialData={{
+                initialData={React.useMemo(() => ({
                     customer_id: activeConversation?.customer_id,
                     customer_name: activeConversation?.customer?.name,
                     customer_phone: activeConversation?.customer?.phone || '',
                     customer_address: '',
                     conversation_id: activeConversation?.id,
-                }}
+                }), [orderModal, activeConversation?.id])}
                 onOrderCreated={(newOrder) => {
                     if (activeConversation) {
                         loadConversationDetails(activeConversation.id);

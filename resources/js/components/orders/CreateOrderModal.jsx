@@ -37,15 +37,17 @@ export const CreateOrderModal = ({
     const [deliveryCharge, setDeliveryCharge] = useState(60);
     const [notes, setNotes] = useState('');
 
+    const prevOpenRef = React.useRef(false);
+
     const generateOrderNumber = () => {
         const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         return `NF-${dateStr}-${randomNum}`;
     };
 
-    // Load products on modal open
+    // Initialize fields ONLY when modal transitions from closed to open
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && !prevOpenRef.current) {
             setCustomerName(initialData.customer_name || '');
             setCustomerPhone(initialData.customer_phone || '');
             setCustomerAddress(initialData.customer_address || '');
@@ -56,7 +58,8 @@ export const CreateOrderModal = ({
 
             fetchProducts();
         }
-    }, [isOpen, initialData]);
+        prevOpenRef.current = isOpen;
+    }, [isOpen]);
 
     const fetchProducts = async () => {
         setLoadingProducts(true);
