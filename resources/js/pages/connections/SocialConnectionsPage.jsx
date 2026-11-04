@@ -39,6 +39,8 @@ export const SocialConnectionsPage = () => {
     const [tokenModalAccount, setTokenModalAccount] = useState(null);
     const [newToken, setNewToken] = useState('');
     const [savingToken, setSavingToken] = useState(false);
+    const [verifyingTokens, setVerifyingTokens] = useState(false);
+    const [connecting, setConnecting] = useState(false);
 
     const handleUpdateToken = async (e) => {
         e.preventDefault();
@@ -56,6 +58,19 @@ export const SocialConnectionsPage = () => {
             alert(err.response?.data?.message || 'Failed to update token.');
         } finally {
             setSavingToken(false);
+        }
+    };
+
+    const handleVerifyAllTokens = async () => {
+        setVerifyingTokens(true);
+        try {
+            const res = await api.post('/social-accounts/verify-all-tokens');
+            alert(res.data.message || 'Health check complete!');
+            fetchAccounts();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to verify tokens with Meta.');
+        } finally {
+            setVerifyingTokens(false);
         }
     };
 
@@ -89,13 +104,17 @@ export const SocialConnectionsPage = () => {
 
     const handleConnectSubmit = async (e) => {
         e.preventDefault();
+        setConnecting(true);
         try {
             await api.post('/social-accounts', connectForm);
+            alert('Channel successfully connected and verified with Meta!');
             setConnectModal(false);
             setConnectForm({ platform: 'facebook_page', name: '', account_id: '', username: '', access_token: '' });
             fetchAccounts();
         } catch (err) {
-            alert(err.response?.data?.message || 'Failed to connect account');
+            alert(err.response?.data?.message || 'Failed to connect account.');
+        } finally {
+            setConnecting(false);
         }
     };
 
@@ -157,14 +176,26 @@ export const SocialConnectionsPage = () => {
                         Connect and monitor official Facebook Pages, Instagram Professional Accounts, and WhatsApp Cloud API numbers.
                     </p>
                 </div>
-                <Button
-                    variant="primary"
-                    size="sm"
-                    icon={Plus}
-                    onClick={() => setConnectModal(true)}
-                >
-                    Connect New Channel
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={RefreshCw}
+                        loading={verifyingTokens}
+                        onClick={handleVerifyAllTokens}
+                        title="Meta-র সাথে সব চ্যানেলের টোকেন স্ট্যাটাস লাইভ চেক করুন"
+                    >
+                        Verify Token Health
+                    </Button>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        icon={Plus}
+                        onClick={() => setConnectModal(true)}
+                    >
+                        Connect New Channel
+                    </Button>
+                </div>
             </div>
 
             {loading ? (
@@ -175,17 +206,25 @@ export const SocialConnectionsPage = () => {
                         const isFB = acc.platform === 'facebook_page';
                         const isIG = acc.platform === 'instagram_business';
                         const isWA = acc.platform === 'whatsapp_cloud';
+                        const isExpired = acc.status === 'expired' || acc.is_token_expired || Boolean(acc.last_error);
 
                         return (
-                            <Card key={acc.id} className="relative flex flex-col justify-between">
+                            <Card
+                                key={acc.id}
+                                className={`relative flex flex-col justify-between transition-all duration-200 ${
+                                    isExpired
+                                        ? 'border-rose-500/80 bg-gradient-to-b from-rose-950/30 via-slate-900 to-slate-900 shadow-lg shadow-rose-950/40 ring-1 ring-rose-500/40'
+                                        : 'hover:border-slate-700'
+                                }`}
+                            >
                                 <div>
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="relative">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="relative shrink-0">
                                                 <img
                                                     src={acc.profile_picture_url || 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=100'}
                                                     alt={acc.name}
-                                                    className="w-11 h-11 rounded-xl object-cover ring-2 ring-slate-800"
+                                                    className={`w-11 h-11 rounded-xl object-cover ring-2 ${isExpired ? 'ring-rose-500/60' : 'ring-slate-800'}`}
                                                 />
                                                 <span
                                                     className={`absolute -bottom-1 -right-1 p-1 rounded-full text-white text-[9px] ${
@@ -195,15 +234,46 @@ export const SocialConnectionsPage = () => {
                                                     {isFB ? <Facebook className="w-2.5 h-2.5" /> : isIG ? <Instagram className="w-2.5 h-2.5" /> : <PhoneCall className="w-2.5 h-2.5" />}
                                                 </span>
                                             </div>
-                                            <div>
-                                                <h3 className="text-sm font-semibold text-slate-100">{acc.name}</h3>
-                                                <p className="text-xs text-slate-400">@{acc.username || acc.account_id}</p>
+                                            <div className="min-w-0">
+                                                <h3 className="text-sm font-semibold text-slate-100 truncate" title={acc.name}>{acc.name}</h3>
+                                                <p className="text-xs text-slate-400 truncate">@{acc.username || acc.account_id}</p>
                                             </div>
                                         </div>
-                                        <Badge variant={acc.status === 'connected' ? 'success' : 'neutral'} size="xs">
-                                            {acc.status === 'connected' ? 'Connected' : 'Disconnected'}
-                                        </Badge>
+
+                                        {isExpired ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/50 animate-pulse shadow-sm shadow-rose-950 shrink-0">
+                                                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                                Token Expired
+                                            </span>
+                                        ) : acc.status === 'connected' ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                Connected
+                                            </span>
+                                        ) : (
+                                            <Badge variant="neutral" size="xs" className="shrink-0">
+                                                Disconnected
+                                            </Badge>
+                                        )}
                                     </div>
+
+                                    {/* Prominent Banner if Token Expired */}
+                                    {isExpired && (
+                                        <div className="mt-3 p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/50 text-xs text-rose-200 flex items-start gap-2.5 animate-fade-in shadow-inner">
+                                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                                            <div className="space-y-1 min-w-0">
+                                                <p className="font-bold text-rose-200 text-xs">⚠️ Facebook Token Expired!</p>
+                                                <p className="text-[11px] text-rose-300/90 leading-relaxed">
+                                                    টোকেনের মেয়াদ শেষ হওয়ায় এই পেইজের মেসেজ ও অটো-রিপ্লাই সাময়িকভাবে বন্ধ আছে। নিচে <strong>"Update Token"</strong> বাটনে ক্লিক করে নতুন পার্মানেন্ট টোকেন দিন।
+                                                </p>
+                                                {acc.last_error && (
+                                                    <p className="text-[10px] font-mono text-rose-400/90 pt-0.5 truncate" title={acc.last_error}>
+                                                        Meta: {acc.last_error}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Stats grid */}
                                     <div className="mt-4 grid grid-cols-3 gap-2 py-3 border-y border-slate-800/80 text-center">
@@ -225,8 +295,8 @@ export const SocialConnectionsPage = () => {
                                     <div className="mt-3 space-y-1.5 text-xs text-slate-400">
                                         <div className="flex items-center justify-between">
                                             <span>Channel Status:</span>
-                                            {acc.status === 'expired' || acc.last_error ? (
-                                                <span className="flex items-center gap-1 text-rose-400 font-semibold" title={acc.last_error || 'Token expired'}>
+                                            {isExpired ? (
+                                                <span className="flex items-center gap-1 text-rose-400 font-bold" title={acc.last_error || 'Token expired'}>
                                                     <AlertTriangle className="w-3.5 h-3.5" /> Token Expired
                                                 </span>
                                             ) : acc.status === 'connected' ? (
@@ -239,71 +309,104 @@ export const SocialConnectionsPage = () => {
                                                 </span>
                                             )}
                                         </div>
+
+                                        <div className="flex items-center justify-between">
+                                            <span>Token Validity:</span>
+                                            {isExpired ? (
+                                                <span className="text-rose-400 font-semibold">Expired ❌</span>
+                                            ) : acc.is_permanent || (!acc.token_expires_at && acc.status === 'connected') ? (
+                                                <span className="text-emerald-400 font-medium flex items-center gap-1" title="Lifetime Permanent Token">
+                                                    <CheckCircle2 className="w-3.5 h-3.5" /> Lifetime (Never) ♾️
+                                                </span>
+                                            ) : acc.token_expires_at ? (
+                                                <span className="text-amber-300 font-medium" title={acc.token_expires_at}>
+                                                    Expires {new Date(acc.token_expires_at).toLocaleDateString()}
+                                                </span>
+                                            ) : (
+                                                <span className="text-slate-300">Active</span>
+                                            )}
+                                        </div>
+
                                         <div className="flex items-center justify-between">
                                             <span>AI Automation:</span>
                                             <span className="text-indigo-400 font-medium">
-                                                {acc.status === 'connected' ? (acc.settings?.ai_mode === 'auto' ? 'Full Auto' : 'Suggestion Only') : 'Paused'}
+                                                {acc.status === 'connected' && !isExpired ? (acc.settings?.ai_mode === 'auto' ? 'Full Auto' : 'Suggestion Only') : 'Paused'}
                                             </span>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between gap-1.5 flex-wrap">
-                                    <Button
-                                        variant="secondary"
-                                        size="xs"
-                                        className={acc.status === 'expired' || acc.last_error ? 'border-rose-500/50 text-rose-300 hover:bg-rose-500/10' : ''}
-                                        onClick={() => {
-                                            setTokenModalAccount(acc);
-                                            setNewToken('');
-                                        }}
-                                    >
-                                        Update Token
-                                    </Button>
-
-                                    {acc.status === 'connected' ? (
+                                    {isExpired ? (
+                                        <Button
+                                            variant="primary"
+                                            size="xs"
+                                            className="bg-rose-600 hover:bg-rose-500 text-white font-bold flex items-center justify-center gap-1.5 shadow-md shadow-rose-900/40 w-full"
+                                            onClick={() => {
+                                                setTokenModalAccount(acc);
+                                                setNewToken('');
+                                            }}
+                                        >
+                                            <RefreshCw className="w-3.5 h-3.5" /> Update Token Now
+                                        </Button>
+                                    ) : (
                                         <>
                                             <Button
                                                 variant="secondary"
                                                 size="xs"
-                                                icon={Activity}
-                                                onClick={() => runDiagnostics(acc)}
+                                                onClick={() => {
+                                                    setTokenModalAccount(acc);
+                                                    setNewToken('');
+                                                }}
                                             >
-                                                Diagnostics
+                                                Update Token
                                             </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="xs"
-                                                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
-                                                icon={Sliders}
-                                                loading={actionLoadingId === acc.id}
-                                                onClick={() => handleDisconnectChannel(acc)}
-                                            >
-                                                Disconnect
-                                            </Button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Button
-                                                variant="primary"
-                                                size="xs"
-                                                className="bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
-                                                icon={CheckCircle2}
-                                                loading={actionLoadingId === acc.id}
-                                                onClick={() => handleReconnectChannel(acc)}
-                                            >
-                                                Connect
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="xs"
-                                                className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
-                                                icon={Trash2}
-                                                loading={deletingId === acc.id}
-                                                onClick={() => handleDeleteChannel(acc)}
-                                            >
-                                                Delete Channel
-                                            </Button>
+
+                                            {acc.status === 'connected' ? (
+                                                <>
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="xs"
+                                                        icon={Activity}
+                                                        onClick={() => runDiagnostics(acc)}
+                                                    >
+                                                        Diagnostics
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="xs"
+                                                        className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
+                                                        icon={Sliders}
+                                                        loading={actionLoadingId === acc.id}
+                                                        onClick={() => handleDisconnectChannel(acc)}
+                                                    >
+                                                        Disconnect
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Button
+                                                        variant="primary"
+                                                        size="xs"
+                                                        className="bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                                        icon={CheckCircle2}
+                                                        loading={actionLoadingId === acc.id}
+                                                        onClick={() => handleReconnectChannel(acc)}
+                                                    >
+                                                        Connect
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="xs"
+                                                        className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+                                                        icon={Trash2}
+                                                        loading={deletingId === acc.id}
+                                                        onClick={() => handleDeleteChannel(acc)}
+                                                    >
+                                                        Delete Channel
+                                                    </Button>
+                                                </>
+                                            )}
                                         </>
                                     )}
                                 </div>
@@ -395,12 +498,16 @@ export const SocialConnectionsPage = () => {
                         ></textarea>
                     </div>
 
+                    <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-300">
+                        💡 <strong>টিপস:</strong> সাময়িক ইউজার টোকেন ১-২ ঘণ্টা পর মেয়াদ শেষ হয়ে যায়। পেইজের জন্য <strong>Lifetime / Permanent Page Access Token</strong> ব্যবহার করলে এই চ্যানেলের টোকেন আর কখনো এক্সপায়ার হবে না।
+                    </div>
+
                     <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => setConnectModal(false)}>
+                        <Button variant="ghost" size="sm" onClick={() => setConnectModal(false)} disabled={connecting}>
                             Cancel
                         </Button>
-                        <Button variant="primary" size="sm" type="submit">
-                            Save & Verify Connection
+                        <Button variant="primary" size="sm" type="submit" loading={connecting}>
+                            Save & Verify with Meta
                         </Button>
                     </div>
                 </form>

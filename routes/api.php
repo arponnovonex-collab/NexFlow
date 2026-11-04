@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/metrics', [DashboardController::class, 'metrics']);
 
     // Social Accounts & Channels
+    Route::post('/social-accounts/verify-all-tokens', [SocialAccountController::class, 'verifyAllTokens']);
     Route::apiResource('social-accounts', SocialAccountController::class);
     Route::get('/social-accounts/{socialAccount}/diagnostics', [SocialAccountController::class, 'diagnostics']);
     Route::post('/social-accounts/{socialAccount}/disconnect', [SocialAccountController::class, 'disconnect']);
