@@ -205,5 +205,30 @@ class LeadController extends Controller
             'data' => $customers,
         ]);
     }
+
+    /**
+     * Update customer details.
+     */
+    public function updateCustomer(Request $request, Customer $customer): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'phone' => 'nullable|string|max:50',
+            'email' => 'nullable|email|max:255',
+            'notes' => 'nullable|string',
+        ]);
+
+        $customer->update(array_filter($validated, fn ($val) => ! is_null($val)));
+
+        if (! empty($validated['name'])) {
+            $customer->channelIdentities()->update(['profile_name' => $validated['name']]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Customer details updated successfully',
+            'data' => $customer->fresh(['channelIdentities']),
+        ]);
+    }
 }
 

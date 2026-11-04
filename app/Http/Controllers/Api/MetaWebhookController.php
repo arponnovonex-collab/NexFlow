@@ -323,8 +323,18 @@ class MetaWebhookController extends Controller
         if ($identity) {
             $customer = $identity->customer;
         } else {
+            // Check if user previously commented on a post with their real name
+            $commentAuthor = SocialComment::where('platform_user_id', (string) $senderPsid)
+                ->whereNotNull('customer_name')
+                ->where('customer_name', '!=', '')
+                ->where('customer_name', '!=', 'Facebook User')
+                ->latest()
+                ->value('customer_name');
+
+            $initialName = $commentAuthor ?: ('Facebook Customer (' . substr($senderPsid, -4) . ')');
+
             $customer = Customer::create([
-                'name' => 'Facebook Customer (' . substr($senderPsid, -4) . ')',
+                'name' => $initialName,
                 'avatar_url' => 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80',
             ]);
 
@@ -409,31 +419,52 @@ class MetaWebhookController extends Controller
         $text = $task['text'];
 
         // 1. Fast profile enrichment if name is generic
-        if (str_starts_with($customer->name, 'Facebook Customer') && $account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
-            try {
-                $version = config('services.meta.graph_version', 'v19.0');
-                $profileRes = Http::timeout(2.5)->get("https://graph.facebook.com/{$version}/{$senderPsid}", [
-                    'fields' => 'name,first_name,last_name,profile_pic',
-                    'access_token' => $account->access_token,
-                ]);
+        if (str_starts_with($customer->name, 'Facebook Customer')) {
+            // Check if user commented on any post
+            $commentAuthor = SocialComment::where('platform_user_id', (string) $senderPsid)
+                ->whereNotNull('customer_name')
+                ->where('customer_name', '!=', '')
+                ->where('customer_name', '!=', 'Facebook User')
+                ->latest()
+                ->value('customer_name');
 
-                if ($profileRes->successful()) {
-                    $profileData = $profileRes->json();
-                    $updates = [];
-                    if (! empty($profileData['name'])) {
-                        $updates['name'] = $profileData['name'];
+            if ($commentAuthor) {
+                $customer->update(['name' => $commentAuthor]);
+                CustomerChannelIdentity::where('platform_customer_id', $senderPsid)
+                    ->update(['profile_name' => $commentAuthor]);
+            } elseif ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+                try {
+                    $version = config('services.meta.graph_version', 'v19.0');
+                    $profileRes = Http::timeout(3.5)->get("https://graph.facebook.com/{$version}/{$senderPsid}", [
+                        'fields' => 'name,first_name,last_name,profile_pic',
+                        'access_token' => $account->access_token,
+                    ]);
+
+                    if ($profileRes->successful()) {
+                        $profileData = $profileRes->json();
+                        $resolvedName = trim(($profileData['first_name'] ?? '') . ' ' . ($profileData['last_name'] ?? ''));
+                        if (empty($resolvedName) && ! empty($profileData['name'])) {
+                            $resolvedName = trim($profileData['name']);
+                        }
+
+                        $updates = [];
+                        if (! empty($resolvedName)) {
+                            $updates['name'] = $resolvedName;
+                        }
+                        if (! empty($profileData['profile_pic'])) {
+                            $updates['avatar_url'] = $profileData['profile_pic'];
+                        }
+                        if (! empty($updates)) {
+                            $customer->update($updates);
+                            if (! empty($resolvedName)) {
+                                CustomerChannelIdentity::where('platform_customer_id', $senderPsid)
+                                    ->update(['profile_name' => $resolvedName]);
+                            }
+                        }
                     }
-                    if (! empty($profileData['profile_pic'])) {
-                        $updates['avatar_url'] = $profileData['profile_pic'];
-                    }
-                    if (! empty($updates)) {
-                        $customer->update($updates);
-                        CustomerChannelIdentity::where('platform_customer_id', $senderPsid)
-                            ->update(['profile_name' => $customer->name]);
-                    }
+                } catch (\Throwable $e) {
+                    // Ignore profile timeout
                 }
-            } catch (\Throwable $e) {
-                // Ignore profile timeout
             }
         }
 

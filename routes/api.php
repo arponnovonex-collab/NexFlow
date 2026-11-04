@@ -84,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/followups', [LeadController::class, 'storeFollowup']);
     Route::put('/followups/{followup}', [LeadController::class, 'updateFollowup']);
     Route::get('/customers', [LeadController::class, 'customers']);
+    Route::put('/customers/{customer}', [LeadController::class, 'updateCustomer']);
 
     // Orders & Conversions
     Route::apiResource('orders', OrderController::class)->only(['index', 'store']);

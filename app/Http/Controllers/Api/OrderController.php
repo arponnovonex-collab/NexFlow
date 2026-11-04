@@ -83,9 +83,24 @@ class OrderController extends Controller
                 'phone' => $validated['customer_phone'],
             ]);
             if (! empty($validated['customer_name'])) {
-                Customer::where('id', $customerId)->where('name', 'like', 'Customer%')->update([
-                    'name' => $validated['customer_name'],
-                ]);
+                Customer::where('id', $customerId)
+                    ->where(function ($q) {
+                        $q->where('name', 'like', 'Facebook%')
+                            ->orWhere('name', 'like', 'Customer%')
+                            ->orWhereNull('name');
+                    })
+                    ->update([
+                        'name' => $validated['customer_name'],
+                    ]);
+                \App\Models\CustomerChannelIdentity::where('customer_id', $customerId)
+                    ->where(function ($q) {
+                        $q->where('profile_name', 'like', 'Facebook%')
+                            ->orWhere('profile_name', 'like', 'Customer%')
+                            ->orWhereNull('profile_name');
+                    })
+                    ->update([
+                        'profile_name' => $validated['customer_name'],
+                    ]);
             }
         }
 

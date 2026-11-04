@@ -33,6 +33,7 @@ import {
     PanelRightClose,
     PanelRightOpen,
     GripVertical,
+    Edit3,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -89,6 +90,12 @@ export const UnifiedInboxPage = () => {
         customer_phone: '',
         notes: '',
     });
+
+    // Customer editing state
+    const [editingCustomer, setEditingCustomer] = useState(false);
+    const [custEditName, setCustEditName] = useState('');
+    const [custEditPhone, setCustEditPhone] = useState('');
+    const [savingCustomer, setSavingCustomer] = useState(false);
 
     const messagesEndRef = useRef(null);
     const activeConvIdRef = useRef(null);
@@ -364,6 +371,40 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    // Update Customer details handler
+    const handleSaveCustomer = async (e) => {
+        e?.preventDefault();
+        if (!activeConversation?.customer?.id) return;
+        try {
+            setSavingCustomer(true);
+            const res = await api.put(`/customers/${activeConversation.customer.id}`, {
+                name: custEditName.trim(),
+                phone: custEditPhone.trim(),
+            });
+            const updatedCust = res.data.data;
+            setActiveConversation((prev) => ({
+                ...prev,
+                customer: {
+                    ...prev.customer,
+                    ...updatedCust,
+                },
+            }));
+            setConversations((prev) =>
+                prev.map((c) =>
+                    c.customer?.id === updatedCust.id
+                        ? { ...c, customer: { ...c.customer, ...updatedCust } }
+                        : c
+                )
+            );
+            setEditingCustomer(false);
+        } catch (err) {
+            console.error('Failed to update customer', err);
+            alert('Failed to update customer details.');
+        } finally {
+            setSavingCustomer(false);
+        }
+    };
+
     // AI Suggest Reply
     const handleAiSuggest = async () => {
         if (!activeConversation) return;
@@ -534,6 +575,8 @@ export const UnifiedInboxPage = () => {
                             const isSelected = activeConversation?.id === c.id;
                             const isFB = c.platform === 'facebook_page';
                             const isIG = c.platform === 'instagram_business';
+                            const customerName = c.customer?.name || 'Customer';
+                            const pageName = c.social_account?.name || c.socialAccount?.name;
 
                             return (
                                 <div
@@ -546,7 +589,7 @@ export const UnifiedInboxPage = () => {
                                     <div className="relative shrink-0">
                                         <img
                                             src={c.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                            alt={c.customer?.name}
+                                            alt={customerName}
                                             className="w-8 h-8 rounded-full object-cover"
                                         />
                                         <span
@@ -559,15 +602,17 @@ export const UnifiedInboxPage = () => {
                                     </div>
 
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-1">
-                                            <span className="text-xs font-semibold text-slate-200 truncate" title={`${c.customer?.name || 'Customer'} ${c.social_account?.name ? `(${c.social_account.name})` : ''}`}>
-                                                {c.customer?.name}
-                                                {c.social_account?.name && (
-                                                    <span className="text-[10px] font-normal text-slate-400 ml-1">
-                                                        ({c.social_account.name})
+                                        <div className="flex items-center justify-between gap-1.5">
+                                            <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden" title={`${customerName}${pageName ? ` (${pageName})` : ''}`}>
+                                                <span className="text-xs font-semibold text-slate-100 truncate">
+                                                    {customerName}
+                                                </span>
+                                                {pageName && (
+                                                    <span className="text-[11px] font-semibold text-cyan-400 shrink-0">
+                                                        ({pageName})
                                                     </span>
                                                 )}
-                                            </span>
+                                            </div>
                                             <span className="text-[10px] text-slate-400 shrink-0">
                                                 {c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                             </span>
@@ -633,11 +678,11 @@ export const UnifiedInboxPage = () => {
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h2 className="text-sm font-semibold text-white flex items-center gap-1.5 truncate">
-                                            <span>{activeConversation.customer?.name}</span>
-                                            {activeConversation.social_account?.name && (
-                                                <span className="text-xs font-normal text-slate-400">
-                                                    ({activeConversation.social_account.name})
+                                        <h2 className="text-sm font-bold text-white flex items-center gap-1.5 truncate">
+                                            <span>{activeConversation.customer?.name || 'Customer'}</span>
+                                            {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
+                                                <span className="text-xs font-semibold text-cyan-300">
+                                                    ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
                                                 </span>
                                             )}
                                         </h2>
@@ -651,7 +696,7 @@ export const UnifiedInboxPage = () => {
                                             }
                                             size="xs"
                                         >
-                                            {activeConversation.social_account?.name}
+                                            {activeConversation.social_account?.name || activeConversation.socialAccount?.name}
                                         </Badge>
                                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-medium tracking-wide">
                                             <span className="relative flex h-2 w-2">
@@ -971,12 +1016,85 @@ export const UnifiedInboxPage = () => {
                             alt={activeConversation.customer?.name}
                             className="w-16 h-16 rounded-full mx-auto object-cover ring-2 ring-indigo-500/20"
                         />
-                        <h3 className="text-sm font-bold text-slate-100 mt-2">{activeConversation.customer?.name}</h3>
-                        {activeConversation.social_account?.name && (
-                            <p className="text-[11px] text-indigo-400 font-medium">({activeConversation.social_account.name})</p>
-                        )}
-                        <p className="text-xs text-slate-400 mt-0.5">{activeConversation.customer?.phone || 'No phone recorded'}</p>
+                        <div className="mt-2">
+                            <h3 className="text-sm font-bold text-slate-100 flex items-center justify-center gap-1.5">
+                                <span>{activeConversation.customer?.name || 'Customer'}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setCustEditName(activeConversation.customer?.name || '');
+                                        setCustEditPhone(activeConversation.customer?.phone || '');
+                                        setEditingCustomer((prev) => !prev);
+                                    }}
+                                    title="Edit Customer"
+                                    className="text-slate-400 hover:text-cyan-400 transition-colors p-1 rounded hover:bg-slate-800"
+                                >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                            </h3>
+                            {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
+                                <p className="text-xs text-cyan-400 font-semibold mt-0.5">
+                                    ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
+                                </p>
+                            )}
+                            <p className="text-xs text-slate-400 mt-0.5">{activeConversation.customer?.phone || 'No phone recorded'}</p>
+                        </div>
                     </div>
+
+                    {/* Inline Customer Edit Form */}
+                    {editingCustomer && (
+                        <form onSubmit={handleSaveCustomer} className="p-3 bg-slate-900 border border-cyan-500/30 rounded-xl space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-slate-200">Edit Customer Info</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingCustomer(false)}
+                                    className="text-slate-400 hover:text-slate-200 text-xs px-1"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-medium text-slate-400 mb-1">Customer Name</label>
+                                <input
+                                    type="text"
+                                    value={custEditName}
+                                    onChange={(e) => setCustEditName(e.target.value)}
+                                    placeholder="Enter real customer name"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-medium text-slate-400 mb-1">Phone Number</label>
+                                <input
+                                    type="text"
+                                    value={custEditPhone}
+                                    onChange={(e) => setCustEditPhone(e.target.value)}
+                                    placeholder="01XXXXXXXXX"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-1">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={() => setEditingCustomer(false)}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    variant="primary"
+                                    size="xs"
+                                    disabled={savingCustomer}
+                                >
+                                    {savingCustomer ? 'Saving...' : 'Save'}
+                                </Button>
+                            </div>
+                        </form>
+                    )}
 
                     {/* Quick Lead Status Selector */}
                     <div className="space-y-1.5 border-t border-slate-800/80 pt-4">
@@ -1115,11 +1233,11 @@ export const UnifiedInboxPage = () => {
                 onClose={() => setOrderModal(false)}
                 initialData={React.useMemo(() => ({
                     customer_id: activeConversation?.customer_id,
-                    customer_name: activeConversation?.customer?.name,
+                    customer_name: activeConversation?.customer?.name?.startsWith('Facebook Customer') ? '' : (activeConversation?.customer?.name || ''),
                     customer_phone: activeConversation?.customer?.phone || '',
                     customer_address: '',
                     conversation_id: activeConversation?.id,
-                }), [orderModal, activeConversation?.id])}
+                }), [orderModal, activeConversation?.id, activeConversation?.customer?.name, activeConversation?.customer?.phone])}
                 onOrderCreated={(newOrder) => {
                     if (activeConversation) {
                         loadConversationDetails(activeConversation.id);
