@@ -9,7 +9,10 @@ use Illuminate\Support\Facades\Log;
 
 class SteadfastCourierService
 {
-    protected string $baseUrl = 'https://portal.steadfast.com.bd/api/v1';
+    /**
+     * Steadfast Courier API (v1 hosted via Packzy).
+     */
+    protected string $baseUrl = 'https://portal.packzy.com/api/v1';
 
     /**
      * Get or initialize Steadfast configuration.
@@ -71,7 +74,9 @@ class SteadfastCourierService
             }
         }
 
-        return "{$productName} | {$variantText} | {$order->quantity}";
+        // Steadfast requires `invoice` to be strictly unique across their entire platform.
+        // We include Order ID prefix + product details specified by user so duplicates never fail.
+        return "{$order->order_number} | {$productName} | {$variantText} | {$order->quantity}";
     }
 
     /**
