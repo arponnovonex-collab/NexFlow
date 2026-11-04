@@ -3,6 +3,7 @@ import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
+import { Modal } from '../../components/common/Modal';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import {
     ShoppingBag,
@@ -18,6 +19,7 @@ import {
     Phone,
     Package,
     RefreshCw,
+    Eye,
 } from 'lucide-react';
 
 export const OrdersPage = () => {
@@ -26,6 +28,7 @@ export const OrdersPage = () => {
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [createOrderModalOpen, setCreateOrderModalOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState(null);
 
     const fetchOrders = async () => {
         try {
@@ -284,18 +287,29 @@ export const OrdersPage = () => {
                                             </td>
 
                                             <td className="px-4 py-3.5 text-right">
-                                                <select
-                                                    value={o.order_status}
-                                                    onChange={(e) => handleUpdateStatus(o.id, e.target.value)}
-                                                    className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                                                >
-                                                    <option value="draft">Draft</option>
-                                                    <option value="confirmed">Confirmed</option>
-                                                    <option value="processing">Processing</option>
-                                                    <option value="shipped">Shipped</option>
-                                                    <option value="delivered">Delivered</option>
-                                                    <option value="cancelled">Cancelled</option>
-                                                </select>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="xs"
+                                                        icon={Eye}
+                                                        onClick={() => setSelectedOrder(o)}
+                                                        className="text-indigo-400 hover:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium"
+                                                    >
+                                                        Details
+                                                    </Button>
+                                                    <select
+                                                        value={o.order_status}
+                                                        onChange={(e) => handleUpdateStatus(o.id, e.target.value)}
+                                                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                                                    >
+                                                        <option value="draft">Draft</option>
+                                                        <option value="confirmed">Confirmed</option>
+                                                        <option value="processing">Processing</option>
+                                                        <option value="shipped">Shipped</option>
+                                                        <option value="delivered">Delivered</option>
+                                                        <option value="cancelled">Cancelled</option>
+                                                    </select>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -305,6 +319,172 @@ export const OrdersPage = () => {
                     </table>
                 </div>
             </Card>
+
+            {/* Order Details Modal Popup */}
+            <Modal
+                isOpen={Boolean(selectedOrder)}
+                onClose={() => setSelectedOrder(null)}
+                title={`📦 Order Details: ${selectedOrder?.order_number || ''}`}
+            >
+                {selectedOrder && (
+                    <div className="space-y-4 text-xs">
+                        {/* Header Banner */}
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                            <div>
+                                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Order ID</span>
+                                <span className="text-base font-bold font-mono text-indigo-400">
+                                    {selectedOrder.order_number}
+                                </span>
+                                <span className="text-[10px] text-slate-500 block">
+                                    Placed: {new Date(selectedOrder.created_at).toLocaleString()}
+                                </span>
+                            </div>
+                            <div className="text-right space-y-1">
+                                <Badge
+                                    variant={
+                                        selectedOrder.order_status === 'delivered'
+                                            ? 'success'
+                                            : selectedOrder.order_status === 'shipped'
+                                            ? 'info'
+                                            : selectedOrder.order_status === 'confirmed'
+                                            ? 'primary'
+                                            : selectedOrder.order_status === 'processing'
+                                            ? 'warning'
+                                            : 'neutral'
+                                    }
+                                >
+                                    {selectedOrder.order_status.replace('_', ' ').toUpperCase()}
+                                </Badge>
+                                <span className="text-[10px] text-slate-400 block">
+                                    Moderator: <strong>{selectedOrder.user?.name || 'Direct / Web'}</strong>
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Customer Information Card */}
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 border-b border-slate-800/80 pb-1.5">
+                                <User className="w-3.5 h-3.5 text-indigo-400" /> Customer Information (গ্রাহকের তথ্য)
+                            </h4>
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                                <div>
+                                    <span className="text-[10px] text-slate-400 block">Customer Name:</span>
+                                    <span className="text-xs font-semibold text-slate-100">
+                                        {selectedOrder.customer?.name || '—'}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] text-slate-400 block">Phone Number:</span>
+                                    <a
+                                        href={`tel:${selectedOrder.customer_phone || selectedOrder.customer?.phone}`}
+                                        className="text-xs font-bold font-mono text-indigo-400 hover:underline flex items-center gap-1"
+                                    >
+                                        <Phone className="w-3 h-3" />
+                                        {selectedOrder.customer_phone || selectedOrder.customer?.phone || 'No phone'}
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-800/60">
+                                <span className="text-[10px] text-slate-400 block">Delivery Address (ঠিকানা):</span>
+                                <span className="text-xs text-slate-200 font-medium leading-relaxed block mt-0.5">
+                                    <MapPin className="w-3 h-3 text-rose-400 inline mr-1" />
+                                    {selectedOrder.customer_address || 'No address provided'}
+                                </span>
+                            </div>
+
+                            {selectedOrder.notes && (
+                                <div className="pt-2 border-t border-slate-800/60">
+                                    <span className="text-[10px] text-slate-400 block">Order Notes:</span>
+                                    <span className="text-xs text-amber-300 italic block mt-0.5">
+                                        "{selectedOrder.notes}"
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Product & Pricing Card */}
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2.5">
+                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 border-b border-slate-800/80 pb-1.5">
+                                <Package className="w-3.5 h-3.5 text-indigo-400" /> Product & Price Details (পণ্যের বিবরণ)
+                            </h4>
+
+                            <div className="flex items-start justify-between gap-3 pt-1">
+                                <div>
+                                    <span className="text-sm font-bold text-slate-100 block">
+                                        {selectedOrder.product?.name || 'Product Item'}
+                                    </span>
+                                    {selectedOrder.variant && (
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-medium border border-indigo-500/30">
+                                                {[
+                                                    selectedOrder.variant.size && `Size: ${selectedOrder.variant.size}`,
+                                                    selectedOrder.variant.color && `Color: ${selectedOrder.variant.color}`,
+                                                ].filter(Boolean).join(' | ')}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <span className="text-[11px] text-slate-400 block mt-1">
+                                        Unit Price: ৳{selectedOrder.unit_price} × {selectedOrder.quantity} pcs
+                                    </span>
+                                </div>
+                                <span className="text-sm font-bold font-mono text-slate-200">
+                                    ৳{(selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}
+                                </span>
+                            </div>
+
+                            {/* Pricing calculation */}
+                            <div className="border-t border-slate-800 pt-2 space-y-1 text-slate-300">
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Subtotal:</span>
+                                    <span className="font-mono">৳{(selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Delivery Charge:</span>
+                                    <span className="font-mono">৳{Number(selectedOrder.delivery_charge || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between pt-1 border-t border-slate-800 text-sm font-bold text-emerald-400">
+                                    <span>Grand Total (সর্বমোট প্রদেয়):</span>
+                                    <span className="text-base font-mono">৳{selectedOrder.total_amount}</span>
+                                </div>
+                                <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                                    <span>Payment Method:</span>
+                                    <span className="capitalize text-slate-200 font-medium">
+                                        Cash on Delivery (COD) — {selectedOrder.payment_status}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Status Updater & Footer */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+                            <div className="flex items-center gap-2">
+                                <span className="text-slate-400 text-xs">Change Status:</span>
+                                <select
+                                    value={selectedOrder.order_status}
+                                    onChange={(e) => {
+                                        const newStatus = e.target.value;
+                                        handleUpdateStatus(selectedOrder.id, newStatus);
+                                        setSelectedOrder((prev) => ({ ...prev, order_status: newStatus }));
+                                    }}
+                                    className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer font-medium"
+                                >
+                                    <option value="draft">Draft</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="processing">Processing</option>
+                                    <option value="shipped">Shipped</option>
+                                    <option value="delivered">Delivered</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                            </div>
+
+                            <Button variant="primary" size="sm" onClick={() => setSelectedOrder(null)}>
+                                Close Details
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             {/* Create Order Modal */}
             <CreateOrderModal

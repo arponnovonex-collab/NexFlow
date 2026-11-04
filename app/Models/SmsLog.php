@@ -34,3 +34,4 @@ class SmsLog extends Model
         return $this->belongsTo(Customer::class);
     }
 }
+

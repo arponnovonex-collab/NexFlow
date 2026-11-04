@@ -44,3 +44,4 @@ class SmsCampaign extends Model
         return $this->hasMany(SmsLog::class, 'campaign_id');
     }
 }
+

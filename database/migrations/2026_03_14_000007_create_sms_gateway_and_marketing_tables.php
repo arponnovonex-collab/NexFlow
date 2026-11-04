@@ -66,3 +66,4 @@ return new class extends Migration
         Schema::dropIfExists('sms_settings');
     }
 };
+

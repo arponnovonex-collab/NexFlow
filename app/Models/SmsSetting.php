@@ -29,3 +29,4 @@ class SmsSetting extends Model
         ];
     }
 }
+
