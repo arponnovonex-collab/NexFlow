@@ -22,3 +22,5 @@ Homestead.json
 Homestead.yaml
 database/*.sqlite
 Thumbs.db
+
+composer.lock
