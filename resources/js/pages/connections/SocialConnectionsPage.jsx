@@ -35,6 +35,30 @@ export const SocialConnectionsPage = () => {
         access_token: '',
     });
 
+    // Update Token Modal State
+    const [tokenModalAccount, setTokenModalAccount] = useState(null);
+    const [newToken, setNewToken] = useState('');
+    const [savingToken, setSavingToken] = useState(false);
+
+    const handleUpdateToken = async (e) => {
+        e.preventDefault();
+        if (!tokenModalAccount || !newToken.trim()) return;
+        setSavingToken(true);
+        try {
+            await api.put(`/social-accounts/${tokenModalAccount.id}`, {
+                access_token: newToken.trim(),
+            });
+            alert(`Token for "${tokenModalAccount.name}" updated and verified with Meta!`);
+            setTokenModalAccount(null);
+            setNewToken('');
+            fetchAccounts();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to update token.');
+        } finally {
+            setSavingToken(false);
+        }
+    };
+
     const fetchAccounts = async () => {
         try {
             setLoading(true);
@@ -201,7 +225,11 @@ export const SocialConnectionsPage = () => {
                                     <div className="mt-3 space-y-1.5 text-xs text-slate-400">
                                         <div className="flex items-center justify-between">
                                             <span>Channel Status:</span>
-                                            {acc.status === 'connected' ? (
+                                            {acc.status === 'expired' || acc.last_error ? (
+                                                <span className="flex items-center gap-1 text-rose-400 font-semibold" title={acc.last_error || 'Token expired'}>
+                                                    <AlertTriangle className="w-3.5 h-3.5" /> Token Expired
+                                                </span>
+                                            ) : acc.status === 'connected' ? (
                                                 <span className="flex items-center gap-1 text-emerald-400 font-medium">
                                                     <CheckCircle2 className="w-3.5 h-3.5" /> Active & Verified
                                                 </span>
@@ -220,7 +248,19 @@ export const SocialConnectionsPage = () => {
                                     </div>
                                 </div>
 
-                                <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
+                                <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between gap-1.5 flex-wrap">
+                                    <Button
+                                        variant="secondary"
+                                        size="xs"
+                                        className={acc.status === 'expired' || acc.last_error ? 'border-rose-500/50 text-rose-300 hover:bg-rose-500/10' : ''}
+                                        onClick={() => {
+                                            setTokenModalAccount(acc);
+                                            setNewToken('');
+                                        }}
+                                    >
+                                        Update Token
+                                    </Button>
+
                                     {acc.status === 'connected' ? (
                                         <>
                                             <Button
@@ -406,6 +446,65 @@ export const SocialConnectionsPage = () => {
                     </div>
                 )}
             </Modal>
+
+            {/* Update Page Access Token Modal */}
+            {tokenModalAccount && (
+                <Modal
+                    isOpen={Boolean(tokenModalAccount)}
+                    onClose={() => setTokenModalAccount(null)}
+                    title={`Update Token: ${tokenModalAccount.name}`}
+                >
+                    <form onSubmit={handleUpdateToken} className="space-y-4">
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-1.5">
+                            <p className="font-semibold">ফেসবুক এক্সেস টোকেন কেন আপডেট করবেন?</p>
+                            <p className="text-slate-300 leading-relaxed">
+                                মেটা/ফেসবুকের সাময়িক ইউজার টোকেন ১-২ ঘণ্টা পর পর এক্সপায়ার হয়ে যায়। টোকেন এক্সপায়ার হলে ড্যাশবোর্ড থেকে মেসেঞ্জারে কোনো রিপ্লাই পাঠানো যায় না।
+                            </p>
+                            <p className="text-slate-300">
+                                সমাধান: Facebook Graph API Explorer থেকে এই পেইজের জন্য একটি নতুন <strong>Page Access Token</strong> তৈরি করে নিচে পেস্ট করে সেভ করুন।
+                            </p>
+                            {tokenModalAccount.last_error && (
+                                <p className="text-rose-300 text-[11px] font-mono bg-rose-950/40 p-2 rounded border border-rose-500/20 mt-1">
+                                    Last Error: {tokenModalAccount.last_error}
+                                </p>
+                            )}
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-slate-300 mb-1">
+                                New Page Access Token (নতুন অ্যাক্সেস টোকেন)
+                            </label>
+                            <textarea
+                                rows={4}
+                                required
+                                value={newToken}
+                                onChange={(e) => setNewToken(e.target.value)}
+                                placeholder="EAA..."
+                                className="w-full rounded-lg bg-slate-950 border border-slate-700 p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setTokenModalAccount(null)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={savingToken}
+                            >
+                                Verify & Update Token
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
         </div>
     );
 };

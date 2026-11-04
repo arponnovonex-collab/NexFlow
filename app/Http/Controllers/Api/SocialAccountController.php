@@ -243,14 +243,51 @@ class SocialAccountController extends Controller
     }
 
     /**
-     * Toggle active state or update settings for a social account.
+     * Toggle active state or update settings/token for a social account.
      */
     public function update(Request $request, SocialAccount $socialAccount): JsonResponse
     {
         $validated = $request->validate([
             'is_active' => 'nullable|boolean',
             'settings' => 'nullable|array',
+            'access_token' => 'nullable|string',
         ]);
+
+        if (! empty($validated['access_token'])) {
+            $token = $validated['access_token'];
+            $version = config('services.meta.graph_version', 'v19.0');
+
+            if ($socialAccount->platform === 'facebook_page' && ! str_starts_with($token, 'EAAXMOCK')) {
+                // Verify with Meta and extract Page token if possible
+                $pageRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$socialAccount->account_id}", [
+                    'fields' => 'access_token,name',
+                    'access_token' => $token,
+                ]);
+
+                if ($pageRes->successful()) {
+                    if (! empty($pageRes->json('access_token'))) {
+                        $token = $pageRes->json('access_token');
+                    }
+                    $validated['status'] = 'connected';
+                    $validated['is_active'] = true;
+                    $validated['last_error'] = null;
+                    $validated['last_synced_at'] = now();
+
+                    // Re-subscribe webhooks
+                    Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$socialAccount->account_id}/subscribed_apps", [
+                        'subscribed_fields' => 'feed,messages,messaging_postbacks',
+                        'access_token' => $token,
+                    ]);
+                } else {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Invalid Facebook Token: ' . ($pageRes->json('error.message') ?? 'Could not verify token with Meta.'),
+                    ], 422);
+                }
+            }
+
+            $validated['access_token'] = $token;
+        }
 
         $socialAccount->update($validated);
 
@@ -266,13 +303,39 @@ class SocialAccountController extends Controller
      */
     public function diagnostics(SocialAccount $socialAccount): JsonResponse
     {
-        // Diagnostics evaluation
+        $version = config('services.meta.graph_version', 'v19.0');
+        $tokenValid = true;
+        $metaError = null;
+
+        if ($socialAccount->access_token && ! str_starts_with($socialAccount->access_token, 'EAAXMOCK')) {
+            $res = Http::timeout(5)->get("https://graph.facebook.com/{$version}/debug_token", [
+                'input_token' => $socialAccount->access_token,
+                'access_token' => $socialAccount->access_token,
+            ]);
+            if ($res->failed()) {
+                $tokenValid = false;
+                $metaError = $res->json('error.message') ?? 'Token validation failed';
+            } else {
+                $tokenValid = (bool) $res->json('data.is_valid');
+                if (! $tokenValid) {
+                    $metaError = 'Token is invalid or expired';
+                }
+            }
+        }
+
+        if (! $tokenValid && $socialAccount->status === 'connected') {
+            $socialAccount->update([
+                'status' => 'expired',
+                'last_error' => $metaError,
+            ]);
+        }
+
         $checks = [
-            'token_valid' => true,
+            'token_valid' => $tokenValid,
             'webhook_active' => (bool) $socialAccount->webhook_verified,
             'permissions_granted' => ! empty($socialAccount->permissions),
             'last_sync_recent' => $socialAccount->last_synced_at && $socialAccount->last_synced_at->gt(now()->subDays(7)),
-            'message_sending_eligible' => $socialAccount->status === 'connected' && $socialAccount->is_active,
+            'message_sending_eligible' => $tokenValid && $socialAccount->status === 'connected' && $socialAccount->is_active,
         ];
 
         $overallStatus = array_reduce($checks, fn ($carry, $item) => $carry && $item, true) ? 'healthy' : 'warning';
@@ -280,13 +343,14 @@ class SocialAccountController extends Controller
         return response()->json([
             'status' => 'success',
             'overall' => $overallStatus,
+            'meta_error' => $metaError,
             'checks' => $checks,
             'account' => [
                 'id' => $socialAccount->id,
                 'name' => $socialAccount->name,
                 'platform' => $socialAccount->platform,
                 'last_synced_at' => $socialAccount->last_synced_at,
-                'last_error' => $socialAccount->last_error,
+                'last_error' => $metaError ?? $socialAccount->last_error,
             ],
         ]);
     }
@@ -311,8 +375,52 @@ class SocialAccountController extends Controller
     /**
      * Reconnect an account.
      */
-    public function reconnect(SocialAccount $socialAccount): JsonResponse
+    public function reconnect(Request $request, SocialAccount $socialAccount): JsonResponse
     {
+        $validated = $request->validate([
+            'access_token' => 'nullable|string',
+        ]);
+
+        $token = $validated['access_token'] ?? $socialAccount->access_token;
+        $version = config('services.meta.graph_version', 'v19.0');
+
+        if ($socialAccount->platform === 'facebook_page' && ! str_starts_with($token, 'EAAXMOCK')) {
+            $pageRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$socialAccount->account_id}", [
+                'fields' => 'access_token,name',
+                'access_token' => $token,
+            ]);
+
+            if ($pageRes->successful()) {
+                if (! empty($pageRes->json('access_token'))) {
+                    $token = $pageRes->json('access_token');
+                }
+                $socialAccount->update([
+                    'access_token' => $token,
+                    'status' => 'connected',
+                    'is_active' => true,
+                    'last_error' => null,
+                    'last_synced_at' => now(),
+                ]);
+
+                // Subscribe webhooks
+                Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$socialAccount->account_id}/subscribed_apps", [
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks',
+                    'access_token' => $token,
+                ]);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => "Channel '{$socialAccount->name}' has been reconnected and verified with Meta.",
+                    'data' => $socialAccount,
+                ]);
+            } else {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Cannot reconnect: ' . ($pageRes->json('error.message') ?? 'Access token is expired or invalid.'),
+                ], 422);
+            }
+        }
+
         $socialAccount->update([
             'status' => 'connected',
             'is_active' => true,

@@ -61,6 +61,11 @@ export const UnifiedInboxPage = () => {
     const [suggesting, setSuggesting] = useState(false);
     const [suggestedData, setSuggestedData] = useState(null);
 
+    // Channel Access Token Update Modal State
+    const [tokenModalAccount, setTokenModalAccount] = useState(null);
+    const [newToken, setNewToken] = useState('');
+    const [savingToken, setSavingToken] = useState(false);
+
     // Filters
     const [filterTab, setFilterTab] = useState(searchParams.get('filter') || 'all');
     const [platformFilter, setPlatformFilter] = useState('');
@@ -306,9 +311,48 @@ export const UnifiedInboxPage = () => {
             setSuggestedData(null);
             fetchConversations(true);
         } catch (err) {
-            alert('Failed to send message: ' + (err.response?.data?.message || err.message));
+            const failedMsg = err.response?.data?.data;
+            if (failedMsg) {
+                if (!failedMsg.sender_user && user) {
+                    failedMsg.sender_user = { id: user.id, name: user.name, role: user.role };
+                }
+                setActiveConversation((prev) => ({
+                    ...prev,
+                    messages: [...(prev.messages || []), failedMsg],
+                }));
+            }
+            const errMsg = err.response?.data?.message || err.message;
+            alert(errMsg);
+            if (errMsg.includes('expired') || errMsg.includes('token')) {
+                setTokenModalAccount(activeConversation?.social_account);
+            }
         } finally {
             setSending(false);
+        }
+    };
+
+    // Update Channel Page Access Token
+    const handleUpdateChannelToken = async (e) => {
+        e.preventDefault();
+        const targetAccount = tokenModalAccount || activeConversation?.social_account;
+        if (!newToken.trim() || !targetAccount?.id) return;
+
+        setSavingToken(true);
+        try {
+            await api.put(`/social-accounts/${targetAccount.id}`, {
+                access_token: newToken.trim(),
+            });
+            alert(`Page Access Token for "${targetAccount.name}" updated and verified successfully!`);
+            setTokenModalAccount(null);
+            setNewToken('');
+            if (activeConversation) {
+                loadConversationDetails(activeConversation.id);
+            }
+            fetchConversations(true);
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to update access token.');
+        } finally {
+            setSavingToken(false);
         }
     };
 
@@ -648,6 +692,28 @@ export const UnifiedInboxPage = () => {
                             </div>
                         </div>
 
+                        {/* Token Error / Expiration Banner */}
+                        {(activeConversation.social_account?.status === 'expired' || activeConversation.social_account?.last_error) && (
+                            <div className="bg-rose-950/70 border-b border-rose-500/40 px-4 py-2.5 flex items-center justify-between text-xs text-rose-200 animate-fade-in shadow-inner">
+                                <div className="flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                                    <span>
+                                        <strong>Facebook Page Token Expired:</strong> ড্যাশবোর্ড থেকে রিপ্লাই গ্রাহকের ফেসবুক মেসেঞ্জারে যাচ্ছে না। দয়া করে নতুন পেইজ টোকেন আপডেট করুন।
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setTokenModalAccount(activeConversation.social_account);
+                                        setNewToken('');
+                                    }}
+                                    className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition-colors shrink-0 shadow cursor-pointer ml-2"
+                                >
+                                    Update Token
+                                </button>
+                            </div>
+                        )}
+
                         {/* Messages Scroll Area */}
                         <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-4">
                             {loadingThread ? (
@@ -658,6 +724,7 @@ export const UnifiedInboxPage = () => {
                                     const isAi = msg.sender_type === 'ai';
                                     const isMod = msg.sender_type === 'moderator';
                                     const isNote = msg.is_internal_note;
+                                    const isFailed = msg.delivery_status === 'failed';
                                     const senderName = msg.sender_user?.name || msg.senderUser?.name;
 
                                     if (isNote) {
@@ -682,6 +749,8 @@ export const UnifiedInboxPage = () => {
                                                         ? 'bg-slate-800 text-slate-200 rounded-bl-sm'
                                                         : isAi
                                                         ? 'bg-gradient-to-r from-violet-900/60 to-indigo-900/60 border border-indigo-500/30 text-indigo-100 rounded-br-sm'
+                                                        : isFailed
+                                                        ? 'bg-rose-950/80 border border-rose-500/40 text-rose-100 rounded-br-sm shadow-md'
                                                         : 'bg-indigo-600 text-white rounded-br-sm shadow-md'
                                                 }`}
                                             >
@@ -691,11 +760,17 @@ export const UnifiedInboxPage = () => {
                                                     </div>
                                                 )}
                                                 {isMod && (
-                                                    <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-200 mb-1">
+                                                    <div className={`flex items-center gap-1 text-[10px] font-semibold mb-1 ${isFailed ? 'text-rose-300' : 'text-indigo-200'}`}>
                                                         <User className="w-3 h-3" /> {senderName || 'Team Moderator'}
                                                     </div>
                                                 )}
                                                 <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                                                {isFailed && (
+                                                    <div className="mt-1.5 pt-1.5 border-t border-rose-400/25 text-[10px] text-rose-300 flex items-center gap-1">
+                                                        <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
+                                                        <span className="truncate">Facebook-এ সেন্ড হয়নি: {msg.metadata?.error || 'Page Token Expired'}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1">
                                                 {isMod && (
@@ -704,7 +779,18 @@ export const UnifiedInboxPage = () => {
                                                     </span>
                                                 )}
                                                 <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                {!isCustomer && <CheckCheck className="w-3 h-3 text-indigo-400" />}
+                                                {!isCustomer && (
+                                                    isFailed ? (
+                                                        <span
+                                                            className="inline-flex items-center gap-1 text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/25 ml-1"
+                                                            title={msg.metadata?.error || 'Message delivery failed'}
+                                                        >
+                                                            <AlertCircle className="w-3 h-3 text-rose-400" /> Delivery failed
+                                                        </span>
+                                                    ) : (
+                                                        <CheckCheck className="w-3 h-3 text-indigo-400" />
+                                                    )
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -1067,6 +1153,60 @@ export const UnifiedInboxPage = () => {
                     </div>
                 </form>
             </Modal>
+
+            {/* Quick Update Page Access Token Modal */}
+            {tokenModalAccount && (
+                <Modal
+                    isOpen={Boolean(tokenModalAccount)}
+                    onClose={() => setTokenModalAccount(null)}
+                    title={`Update Facebook Token: ${tokenModalAccount?.name || 'Page'}`}
+                >
+                    <form onSubmit={handleUpdateChannelToken} className="space-y-4">
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-1.5">
+                            <p className="font-semibold">ফেসবুক মেসেজ সেন্ড না হওয়ার কারণ:</p>
+                            <p className="text-slate-300 leading-relaxed">
+                                এই ফেসবুক পেইজের অ্যাক্সেস টোকেনের সেশন এক্সপায়ার (Session Expired) হয়ে গেছে। এর ফলে মেটা মেসেজ ডেলিভারি ব্লক করে দিয়েছে।
+                            </p>
+                            <p className="text-slate-300">
+                                সমাধান: Facebook Graph API Explorer থেকে এই পেইজের নতুন একটি <strong>Page Access Token</strong> তৈরি করে নিচে পেস্ট করুন।
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-slate-300 mb-1">
+                                New Page Access Token (নতুন অ্যাক্সেস টোকেন)
+                            </label>
+                            <textarea
+                                rows={4}
+                                required
+                                value={newToken}
+                                onChange={(e) => setNewToken(e.target.value)}
+                                placeholder="EAA..."
+                                className="w-full rounded-lg bg-slate-950 border border-slate-700 p-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setTokenModalAccount(null)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={savingToken}
+                            >
+                                Verify & Update Token
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
         </div>
     );
 };

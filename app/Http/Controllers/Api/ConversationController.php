@@ -7,6 +7,7 @@ use App\Models\AiSuggestion;
 use App\Models\Conversation;
 use App\Models\ConversationNote;
 use App\Models\ConversationTag;
+use App\Models\CustomerChannelIdentity;
 use App\Models\Lead;
 use App\Models\LeadStatusHistory;
 use App\Models\Message;
@@ -191,8 +192,9 @@ class ConversationController extends Controller
 
         $user = $request->user();
         $isNote = $validated['is_internal_note'] ?? false;
+        $deliveryError = null;
 
-        $message = DB::transaction(function () use ($conversation, $validated, $user, $isNote) {
+        $message = DB::transaction(function () use ($conversation, $validated, $user, $isNote, &$deliveryError) {
             $msg = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_type' => $isNote ? 'system' : 'moderator',
@@ -216,16 +218,38 @@ class ConversationController extends Controller
                 // Dispatch to Meta Graph API if active social account token is present
                 $account = $conversation->socialAccount;
                 if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
-                    $psid = preg_replace('/^t_/', '', $conversation->channel_conversation_id);
+                    $identity = CustomerChannelIdentity::where('social_account_id', $conversation->social_account_id)
+                        ->where('customer_id', $conversation->customer_id)
+                        ->first();
+                    $psid = $identity?->platform_customer_id ?? preg_replace('/^t_(?:ig_|wa_)?/', '', $conversation->channel_conversation_id);
                     $version = config('services.meta.graph_version', 'v19.0');
 
                     try {
                         if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
-                            $res = Http::post("https://graph.facebook.com/{$version}/me/messages", [
-                                'recipient' => ['id' => $psid],
-                                'message' => ['text' => $validated['text']],
-                                'access_token' => $account->access_token,
-                            ]);
+                            $res = Http::withToken($account->access_token)
+                                ->post("https://graph.facebook.com/{$version}/me/messages", [
+                                    'recipient' => ['id' => $psid],
+                                    'messaging_type' => 'RESPONSE',
+                                    'message' => ['text' => $validated['text']],
+                                ]);
+
+                            // Fallback: If 400 or 403, attempt to resolve Page token from Page ID
+                            if (! $res->successful() && ($res->status() === 400 || $res->status() === 403)) {
+                                $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                                    'fields' => 'access_token',
+                                    'access_token' => $account->access_token,
+                                ]);
+                                if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                                    $pageToken = $pageRes->json('access_token');
+                                    $account->update(['access_token' => $pageToken]);
+                                    $res = Http::withToken($pageToken)
+                                        ->post("https://graph.facebook.com/{$version}/me/messages", [
+                                            'recipient' => ['id' => $psid],
+                                            'messaging_type' => 'RESPONSE',
+                                            'message' => ['text' => $validated['text']],
+                                        ]);
+                                }
+                            }
 
                             if ($res->successful()) {
                                 $data = $res->json();
@@ -234,8 +258,25 @@ class ConversationController extends Controller
                                     'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
                                 ]);
                             } else {
-                                Log::error('Meta Send API Error: ' . $res->body());
-                                $msg->update(['delivery_status' => 'failed']);
+                                $errData = $res->json('error');
+                                $deliveryError = $errData['message'] ?? $res->body();
+                                $errorCode = $errData['code'] ?? null;
+                                Log::error("Meta Send API Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
+
+                                $msg->update([
+                                    'delivery_status' => 'failed',
+                                    'metadata' => [
+                                        'error' => $deliveryError,
+                                        'error_code' => $errorCode,
+                                    ],
+                                ]);
+
+                                if ($errorCode === 190 || str_contains($deliveryError, 'expired') || str_contains($deliveryError, 'access token')) {
+                                    $account->update([
+                                        'status' => 'expired',
+                                        'last_error' => $deliveryError,
+                                    ]);
+                                }
                             }
                         } elseif ($account->platform === 'whatsapp_cloud') {
                             $phoneId = $account->account_id;
@@ -254,13 +295,21 @@ class ConversationController extends Controller
                                     'platform_message_id' => $data['messages'][0]['id'] ?? $msg->platform_message_id,
                                 ]);
                             } else {
-                                Log::error('WhatsApp Cloud Send API Error: ' . $res->body());
-                                $msg->update(['delivery_status' => 'failed']);
+                                $deliveryError = $res->json('error.message') ?? $res->body();
+                                Log::error('WhatsApp Cloud Send API Error: ' . $deliveryError);
+                                $msg->update([
+                                    'delivery_status' => 'failed',
+                                    'metadata' => ['error' => $deliveryError],
+                                ]);
                             }
                         }
                     } catch (\Exception $e) {
-                        Log::error('Outbound Message Send Exception: ' . $e->getMessage());
-                        $msg->update(['delivery_status' => 'failed']);
+                        $deliveryError = $e->getMessage();
+                        Log::error('Outbound Message Send Exception: ' . $deliveryError);
+                        $msg->update([
+                            'delivery_status' => 'failed',
+                            'metadata' => ['error' => $deliveryError],
+                        ]);
                     }
                 } else {
                     $msg->update(['delivery_status' => 'delivered']);
@@ -269,6 +318,20 @@ class ConversationController extends Controller
 
             return $msg;
         });
+
+        if ($deliveryError && $message->delivery_status === 'failed') {
+            $isExpired = str_contains($deliveryError, 'expired') || str_contains($deliveryError, 'access token');
+            $userFacingMsg = $isExpired
+                ? 'Facebook Page access token expired! Please update or reconnect your Facebook Page in Channel Connections.'
+                : "Message could not be delivered to Meta Facebook: {$deliveryError}";
+
+            return response()->json([
+                'status' => 'failed',
+                'message' => $userFacingMsg,
+                'delivery_error' => $deliveryError,
+                'data' => $message->load('senderUser'),
+            ], 422);
+        }
 
         return response()->json([
             'status' => 'success',
