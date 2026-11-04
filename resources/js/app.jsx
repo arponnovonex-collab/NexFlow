@@ -25,6 +25,9 @@ import { ActivityLogsPage } from './pages/system/ActivityLogsPage';
 import { WebhookDiagnosticsPage } from './pages/system/WebhookDiagnosticsPage';
 import { SecuritySettingsPage } from './pages/system/SecuritySettingsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
+import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
+import { SmsMarketingPage } from './pages/sms/SmsMarketingPage';
+import { AutoSmsPage } from './pages/sms/AutoSmsPage';
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -81,6 +84,11 @@ export const App = () => {
                         <Route path="leads/followups" element={<FollowupsPage />} />
                         <Route path="customers" element={<CustomersPage />} />
                         <Route path="orders" element={<OrdersPage />} />
+
+                        {/* SMS Gateway & Marketing */}
+                        <Route path="sms/gateway" element={<SmsGatewayPage />} />
+                        <Route path="sms/marketing" element={<SmsMarketingPage />} />
+                        <Route path="sms/auto-sms" element={<AutoSmsPage />} />
 
                         {/* Team */}
                         <Route path="team" element={<TeamManagementPage />} />

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\MetaWebhookController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\UserController;
 use Illuminate\Support\Facades\Route;
@@ -86,6 +87,18 @@ Route::middleware('auth:sanctum')->group(function () {
     // Orders & Conversions
     Route::apiResource('orders', OrderController::class)->only(['index', 'store']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+
+    // SMS Gateway, Marketing & Auto-SMS
+    Route::get('/sms/gateway', [SmsController::class, 'getGatewayConfig']);
+    Route::post('/sms/gateway', [SmsController::class, 'saveGatewayConfig']);
+    Route::get('/sms/gateway/balance', [SmsController::class, 'checkBalance']);
+    Route::post('/sms/gateway/test', [SmsController::class, 'sendTestSms']);
+    Route::get('/sms/auto-sms', [SmsController::class, 'getAutoSmsConfig']);
+    Route::post('/sms/auto-sms', [SmsController::class, 'saveAutoSmsConfig']);
+    Route::get('/sms/marketing/recipients', [SmsController::class, 'getMarketingRecipients']);
+    Route::post('/sms/marketing/send', [SmsController::class, 'sendMarketingCampaign']);
+    Route::get('/sms/campaigns', [SmsController::class, 'getCampaigns']);
+    Route::get('/sms/logs', [SmsController::class, 'getLogs']);
 
     // AI Control Center, Rules & Playground
     Route::get('/ai/settings', [AiController::class, 'settings']);

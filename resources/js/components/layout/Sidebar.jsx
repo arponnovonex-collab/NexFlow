@@ -26,6 +26,8 @@ import {
     FileText,
     ShieldAlert,
     Activity,
+    Radio,
+    Send,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -38,6 +40,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
         automation: true,
         products: true,
         leads: true,
+        sms: true,
         team: true,
         analytics: false,
         system: false,
@@ -117,6 +120,26 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <span>Unified Inbox</span>
                                 <span className="bg-indigo-500/20 text-indigo-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
                                     Live
+                                </span>
+                            </div>
+                        )}
+                    </NavLink>
+                </div>
+
+                {/* Customer Orders */}
+                <div>
+                    {!isCollapsed && (
+                        <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                            Sales & Orders
+                        </p>
+                    )}
+                    <NavLink to="/orders" className={linkClasses}>
+                        <ShoppingBag className="w-4 h-4 shrink-0 text-emerald-400" />
+                        {!isCollapsed && (
+                            <div className="flex items-center justify-between w-full">
+                                <span>Customer Orders</span>
+                                <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                                    Active
                                 </span>
                             </div>
                         )}
@@ -235,13 +258,40 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <UserCheck className="w-4 h-4 shrink-0" />
                                 {!isCollapsed && <span>Customers Directory</span>}
                             </NavLink>
-                            <NavLink to="/orders" className={linkClasses}>
-                                <FileText className="w-4 h-4 shrink-0" />
-                                {!isCollapsed && <span>Verified Orders</span>}
-                            </NavLink>
                         </div>
                     )}
                 </div>
+
+                {/* SMS Gateway & Marketing */}
+                {isAdmin && (
+                    <div>
+                        {!isCollapsed ? (
+                            <button
+                                onClick={() => toggleSection('sms')}
+                                className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                            >
+                                <span>SMS (BulkSMS BD)</span>
+                                {openSections.sms ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                        ) : null}
+                        {(openSections.sms || isCollapsed) && (
+                            <div className="space-y-1">
+                                <NavLink to="/sms/gateway" className={linkClasses}>
+                                    <Radio className="w-4 h-4 shrink-0 text-cyan-400" />
+                                    {!isCollapsed && <span>Configure SMS Gateway</span>}
+                                </NavLink>
+                                <NavLink to="/sms/marketing" className={linkClasses}>
+                                    <Send className="w-4 h-4 shrink-0 text-indigo-400" />
+                                    {!isCollapsed && <span>SMS Marketing</span>}
+                                </NavLink>
+                                <NavLink to="/sms/auto-sms" className={linkClasses}>
+                                    <Zap className="w-4 h-4 shrink-0 text-emerald-400" />
+                                    {!isCollapsed && <span>Auto SMS (Order)</span>}
+                                </NavLink>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Team Management (Admins) */}
                 {isAdmin && (

@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Lead;
 use App\Models\LeadStatusHistory;
+use App\Models\Message;
 use App\Models\Order;
 use App\Models\Product;
+use App\Services\BulkSmsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +33,7 @@ class OrderController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('order_number', 'like', "%{$search}%")
                     ->orWhere('customer_phone', 'like', "%{$search}%")
+                    ->orWhere('customer_address', 'like', "%{$search}%")
                     ->orWhereHas('customer', fn ($cq) => $cq->where('name', 'like', "%{$search}%"));
             });
         }
@@ -48,7 +52,8 @@ class OrderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'customer_id' => 'required|exists:customers,id',
+            'customer_id' => 'nullable|exists:customers,id',
+            'customer_name' => 'nullable|string|max:255',
             'conversation_id' => 'nullable|exists:conversations,id',
             'product_id' => 'required|exists:products,id',
             'variant_id' => 'nullable|exists:product_variants,id',
@@ -58,24 +63,66 @@ class OrderController extends Controller
             'customer_address' => 'required|string',
             'customer_phone' => 'required|string',
             'notes' => 'nullable|string',
+            'order_number' => 'nullable|string|max:50',
         ]);
 
         $user = $request->user();
         $total = ($validated['unit_price'] * $validated['quantity']) + $validated['delivery_charge'];
 
-        $order = DB::transaction(function () use ($validated, $user, $total) {
-            $ord = Order::create([
-                ...$validated,
-                'order_number' => 'NEX-ORD-' . date('Y') . '-' . strtoupper(Str::random(6)),
-                'user_id' => $user->id,
-                'total_amount' => $total,
-                'order_status' => 'confirmed',
-                'payment_status' => 'unpaid',
-                'order_source' => 'manual_inbox',
+        // Determine or create customer
+        $customerId = $validated['customer_id'] ?? null;
+        if (! $customerId) {
+            $customer = Customer::firstOrCreate(
+                ['phone' => $validated['customer_phone']],
+                ['name' => $validated['customer_name'] ?? 'Customer']
+            );
+            $customerId = $customer->id;
+        } else {
+            // Update customer phone if provided
+            Customer::where('id', $customerId)->update([
+                'phone' => $validated['customer_phone'],
             ]);
+            if (! empty($validated['customer_name'])) {
+                Customer::where('id', $customerId)->where('name', 'like', 'Customer%')->update([
+                    'name' => $validated['customer_name'],
+                ]);
+            }
+        }
+
+        // Custom order number or generate auto ID
+        $orderNumber = ! empty($validated['order_number'])
+            ? trim($validated['order_number'])
+            : 'NF-' . date('ymd') . '-' . rand(1000, 9999);
+
+        // Ensure order number uniqueness
+        if (Order::where('order_number', $orderNumber)->exists()) {
+            $orderNumber .= '-' . strtoupper(Str::random(3));
+        }
+
+        $orderData = [
+            'order_number' => $orderNumber,
+            'customer_id' => $customerId,
+            'conversation_id' => $validated['conversation_id'] ?? null,
+            'user_id' => $user->id,
+            'product_id' => $validated['product_id'],
+            'variant_id' => $validated['variant_id'] ?? null,
+            'quantity' => $validated['quantity'],
+            'unit_price' => $validated['unit_price'],
+            'delivery_charge' => $validated['delivery_charge'],
+            'total_amount' => $total,
+            'order_status' => 'confirmed',
+            'payment_status' => 'unpaid',
+            'order_source' => ! empty($validated['conversation_id']) ? 'manual_inbox' : 'web',
+            'customer_address' => $validated['customer_address'],
+            'customer_phone' => $validated['customer_phone'],
+            'notes' => $validated['notes'] ?? null,
+        ];
+
+        $order = DB::transaction(function () use ($orderData, $user, $customerId) {
+            $ord = Order::create($orderData);
 
             // Transition lead to converted if lead exists
-            $lead = Lead::where('customer_id', $validated['customer_id'])->first();
+            $lead = Lead::where('customer_id', $customerId)->first();
             if ($lead && $lead->status !== 'converted') {
                 $prev = $lead->status;
                 $lead->update([
@@ -96,10 +143,35 @@ class OrderController extends Controller
             return $ord;
         });
 
+        // Trigger Auto-SMS to Customer via BulkSMS BD if enabled
+        $smsResult = app(BulkSmsService::class)->sendAutoOrderSms($order);
+
+        // Post internal note in conversation thread if linked
+        if ($order->conversation_id) {
+            try {
+                $variantInfo = $order->variant ? " (" . ($order->variant->size ? "Size: {$order->variant->size} " : "") . ($order->variant->color ? "Color: {$order->variant->color}" : "") . ")" : "";
+                Message::create([
+                    'conversation_id' => $order->conversation_id,
+                    'sender_type' => 'moderator',
+                    'sender_user_id' => $user->id,
+                    'is_internal_note' => true,
+                    'text' => "🛍️ Order #{$order->order_number} confirmed! Product: {$order->product?->name}{$variantInfo}, Qty: {$order->quantity}, Total: ৳{$order->total_amount}. Phone: {$order->customer_phone}",
+                    'metadata' => [
+                        'order_id' => $order->id,
+                        'order_number' => $order->order_number,
+                        'auto_sms' => $smsResult,
+                    ],
+                ]);
+            } catch (\Exception $e) {
+                // Silently continue
+            }
+        }
+
         return response()->json([
             'status' => 'success',
-            'message' => 'Order created and lead verified as Converted!',
-            'data' => $order->load(['customer', 'product']),
+            'message' => "Order #{$order->order_number} created successfully!",
+            'data' => $order->load(['customer', 'product', 'variant']),
+            'auto_sms' => $smsResult,
         ], 201);
     }
 

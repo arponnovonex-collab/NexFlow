@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
+import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import {
     Search,
@@ -865,6 +866,18 @@ export const UnifiedInboxPage = () => {
                                             AI Suggest Reply
                                         </Button>
 
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="xs"
+                                            onClick={() => setOrderModal(true)}
+                                            icon={ShoppingBag}
+                                            className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer font-medium"
+                                            title="Create Customer Order"
+                                        >
+                                            Create Order
+                                        </Button>
+
                                         <label className="flex items-center gap-1.5 text-slate-400 text-xs cursor-pointer">
                                             <input
                                                 type="checkbox"
@@ -1090,86 +1103,23 @@ export const UnifiedInboxPage = () => {
             </Modal>
 
             {/* Create Order Modal */}
-            <Modal isOpen={orderModal} onClose={() => setOrderModal(false)} title="Create Verified Order Draft">
-                <form onSubmit={handleOrderSubmit} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1">Quantity</label>
-                            <input
-                                type="number"
-                                min={1}
-                                required
-                                value={orderForm.quantity}
-                                onChange={(e) => setOrderForm({ ...orderForm, quantity: parseInt(e.target.value) || 1 })}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-slate-300 mb-1">Unit Price (BDT)</label>
-                            <input
-                                type="number"
-                                required
-                                value={orderForm.unit_price}
-                                onChange={(e) => setOrderForm({ ...orderForm, unit_price: parseFloat(e.target.value) || 0 })}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
-                            />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Delivery Charge (BDT)</label>
-                        <select
-                            value={orderForm.delivery_charge}
-                            onChange={(e) => setOrderForm({ ...orderForm, delivery_charge: parseFloat(e.target.value) || 0 })}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
-                        >
-                            <option value={70}>Inside Dhaka (70 BDT)</option>
-                            <option value={130}>Outside Dhaka (130 BDT)</option>
-                            <option value={0}>Free Delivery (0 BDT)</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Customer Phone Number</label>
-                        <input
-                            type="text"
-                            required
-                            placeholder="017XXXXXXXX"
-                            value={orderForm.customer_phone}
-                            onChange={(e) => setOrderForm({ ...orderForm, customer_phone: e.target.value })}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Shipping Address</label>
-                        <textarea
-                            rows={2}
-                            required
-                            placeholder="Full delivery address with house, road, area..."
-                            value={orderForm.customer_address}
-                            onChange={(e) => setOrderForm({ ...orderForm, customer_address: e.target.value })}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
-                        ></textarea>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-300">Total Payable (Cash on Delivery):</span>
-                        <span className="text-base font-bold text-emerald-400">
-                            {(orderForm.unit_price * orderForm.quantity + orderForm.delivery_charge)} BDT
-                        </span>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" size="sm" onClick={() => setOrderModal(false)}>
-                            Cancel
-                        </Button>
-                        <Button variant="success" size="sm" type="submit">
-                            Confirm Order & Convert Lead
-                        </Button>
-                    </div>
-                </form>
-            </Modal>
+            <CreateOrderModal
+                isOpen={orderModal}
+                onClose={() => setOrderModal(false)}
+                initialData={{
+                    customer_id: activeConversation?.customer_id,
+                    customer_name: activeConversation?.customer?.name,
+                    customer_phone: activeConversation?.customer?.phone || '',
+                    customer_address: '',
+                    conversation_id: activeConversation?.id,
+                }}
+                onOrderCreated={(newOrder) => {
+                    if (activeConversation) {
+                        loadConversationDetails(activeConversation.id);
+                    }
+                    fetchConversations(true);
+                }}
+            />
 
             {/* Quick Update Page Access Token Modal */}
             {tokenModalAccount && (
