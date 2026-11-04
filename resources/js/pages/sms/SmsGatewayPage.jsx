@@ -60,6 +60,11 @@ export const SmsGatewayPage = () => {
 
     const handleSaveConfig = async (e) => {
         e.preventDefault();
+        if (apiKey.trim() && senderId.trim() && apiKey.trim() === senderId.trim()) {
+            alert('⚠️ সতর্কতা: আপনি Sender ID-এর জায়গায় ভুল করে আপনার API Key পেস্ট করেছেন!\n\nBulkSMS BD প্যানেল (bulksmsbd.net) থেকে আপনার অনুমোদিত Sender ID (যেমন: 88096... অথবা অনুমোদিত ব্র্যান্ড নাম) বসান।');
+            return;
+        }
+
         setSaving(true);
         try {
             const res = await api.post('/sms/gateway', {
@@ -253,7 +258,7 @@ export const SmsGatewayPage = () => {
                     {/* Sender ID */}
                     <div>
                         <label className="block font-medium text-slate-300 mb-1">
-                            Sender ID (সেন্ডার আইডি / মাস্কিং নাম)
+                            Sender ID (সেন্ডার আইডি / মাস্কিং নাম) <span className="text-rose-400">*</span>
                         </label>
                         <input
                             type="text"
@@ -262,7 +267,10 @@ export const SmsGatewayPage = () => {
                             onChange={(e) => setSenderId(e.target.value)}
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
                         />
-                        <span className="text-[10px] text-slate-500 mt-1 block">
+                        <span className="text-[11px] text-amber-400/90 mt-1 block font-medium">
+                            ⚠️ সতর্কবার্তা: এখানে আপনার API Key পেস্ট করবেন না। BulkSMS BD প্যানেলের "Sender ID Management" সেকশনে থাকা আপনার অনুমোদিত নম্বর (যেমন: 88096...) অথবা অনুমোদিত ব্র্যান্ড নাম বসান।
+                        </span>
+                        <span className="text-[10px] text-slate-500 mt-0.5 block">
                             Non-masking approved number or alphanumeric Sender ID assigned to your BulkSMS BD account.
                         </span>
                     </div>

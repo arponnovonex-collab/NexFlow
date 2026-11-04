@@ -131,6 +131,14 @@ class BulkSmsService
             return $this->logAndFail($formattedPhone, $message, $type, 'BulkSMS BD API Key / Token is not set.', $orderId, $customerId, $campaignId);
         }
 
+        if (! empty($settings->sender_id) && trim((string) $settings->sender_id) === trim((string) $settings->api_key)) {
+            return $this->logAndFail($formattedPhone, $message, $type, 'Your Sender ID is mistakenly set to your API Key! Please enter your approved Sender ID (e.g. 88096... for non-masking or brand name) from BulkSMS BD dashboard.', $orderId, $customerId, $campaignId);
+        }
+
+        if (empty($settings->sender_id)) {
+            return $this->logAndFail($formattedPhone, $message, $type, 'Sender ID is required by BulkSMS BD. Please configure your approved Sender ID (e.g. 88096... or brand name) in SMS Gateway settings.', $orderId, $customerId, $campaignId);
+        }
+
         if (! $settings->is_enabled && $type !== 'test') {
             return $this->logAndFail($formattedPhone, $message, $type, 'SMS Gateway is currently disabled in settings.', $orderId, $customerId, $campaignId);
         }
@@ -145,11 +153,8 @@ class BulkSmsService
                 'type' => 'text',
                 'number' => $formattedPhone,
                 'message' => $message,
+                'senderid' => $settings->sender_id,
             ];
-
-            if (! empty($settings->sender_id)) {
-                $params['senderid'] = $settings->sender_id;
-            }
 
             $response = Http::timeout(10)->asForm()->post($this->apiUrl, $params);
 
@@ -179,6 +184,12 @@ class BulkSmsService
                 }
 
                 $errMsg = $data['error_message'] ?? 'BulkSMS BD error code: ' . $code;
+
+                // Handle BulkSMS BD's internal error when Sender ID does not exist in their DB
+                if ($code === 1005 || str_contains(strtolower((string) $errMsg), 'is_masking')) {
+                    $errMsg = "Invalid Sender ID '{$settings->sender_id}'! This Sender ID does not match any approved Sender ID in your BulkSMS BD account. Please check your approved Sender ID in bulksmsbd.net dashboard under Sender ID Management (e.g. 88096... for non-masking or approved brand name).";
+                }
+
                 return $this->logAndFail($formattedPhone, $message, $type, $errMsg, $orderId, $customerId, $campaignId, (string) $code);
             }
 
