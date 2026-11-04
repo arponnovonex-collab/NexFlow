@@ -74,9 +74,7 @@ class SteadfastCourierService
             }
         }
 
-        // Steadfast requires `invoice` to be strictly unique across their entire platform.
-        // We include Order ID prefix + product details specified by user so duplicates never fail.
-        return "{$order->order_number} | {$productName} | {$variantText} | {$order->quantity}";
+        return "{$productName} | {$variantText} | {$order->quantity}";
     }
 
     /**
@@ -160,26 +158,38 @@ class SteadfastCourierService
             ];
         }
 
-        // Format according to user specification:
-        // invoice: product name | product variation | quantity
-        $invoiceText = $this->formatInvoiceDescription($order);
+        // Product details specified by user: "product name | product variation | quantity"
+        $productDetails = $this->formatInvoiceDescription($order);
         $customerName = $order->customer?->name ?: 'Customer';
 
+        // Steadfast requires `invoice` to strictly contain only letters, numbers, dashes and underscores (alpha_dash)
+        $cleanInvoice = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $order->order_number);
+        if (empty($cleanInvoice)) {
+            $cleanInvoice = 'ORD-' . $order->id . '-' . time();
+        }
+
+        // Steadfast requires `delivery_type` to be an integer: 0 = Home Delivery, 1 = Point Delivery / Hub Pick Up
+        $deliveryTypeInt = 0;
+        if (in_array($settings->delivery_type, ['hub', 'point', '1', 1], true)) {
+            $deliveryTypeInt = 1;
+        }
+
+        // Note with product details & customer note
+        $noteContent = $productDetails;
+        if (! empty($order->notes)) {
+            $noteContent .= " | Note: {$order->notes}";
+        }
+
         $payload = [
-            'invoice' => $invoiceText,
+            'invoice' => $cleanInvoice,
             'recipient_name' => $customerName,
-            'name' => $customerName,
             'recipient_phone' => $phone,
-            'phone' => $phone,
             'recipient_address' => $order->customer_address,
-            'address' => $order->customer_address,
             'cod_amount' => (float) $order->total_amount,
-            'amount' => (float) $order->total_amount,
-            'contact_name' => $settings->contact_name ?: 'Auliro',
-            'contact_phone' => $settings->contact_phone ?: '01333-447475',
-            'lot' => (int) $order->quantity,
-            'delivery_type' => $settings->delivery_type ?: 'home',
-            'note' => $order->notes ?: "Order #{$order->order_number}",
+            'note' => $noteContent,
+            'item_description' => $productDetails,
+            'total_lot' => (int) ($order->quantity ?: 1),
+            'delivery_type' => $deliveryTypeInt,
         ];
 
         try {
