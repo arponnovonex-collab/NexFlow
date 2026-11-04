@@ -312,7 +312,7 @@ export const UnifiedInboxPage = () => {
             if (searchQuery) params.search = searchQuery;
 
             const res = await api.get('/conversations', { params });
-            const list = res.data.data.data || [];
+            const list = Array.isArray(res.data.data) ? res.data.data : (res.data.data?.data || []);
             setConversations(list);
 
             const totalUnread = list.reduce((sum, c) => sum + (c.unread_count || 0), 0);
@@ -776,7 +776,22 @@ export const UnifiedInboxPage = () => {
                     {loadingList ? (
                         <div className="p-8 text-center text-xs text-slate-400">Loading inbox...</div>
                     ) : conversations.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-400">No conversations found.</div>
+                        <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                            <p>No conversations found.</p>
+                            {(filterTab !== 'all' || platformFilter || searchQuery) && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFilterTab('all');
+                                        setPlatformFilter('');
+                                        setSearchQuery('');
+                                    }}
+                                    className="inline-block text-indigo-400 hover:text-indigo-300 underline cursor-pointer text-[11px]"
+                                >
+                                    ফিল্টার ক্লিয়ার করে সব কনভারসেশন দেখুন
+                                </button>
+                            )}
+                        </div>
                     ) : (
                         conversations.map((c) => {
                             const isSelected = activeConversation?.id === c.id;
