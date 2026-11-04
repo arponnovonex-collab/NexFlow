@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Customer;
 use App\Models\CustomerChannelIdentity;
 use App\Models\Message;
+use App\Models\Product;
 use App\Models\SocialAccount;
 use App\Models\SocialComment;
 use App\Models\SocialPost;
@@ -321,16 +322,35 @@ class MetaWebhookController extends Controller
         $messengerAutoReplyEnabled = AiSetting::getBool('messenger_auto_reply_enabled', true);
         $channelAiAllowed = ! $account || ($account->settings['ai_mode'] ?? 'auto') !== 'paused';
 
+        // Auto-resume AI if human moderator has been inactive for > 30 minutes
+        if ($conversation->is_human_takeover && $conversation->last_message_at && $conversation->last_message_at->lt(now()->subMinutes(30))) {
+            $conversation->update([
+                'is_human_takeover' => false,
+                'ai_mode' => 'auto',
+            ]);
+            Log::info("Auto-resumed AI for conversation {$conversation->id} after 30+ minutes of moderator silence.");
+        }
+
         if (! $messengerAutoReplyEnabled) {
             Log::info("Messenger auto-reply skipped for conversation {$conversation->id}: messenger_auto_reply_enabled is turned off in AI Control Center.");
+        } elseif (! $channelAiAllowed) {
+            Log::info("Messenger auto-reply skipped for conversation {$conversation->id}: channel AI mode is paused for account {$account?->id}.");
+        } elseif ($conversation->is_human_takeover) {
+            Log::info("Messenger auto-reply skipped for conversation {$conversation->id}: human takeover is currently active.");
         }
 
         // Auto-reply if messenger auto reply is globally enabled, channel allows AI, human takeover is false, and AI mode is auto
         if ($messengerAutoReplyEnabled && $channelAiAllowed && ! $conversation->is_human_takeover && $conversation->ai_mode === 'auto') {
-            $relatedProduct = $conversation->socialAccount?->products()->first();
-            $context = $relatedProduct
-                ? ['products' => [$this->knowledgeService->getVerifiedContextForProduct($relatedProduct)]]
-                : ['products' => []];
+            $products = $conversation->socialAccount?->products()->get();
+            if (! $products || $products->isEmpty()) {
+                $products = Product::where('is_active', true)->limit(5)->get();
+            }
+
+            $productContexts = $products->map(function ($p) {
+                return $this->knowledgeService->getVerifiedContextForProduct($p);
+            })->toArray();
+
+            $context = ['products' => $productContexts];
 
             $aiDecision = $this->aiService->generateStructuredReply(
                 $text,
@@ -355,11 +375,12 @@ class MetaWebhookController extends Controller
             // If account has live token, send via official Send API
             if ($account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
                 $version = config('services.meta.graph_version', 'v19.0');
-                $sendRes = Http::post("https://graph.facebook.com/{$version}/me/messages", [
-                    'recipient' => ['id' => $senderPsid],
-                    'message' => ['text' => $replyText],
-                    'access_token' => $account->access_token,
-                ]);
+                $sendRes = Http::withToken($account->access_token)
+                    ->post("https://graph.facebook.com/{$version}/me/messages", [
+                        'recipient' => ['id' => $senderPsid],
+                        'messaging_type' => 'RESPONSE',
+                        'message' => ['text' => $replyText],
+                    ]);
 
                 // Fallback: If 400/403, resolve Page token and retry
                 if (! $sendRes->successful() && ($sendRes->status() === 400 || $sendRes->status() === 403)) {
@@ -371,10 +392,10 @@ class MetaWebhookController extends Controller
                     if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                         $pageToken = $pageRes->json('access_token');
                         $account->update(['access_token' => $pageToken]);
-                        Http::post("https://graph.facebook.com/{$version}/me/messages", [
+                        Http::withToken($pageToken)->post("https://graph.facebook.com/{$version}/me/messages", [
                             'recipient' => ['id' => $senderPsid],
+                            'messaging_type' => 'RESPONSE',
                             'message' => ['text' => $replyText],
-                            'access_token' => $pageToken,
                         ]);
                     }
                 }

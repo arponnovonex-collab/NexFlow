@@ -833,6 +833,23 @@ export const UnifiedInboxPage = () => {
 
                         {/* Message Composer Area */}
                         <div className="p-4 border-t border-slate-800 bg-slate-950/60">
+                            {/* Human Takeover Notice */}
+                            {activeConversation.is_human_takeover && (
+                                <div className="flex items-center justify-between px-3.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-xs text-amber-300 mb-2.5 animate-fade-in">
+                                    <span className="flex items-center gap-1.5">
+                                        <Bot className="w-3.5 h-3.5 text-amber-400" />
+                                        <span>এই কাস্টমারের জন্য <strong>AI অটো-রিপ্লাই সাময়িক পজ</strong> রয়েছে (হিউম্যান টেকওভার সক্রিয়)।</span>
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={handleToggleTakeover}
+                                        className="font-bold underline text-amber-200 hover:text-white cursor-pointer ml-2 text-xs whitespace-nowrap"
+                                    >
+                                        AI অটো-রিপ্লাই চালু করুন
+                                    </button>
+                                </div>
+                            )}
+
                             <form onSubmit={handleSendMessage} className="space-y-2">
                                 <div className="flex items-center justify-between text-xs">
                                     <div className="flex items-center gap-3">
