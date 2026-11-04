@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Customer;
 use App\Models\CustomerChannelIdentity;
 use App\Models\Message;
+use App\Models\MessageAttachment;
 use App\Models\Product;
 use App\Models\SocialAccount;
 use App\Models\SocialComment;
@@ -378,15 +379,36 @@ class MetaWebhookController extends Controller
         );
 
         // 8. Store customer message IMMEDIATELY (< 5ms)
-        Message::create([
+        $msgType = 'text';
+        if (! empty($attachments)) {
+            $firstType = $attachments[0]['type'] ?? 'image';
+            $msgType = ($firstType === 'image') ? 'image' : 'attachment';
+        }
+
+        $msg = Message::create([
             'conversation_id' => $conversation->id,
             'sender_type' => 'customer',
             'platform_message_id' => $mid,
             'text' => $text,
-            'message_type' => ! empty($attachments) ? 'attachment' : 'text',
+            'message_type' => $msgType,
             'delivery_status' => 'delivered',
             'sent_at' => now(),
         ]);
+
+        if (! empty($attachments)) {
+            foreach ($attachments as $att) {
+                $fileUrl = $att['payload']['url'] ?? null;
+                $fileType = $att['type'] ?? 'image';
+                if ($fileUrl) {
+                    MessageAttachment::create([
+                        'message_id' => $msg->id,
+                        'file_url' => $fileUrl,
+                        'file_type' => $fileType,
+                        'file_name' => $fileType . '_' . substr(md5($fileUrl), 0, 8),
+                    ]);
+                }
+            }
+        }
 
         $conversation->update([
             'last_message_at' => now(),

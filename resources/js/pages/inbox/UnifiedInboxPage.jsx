@@ -37,6 +37,9 @@ import {
     Users,
     ArrowLeft,
     Info,
+    Image as ImageIcon,
+    Paperclip,
+    X,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -79,6 +82,38 @@ export const UnifiedInboxPage = () => {
     const [sending, setSending] = useState(false);
     const [suggesting, setSuggesting] = useState(false);
     const [suggestedData, setSuggestedData] = useState(null);
+
+    // Photo / Image attachment state
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+    const fileInputRef = useRef(null);
+
+    const handleImageSelect = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (!file.type.startsWith('image/')) {
+                alert('অনুগ্রহ করে ইমেজ ফাইল (JPG, PNG, WebP) সিলেক্ট করুন।');
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                alert('ছবির সাইজ সর্বোচ্চ 10MB হতে পারে।');
+                return;
+            }
+            setSelectedImage(file);
+            setImagePreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleRemoveImage = () => {
+        setSelectedImage(null);
+        if (imagePreviewUrl) {
+            URL.revokeObjectURL(imagePreviewUrl);
+            setImagePreviewUrl('');
+        }
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
 
     // Channel Access Token Update Modal State
     const [tokenModalAccount, setTokenModalAccount] = useState(null);
@@ -343,17 +378,29 @@ export const UnifiedInboxPage = () => {
         }
     }, [activeConversation?.messages, mobileView, isMobile]);
 
-    // Send Message
+    // Send Message (supports text and/or photo attachment)
     const handleSendMessage = async (e) => {
         e.preventDefault();
-        if (!replyText.trim() || !activeConversation) return;
+        if ((!replyText.trim() && !selectedImage) || !activeConversation) return;
 
         setSending(true);
         try {
-            const res = await api.post(`/conversations/${activeConversation.id}/messages`, {
-                text: replyText,
-                is_internal_note: isInternalNote,
-            });
+            let res;
+            if (selectedImage) {
+                const formData = new FormData();
+                if (replyText.trim()) {
+                    formData.append('text', replyText.trim());
+                }
+                formData.append('is_internal_note', isInternalNote ? '1' : '0');
+                formData.append('image', selectedImage);
+
+                res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
+            } else {
+                res = await api.post(`/conversations/${activeConversation.id}/messages`, {
+                    text: replyText.trim(),
+                    is_internal_note: isInternalNote,
+                });
+            }
 
             // Append message locally
             const newMsg = res.data.data;
@@ -367,6 +414,7 @@ export const UnifiedInboxPage = () => {
             }));
             lastMsgIdRef.current = newMsg?.id || Date.now();
             setReplyText('');
+            handleRemoveImage();
             setIsInternalNote(false);
             setSuggestedData(null);
             fetchConversations(true);
@@ -931,7 +979,52 @@ export const UnifiedInboxPage = () => {
                                                         <User className="w-3 h-3" /> {senderName || 'Team Moderator'}
                                                     </div>
                                                 )}
-                                                <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+
+                                                {/* Attachments rendering (Images, photos, stickers, files) */}
+                                                {msg.attachments && msg.attachments.length > 0 && (
+                                                    <div className="space-y-1.5 mb-1.5">
+                                                        {msg.attachments.map((att) => {
+                                                            const isImage = !att.file_type || att.file_type.startsWith('image') || att.file_type === 'image';
+                                                            if (isImage) {
+                                                                return (
+                                                                    <div key={att.id} className="relative group">
+                                                                        <a
+                                                                            href={att.file_url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="block rounded-xl overflow-hidden border border-slate-700/60 hover:border-indigo-400/60 transition-all max-w-[260px] md:max-w-xs shadow-md"
+                                                                            title="Click to view full image"
+                                                                        >
+                                                                            <img
+                                                                                src={att.file_url}
+                                                                                alt="Photo"
+                                                                                className="max-h-64 w-auto rounded-xl object-contain bg-slate-950/40 hover:scale-[1.02] transition-transform"
+                                                                                loading="lazy"
+                                                                            />
+                                                                        </a>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return (
+                                                                <a
+                                                                    key={att.id}
+                                                                    href={att.file_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="flex items-center gap-2 p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 text-xs text-indigo-300 hover:text-white max-w-xs"
+                                                                >
+                                                                    <Paperclip className="w-4 h-4 shrink-0" />
+                                                                    <span className="truncate">{att.file_name || 'Download file'}</span>
+                                                                </a>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+
+                                                {/* Message Text (Hide placeholder if photo is already displayed) */}
+                                                {msg.text && (msg.text !== '📷 [Photo]' || !msg.attachments || msg.attachments.length === 0) && (
+                                                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                                                )}
                                                 {isFailed && (
                                                     <div className="mt-1.5 pt-1.5 border-t border-rose-400/25 text-[10px] text-rose-300 flex items-center gap-1">
                                                         <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
@@ -1044,6 +1137,25 @@ export const UnifiedInboxPage = () => {
                                             Order
                                         </Button>
 
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="xs"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            icon={ImageIcon}
+                                            className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                            title="Attach Photo / Image"
+                                        >
+                                            Photo
+                                        </Button>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            accept="image/jpeg,image/png,image/webp,image/gif"
+                                            onChange={handleImageSelect}
+                                            className="hidden"
+                                        />
+
                                         <label className="flex items-center gap-1 text-slate-400 text-[11px] cursor-pointer shrink-0">
                                             <input
                                                 type="checkbox"
@@ -1059,6 +1171,29 @@ export const UnifiedInboxPage = () => {
                                     </span>
                                 </div>
 
+                                {/* Selected Image Preview Chip */}
+                                {selectedImage && imagePreviewUrl && (
+                                    <div className="flex items-center gap-2 p-1.5 px-2 bg-slate-900 border border-cyan-500/40 rounded-xl animate-fade-in max-w-sm">
+                                        <img
+                                            src={imagePreviewUrl}
+                                            alt="Selected"
+                                            className="w-9 h-9 object-cover rounded-lg border border-slate-700 shrink-0"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedImage.name}</p>
+                                            <p className="text-[10px] text-cyan-400">{(selectedImage.size / 1024).toFixed(0)} KB · Ready to send</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleRemoveImage}
+                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
+                                            title="Remove photo"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                )}
+
                                 <div className="relative">
                                     <textarea
                                         rows={2}
@@ -1073,6 +1208,8 @@ export const UnifiedInboxPage = () => {
                                         placeholder={
                                             isInternalNote
                                                 ? 'Add an internal team note...'
+                                                : selectedImage
+                                                ? 'Add a caption to your photo (optional)...'
                                                 : 'Type message...'
                                         }
                                         className={`w-full rounded-xl p-2.5 pr-20 md:p-3 md:pr-24 text-xs text-slate-100 placeholder-slate-400 focus:outline-none transition-all resize-none ${
@@ -1087,7 +1224,7 @@ export const UnifiedInboxPage = () => {
                                             variant={isInternalNote ? 'warning' : 'primary'}
                                             size="xs"
                                             loading={sending}
-                                            disabled={!replyText.trim()}
+                                            disabled={!replyText.trim() && !selectedImage}
                                             icon={Send}
                                         >
                                             Send
