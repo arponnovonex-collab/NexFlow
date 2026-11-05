@@ -8,6 +8,7 @@ export const AppLayout = () => {
     const [mobileOpen, setMobileOpen] = useState(false);
     const location = useLocation();
     const isInbox = location.pathname.startsWith('/inbox');
+    const isInboxChatMobile = isInbox && new URLSearchParams(location.search).has('conversation');
 
     // Automatically close mobile drawer when navigating
     useEffect(() => {
@@ -38,10 +39,14 @@ export const AppLayout = () => {
                     isCollapsed ? 'md:ml-20' : 'md:ml-64'
                 }`}
             >
-                <Header onMenuClick={() => setMobileOpen(true)} />
+                <div className={isInboxChatMobile ? 'hidden md:block' : ''}>
+                    <Header onMenuClick={() => setMobileOpen(true)} />
+                </div>
                 <main className={`flex-1 min-w-0 w-full mx-auto flex flex-col min-h-0 ${
                     isInbox
-                        ? 'p-0 md:p-6 lg:p-8 max-w-7xl overflow-hidden h-[calc(100dvh-4rem)]'
+                        ? isInboxChatMobile
+                            ? 'p-0 md:p-6 lg:p-8 max-w-7xl overflow-hidden h-[100dvh] md:h-[calc(100dvh-4rem)]'
+                            : 'p-0 md:p-6 lg:p-8 max-w-7xl overflow-hidden h-[calc(100dvh-4rem)]'
                         : 'p-4 md:p-6 lg:p-8 max-w-7xl overflow-y-auto'
                 }`}>
                     <Outlet />

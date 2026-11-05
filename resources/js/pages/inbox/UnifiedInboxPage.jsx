@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { Badge } from '../../components/common/Badge';
@@ -53,6 +53,7 @@ import {
 export const UnifiedInboxPage = () => {
     const { user, isModerator } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
 
     // Resizable Panels State (with persistence)
     const [leftWidth, setLeftWidth] = useState(() => {
@@ -68,7 +69,12 @@ export const UnifiedInboxPage = () => {
     const [isDraggingRight, setIsDraggingRight] = useState(false);
 
     // Mobile Navigation State: 'list' | 'chat' (Always start on customer list on mobile)
-    const [mobileView, setMobileView] = useState('list');
+    const [mobileView, setMobileView] = useState(() => {
+        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            return searchParams.has('conversation') ? 'chat' : 'list';
+        }
+        return 'chat';
+    });
     const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
     const [mobileCrmExpanded, setMobileCrmExpanded] = useState(false);
 
@@ -78,16 +84,57 @@ export const UnifiedInboxPage = () => {
             setIsMobile(mobile);
             if (!mobile) {
                 setMobileView('chat');
+            } else if (!searchParams.has('conversation')) {
+                setMobileView('list');
             }
         };
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
-    }, []);
+    }, [searchParams]);
+
+    // Handle smartphone hardware/gesture back button & browser history
+    useEffect(() => {
+        const handlePopState = () => {
+            const params = new URLSearchParams(window.location.search);
+            const convId = params.get('conversation');
+            if (isMobile) {
+                if (!convId) {
+                    setMobileView('list');
+                    setMobileCrmExpanded(false);
+                    setActiveConversation(null);
+                } else {
+                    setMobileView('chat');
+                }
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [isMobile]);
+
+    // React to searchParams changes on mobile
+    useEffect(() => {
+        const convId = searchParams.get('conversation');
+        if (isMobile) {
+            if (convId) {
+                setMobileView('chat');
+            } else {
+                setMobileView('list');
+                setMobileCrmExpanded(false);
+            }
+        }
+    }, [searchParams, isMobile]);
 
     const handleBackToList = () => {
         setMobileView('list');
         setMobileCrmExpanded(false);
-        setSearchParams({});
+        setActiveConversation(null);
+        if (searchParams.has('conversation')) {
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                navigate('/inbox', { replace: true });
+            }
+        }
     };
 
     const [conversations, setConversations] = useState([]);
@@ -377,11 +424,12 @@ export const UnifiedInboxPage = () => {
             setLoadingThread(true);
             const res = await api.get(`/conversations/${id}`);
             setActiveConversation(res.data.data);
-            setSearchParams({ conversation: id });
-
             if (isExplicitUserClick && isMobile) {
                 setMobileView('chat');
                 setMobileCrmExpanded(false);
+                navigate(`/inbox?conversation=${id}`);
+            } else if (!isMobile) {
+                setSearchParams({ conversation: id }, { replace: true });
             }
 
             // Prefill order modal if customer exists
@@ -1084,11 +1132,15 @@ export const UnifiedInboxPage = () => {
                                 <button
                                     type="button"
                                     onClick={handleBackToList}
+                                    onTouchEnd={(e) => {
+                                        e.preventDefault();
+                                        handleBackToList();
+                                    }}
                                     title="Back to conversation list"
-                                    className="md:hidden flex items-center gap-1 p-1.5 -ml-1 text-slate-200 hover:text-white rounded-lg bg-slate-800/80 active:bg-slate-700 transition-colors shrink-0 cursor-pointer shadow-sm"
+                                    className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-slate-100 hover:text-white rounded-xl bg-slate-800/95 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/90 transition-all shrink-0 cursor-pointer shadow-md select-none touch-manipulation z-30 relative"
                                 >
-                                    <ArrowLeft className="w-5 h-5 text-indigo-400" />
-                                    <span className="text-xs font-semibold text-slate-200">Chats</span>
+                                    <ArrowLeft className="w-4 h-4 text-indigo-400 shrink-0" />
+                                    <span className="text-xs font-bold text-slate-100">Chats</span>
                                 </button>
 
                                 <div className="relative shrink-0">
