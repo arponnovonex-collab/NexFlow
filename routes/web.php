@@ -81,43 +81,16 @@ Route::get('/maintenance/clear-cache', function () {
     $msgCount = \App\Models\Message::count();
 
     // Debug: test customer avatars in DB and Facebook API response
-    $customers = \App\Models\Customer::select('id', 'name', 'avatar_url')->take(10)->get();
-    $activeAccount = \App\Models\SocialAccount::where('is_active', true)->first();
-    $firstConv = \App\Models\Conversation::with('customer')->first();
-    
-    $fbTest = null;
-    if ($activeAccount && $firstConv) {
-        $psid = preg_replace('/^t_(?:ig_|wa_)?/', '', $firstConv->channel_conversation_id);
-        $version = config('services.meta.graph_version', 'v19.0');
-        
-        $psidRes = \Illuminate\Support\Facades\Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$psid}", [
-            'fields' => 'name,first_name,last_name,profile_pic',
-            'access_token' => $activeAccount->access_token,
-        ]);
-        
-        $picEndpointRes = \Illuminate\Support\Facades\Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$psid}/picture", [
-            'type' => 'large',
-            'redirect' => false,
-            'access_token' => $activeAccount->access_token,
-        ]);
-
-        $convRes = \Illuminate\Support\Facades\Http::timeout(5)->get("https://graph.facebook.com/{$version}/{$activeAccount->account_id}/conversations", [
-            'fields' => 'id,participants{id,name,picture}',
-            'access_token' => $activeAccount->access_token,
-            'limit' => 3,
-        ]);
-
-        $fbTest = [
-            'account_id' => $activeAccount->account_id,
-            'psid' => $psid,
-            'user_endpoint_status' => $psidRes->status(),
-            'user_endpoint_body' => $psidRes->json(),
-            'pic_endpoint_status' => $picEndpointRes->status(),
-            'pic_endpoint_body' => $picEndpointRes->json(),
-            'conv_endpoint_status' => $convRes->status(),
-            'conv_endpoint_body' => $convRes->json(),
+    $convs = \App\Models\Conversation::with('customer')->get()->map(function ($c) {
+        return [
+            'id' => $c->id,
+            'customer_id' => $c->customer_id,
+            'customer_name' => $c->customer?->name,
+            'customer_avatar' => $c->customer?->avatar_url,
+            'platform' => $c->platform,
+            'channel_conv_id' => $c->channel_conversation_id,
         ];
-    }
+    });
 
     return response()->json([
         'status' => 'success',
@@ -125,8 +98,7 @@ Route::get('/maintenance/clear-cache', function () {
         'composer_lock_deleted' => $lockDeleted,
         'conversations_count' => $convCount,
         'messages_count' => $msgCount,
-        'customers' => $customers,
-        'fb_test' => $fbTest,
+        'conversations' => $convs,
         'super_admin' => [
             'id' => $superAdmin->id,
             'name' => $superAdmin->name,
