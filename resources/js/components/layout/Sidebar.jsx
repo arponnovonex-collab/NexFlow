@@ -30,8 +30,8 @@ import {
     Send,
     Truck,
     Volume2,
+    Palette,
 } from 'lucide-react';
-import { ThemeToggle } from '../common/ThemeToggle';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
     const { user, isSuperAdmin, isAdmin, logout } = useAuth();
@@ -393,23 +393,16 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                     <Settings className="w-4 h-4 shrink-0" />
                                     {!isCollapsed && <span>Security & API</span>}
                                 </NavLink>
+                                <NavLink to="/system/display" className={linkClasses}>
+                                    <Palette className="w-4 h-4 shrink-0 text-amber-400" />
+                                    {!isCollapsed && <span>Display & Accessibility</span>}
+                                </NavLink>
                                 <NavLink to="/settings/notifications" className={linkClasses}>
                                     <Volume2 className="w-4 h-4 shrink-0 text-indigo-400" />
                                     {!isCollapsed && <span>Sound & Alerts</span>}
                                 </NavLink>
                             </div>
                         )}
-                    </div>
-                )}
-            </div>
-
-            {/* Dark / Light Theme Toggle in Sidebar */}
-            <div className="px-3 pb-2 pt-1 border-t border-slate-800/60">
-                {!isCollapsed ? (
-                    <ThemeToggle showLabel={true} />
-                ) : (
-                    <div className="flex justify-center">
-                        <ThemeToggle size="sm" />
                     </div>
                 )}
             </div>

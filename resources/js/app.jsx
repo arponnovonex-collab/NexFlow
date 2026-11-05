@@ -25,6 +25,7 @@ import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
 import { ActivityLogsPage } from './pages/system/ActivityLogsPage';
 import { WebhookDiagnosticsPage } from './pages/system/WebhookDiagnosticsPage';
 import { SecuritySettingsPage } from './pages/system/SecuritySettingsPage';
+import { DisplayAccessibilityPage } from './pages/system/DisplayAccessibilityPage';
 import { NotificationSoundSettingsPage } from './pages/settings/NotificationSoundSettingsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
@@ -106,6 +107,7 @@ export const App = () => {
                         <Route path="system/activity-logs" element={<ActivityLogsPage />} />
                         <Route path="system/webhooks" element={<WebhookDiagnosticsPage />} />
                         <Route path="system/security" element={<SecuritySettingsPage />} />
+                        <Route path="system/display" element={<DisplayAccessibilityPage />} />
                         <Route path="settings/notifications" element={<NotificationSoundSettingsPage />} />
                         <Route path="profile" element={<ProfilePage />} />
 

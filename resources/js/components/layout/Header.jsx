@@ -19,6 +19,7 @@ import {
     Sliders,
     X,
     ExternalLink,
+    Palette,
 } from 'lucide-react';
 import { Facebook, Instagram } from '../common/SocialIcons';
 import { Badge } from '../common/Badge';
@@ -334,7 +335,14 @@ export const Header = ({ onMenuClick }) => {
                                     onClick={() => setShowProfileMenu(false)}
                                     className="flex items-center gap-2 px-4 py-2 text-xs text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/80 transition-colors"
                                 >
-                                    <Volume2 className="w-3.5 h-3.5" /> Sound & Notification Settings
+                                    <Volume2 className="w-3.5 h-3.5" /> Sound & Alerts
+                                </Link>
+                                <Link
+                                    to="/system/display"
+                                    onClick={() => setShowProfileMenu(false)}
+                                    className="flex items-center gap-2 px-4 py-2 text-xs text-amber-400 hover:text-amber-300 hover:bg-slate-800/80 transition-colors"
+                                >
+                                    <Palette className="w-3.5 h-3.5" /> Display & Accessibility
                                 </Link>
                                 <div className="p-2 border-t border-slate-800/80">
                                     <ThemeToggle showLabel={true} />
