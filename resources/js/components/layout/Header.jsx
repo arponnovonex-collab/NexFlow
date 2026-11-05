@@ -179,10 +179,10 @@ export const Header = ({ onMenuClick }) => {
                     {showNotifications && (
                         <>
                             <div
-                                className="fixed inset-0 z-40 cursor-default"
+                                className="fixed inset-0 z-40 bg-black/50 sm:bg-transparent backdrop-blur-[2px] sm:backdrop-blur-none transition-opacity"
                                 onClick={() => setShowNotifications(false)}
                             />
-                            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50 animate-fade-in">
+                            <div className="fixed sm:absolute left-2.5 right-2.5 sm:left-auto sm:right-0 top-14 sm:top-full mt-2 sm:w-96 max-w-md mx-auto sm:mx-0 sm:max-w-none bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-xl shadow-2xl overflow-hidden z-50 animate-fade-in">
                                 <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
                                     <div className="flex items-center gap-2">
                                         <Bell className="w-4 h-4 text-indigo-400" />
@@ -193,17 +193,27 @@ export const Header = ({ onMenuClick }) => {
                                             </span>
                                         )}
                                     </div>
-                                    {unreadCount > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        {unreadCount > 0 && (
+                                            <button
+                                                onClick={handleMarkAllAsRead}
+                                                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                                            >
+                                                Mark all read
+                                            </button>
+                                        )}
                                         <button
-                                            onClick={handleMarkAllAsRead}
-                                            className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                                            type="button"
+                                            onClick={() => setShowNotifications(false)}
+                                            className="sm:hidden p-1 text-slate-400 hover:text-white rounded hover:bg-slate-850 transition"
+                                            title="Close"
                                         >
-                                            Mark all read
+                                            <X className="w-4 h-4" />
                                         </button>
-                                    )}
+                                    </div>
                                 </div>
 
-                                <div className="divide-y divide-slate-800/60 max-h-80 overflow-y-auto">
+                                <div className="divide-y divide-slate-800/60 max-h-[calc(100dvh-12rem)] sm:max-h-80 overflow-y-auto overscroll-contain">
                                     {notifications.length === 0 ? (
                                         <div className="p-8 text-center">
                                             <Bell className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
@@ -220,14 +230,14 @@ export const Header = ({ onMenuClick }) => {
                                                 <div
                                                     key={n.id}
                                                     onClick={() => handleNotificationClick(n)}
-                                                    className={`p-3 transition-colors cursor-pointer group flex items-start gap-2.5 ${
+                                                    className={`p-3 transition-colors cursor-pointer group flex items-start gap-2.5 border-l-2 ${
                                                         !n.is_read
                                                             ? isUrgent
-                                                                ? 'bg-rose-950/20 hover:bg-rose-950/30 border-l-2 border-rose-500'
+                                                                ? 'bg-rose-950/20 hover:bg-rose-950/30 border-rose-500'
                                                                 : isWarning
-                                                                ? 'bg-amber-950/20 hover:bg-amber-950/30 border-l-2 border-amber-500'
-                                                                : 'bg-indigo-950/20 hover:bg-indigo-950/30 border-l-2 border-indigo-500'
-                                                            : 'hover:bg-slate-800/50'
+                                                                ? 'bg-amber-950/20 hover:bg-amber-950/30 border-amber-500'
+                                                                : 'bg-indigo-950/20 hover:bg-indigo-950/30 border-indigo-500'
+                                                            : 'border-transparent hover:bg-slate-800/50'
                                                     }`}
                                                 >
                                                     <div className="shrink-0 mt-0.5">
@@ -260,7 +270,7 @@ export const Header = ({ onMenuClick }) => {
 
                                                     <button
                                                         onClick={(e) => handleDeleteNotification(e, n.id)}
-                                                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 rounded transition-opacity cursor-pointer shrink-0"
+                                                        className="opacity-40 sm:opacity-0 sm:group-hover:opacity-100 hover:!opacity-100 p-1 text-slate-500 hover:text-rose-400 rounded transition-opacity cursor-pointer shrink-0"
                                                         title="Delete"
                                                     >
                                                         <Trash2 className="w-3.5 h-3.5" />
