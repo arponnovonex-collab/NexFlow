@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useAppearance } from '../../context/AppearanceContext';
 import {
     LayoutDashboard,
     Inbox,
@@ -31,15 +32,19 @@ import {
     Truck,
     Volume2,
     Palette,
+    FolderOpen,
+    UploadCloud,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
     const { user, isSuperAdmin, isAdmin, logout } = useAuth();
+    const { appName, appTagline, appLogoUrl } = useAppearance();
     const location = useLocation();
 
     const [openSections, setOpenSections] = useState({
         connections: true,
         inbox: true,
+        media: true,
         automation: true,
         products: true,
         leads: true,
@@ -70,21 +75,31 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
             {/* Logo / Header */}
             <div className="h-16 px-4 border-b border-slate-800/80 flex items-center justify-between">
                 {!isCollapsed && (
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                            <Sparkles className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                            <span className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
-                                NexFlow <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 font-bold border border-indigo-500/30">AI</span>
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                        {appLogoUrl ? (
+                            <div className="w-9 h-9 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center overflow-hidden shrink-0">
+                                <img src={appLogoUrl} alt={appName || 'Logo'} className="w-full h-full object-contain p-0.5" />
+                            </div>
+                        ) : (
+                            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+                                <Sparkles className="w-5 h-5 text-white" />
+                            </div>
+                        )}
+                        <div className="min-w-0">
+                            <span className="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5 truncate">
+                                {appName || 'NexFlow'} <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 font-bold border border-indigo-500/30">AI</span>
                             </span>
-                            <p className="text-[10px] text-slate-400 -mt-0.5">Smarter Sales CRM</p>
+                            <p className="text-[10px] text-slate-400 -mt-0.5 truncate">{appTagline || 'Smarter Sales CRM'}</p>
                         </div>
                     </div>
                 )}
                 {isCollapsed && (
-                    <div className="mx-auto w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center">
-                        <Sparkles className="w-5 h-5 text-white" />
+                    <div className="mx-auto w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center overflow-hidden">
+                        {appLogoUrl ? (
+                            <img src={appLogoUrl} alt={appName || 'Logo'} className="w-full h-full object-contain p-1" />
+                        ) : (
+                            <Sparkles className="w-5 h-5 text-white" />
+                        )}
                     </div>
                 )}
                 <button
@@ -156,6 +171,46 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                         )}
                     </NavLink>
                 </div>
+
+                {/* Media Library (WordPress-style) */}
+                <div>
+                    {!isCollapsed ? (
+                        <button
+                            onClick={() => toggleSection('media')}
+                            className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                        >
+                            <span>Media Library</span>
+                            {openSections.media ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                    ) : null}
+                    {(openSections.media || isCollapsed) && (
+                        <div className="space-y-1">
+                            <NavLink to="/media" end className={linkClasses}>
+                                <FolderOpen className="w-4 h-4 shrink-0 text-amber-400" />
+                                {!isCollapsed && <span>All Media</span>}
+                            </NavLink>
+                            <NavLink to="/media/upload" className={linkClasses}>
+                                <UploadCloud className="w-4 h-4 shrink-0 text-indigo-400" />
+                                {!isCollapsed && <span>Upload</span>}
+                            </NavLink>
+                        </div>
+                    )}
+                </div>
+
+                {/* Appearance */}
+                {isAdmin && (
+                    <div>
+                        {!isCollapsed && (
+                            <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                                Branding
+                            </p>
+                        )}
+                        <NavLink to="/appearance" className={linkClasses}>
+                            <Palette className="w-4 h-4 shrink-0 text-pink-400" />
+                            {!isCollapsed && <span>Appearance</span>}
+                        </NavLink>
+                    </div>
+                )}
 
                 {/* Social Channels (Admin / Super Admin) */}
                 {isAdmin && (
@@ -396,6 +451,10 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <NavLink to="/system/display" className={linkClasses}>
                                     <Palette className="w-4 h-4 shrink-0 text-amber-400" />
                                     {!isCollapsed && <span>Display & Accessibility</span>}
+                                </NavLink>
+                                <NavLink to="/appearance" className={linkClasses}>
+                                    <Sparkles className="w-4 h-4 shrink-0 text-pink-400" />
+                                    {!isCollapsed && <span>Appearance & Branding</span>}
                                 </NavLink>
                                 <NavLink to="/settings/notifications" className={linkClasses}>
                                     <Volume2 className="w-4 h-4 shrink-0 text-indigo-400" />

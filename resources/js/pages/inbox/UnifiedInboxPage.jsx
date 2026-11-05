@@ -9,6 +9,7 @@ import { Modal } from '../../components/common/Modal';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
+import { MediaPickerModal } from '../../components/media/MediaPickerModal';
 import {
     Search,
     Send,
@@ -41,6 +42,8 @@ import {
     Info,
     Image as ImageIcon,
     Paperclip,
+    FolderOpen,
+    Music,
     X,
     Mic,
     Video,
@@ -151,6 +154,8 @@ export const UnifiedInboxPage = () => {
 
     // File / Media attachment state (Images, Videos, PDFs, Documents, Audio)
     const [selectedFile, setSelectedFile] = useState(null);
+    const [selectedMediaItem, setSelectedMediaItem] = useState(null);
+    const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
     const [filePreviewUrl, setFilePreviewUrl] = useState('');
     const [fileTypeCategory, setFileTypeCategory] = useState(''); // 'image' | 'video' | 'audio' | 'pdf' | 'file'
     const fileInputRef = useRef(null);
@@ -195,14 +200,24 @@ export const UnifiedInboxPage = () => {
 
     const handleRemoveFile = () => {
         setSelectedFile(null);
+        setSelectedMediaItem(null);
         if (filePreviewUrl) {
-            URL.revokeObjectURL(filePreviewUrl);
+            if (filePreviewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(filePreviewUrl);
+            }
             setFilePreviewUrl('');
         }
         setFileTypeCategory('');
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
+    };
+
+    const handleSelectMediaLibraryItem = (media) => {
+        handleRemoveFile();
+        setSelectedMediaItem(media);
+        setFileTypeCategory(media.file_type);
+        setFilePreviewUrl(media.file_url);
     };
 
     const getSupportedAudioMime = () => {
@@ -595,13 +610,14 @@ export const UnifiedInboxPage = () => {
         }
     }, [activeConversation?.messages, mobileView, isMobile]);
 
-    // Send Message (supports text, photo, video, audio, and documents)
+    // Send Message (supports text, photo, video, audio, media library files, and documents)
     const executeSendMessage = async (fileOverride = null, fileTypeOverride = null, filenameOverride = null) => {
         const fileToSend = fileOverride || selectedFile;
         const catToSend = fileTypeOverride || fileTypeCategory;
         const textToSend = replyText.trim();
+        const mediaToSend = selectedMediaItem;
 
-        if ((!textToSend && !fileToSend) || !activeConversation) return;
+        if ((!textToSend && !fileToSend && !mediaToSend) || !activeConversation) return;
 
         setSending(true);
         try {
@@ -616,6 +632,15 @@ export const UnifiedInboxPage = () => {
 
                 const fname = filenameOverride || fileToSend.name || `voice_${Date.now()}.webm`;
                 formData.append('file', fileToSend, fname);
+
+                res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
+            } else if (mediaToSend) {
+                const formData = new FormData();
+                if (textToSend) {
+                    formData.append('text', textToSend);
+                }
+                formData.append('is_internal_note', isInternalNote ? '1' : '0');
+                formData.append('media_id', mediaToSend.id);
 
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
             } else {
@@ -1735,6 +1760,18 @@ export const UnifiedInboxPage = () => {
                                             type="button"
                                             variant="secondary"
                                             size="xs"
+                                            onClick={() => setMediaPickerOpen(true)}
+                                            icon={FolderOpen}
+                                            className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                            title="Browse Media Library (Uploads, Images, Videos, Audio)"
+                                        >
+                                            Media
+                                        </Button>
+
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="xs"
                                             onClick={() => fileInputRef.current?.click()}
                                             icon={Paperclip}
                                             className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
@@ -1898,6 +1935,55 @@ export const UnifiedInboxPage = () => {
                                     </div>
                                 )}
 
+                                {/* Selected Media Library Item Preview Chip */}
+                                {selectedMediaItem && (
+                                    <div className="flex items-center gap-2.5 p-2 px-3 bg-slate-900 border border-amber-500/40 rounded-xl animate-fade-in max-w-md">
+                                        {selectedMediaItem.file_type === 'image' && (
+                                            <img
+                                                src={selectedMediaItem.file_url}
+                                                alt="Selected"
+                                                className="w-10 h-10 object-cover rounded-lg border border-slate-700 shrink-0"
+                                            />
+                                        )}
+                                        {selectedMediaItem.file_type === 'video' && (
+                                            <div className="w-10 h-10 rounded-lg bg-purple-950/60 border border-purple-500/30 flex items-center justify-center shrink-0 text-purple-400">
+                                                <Video className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                        {selectedMediaItem.file_type === 'audio' && (
+                                            <div className="w-10 h-10 rounded-lg bg-amber-950/60 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-400">
+                                                <Music className="w-5 h-5" />
+                                            </div>
+                                        )}
+                                        {selectedMediaItem.file_type === 'document' && (
+                                            <div className="w-10 h-10 rounded-lg bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400">
+                                                <FileText className="w-5 h-5" />
+                                            </div>
+                                        )}
+
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-semibold uppercase">
+                                                    Library
+                                                </span>
+                                                <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedMediaItem.title}</p>
+                                            </div>
+                                            <p className="text-[10px] text-amber-400">
+                                                {selectedMediaItem.formatted_size || ''} · Ready to send
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={handleRemoveFile}
+                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0 ml-auto"
+                                            title="Remove attachment"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+
                                 <div className="relative">
                                     <textarea
                                         rows={2}
@@ -1912,6 +1998,8 @@ export const UnifiedInboxPage = () => {
                                         placeholder={
                                             isInternalNote
                                                 ? 'Add an internal team note...'
+                                                : selectedMediaItem
+                                                ? 'Add a message/caption to this media (optional)...'
                                                 : selectedFile
                                                 ? `Add a message/caption to this ${fileTypeCategory === 'audio' ? 'voice note' : fileTypeCategory} (optional)...`
                                                 : 'Type message...'
@@ -1928,7 +2016,7 @@ export const UnifiedInboxPage = () => {
                                             variant={isInternalNote ? 'warning' : 'primary'}
                                             size="xs"
                                             loading={sending}
-                                            disabled={(!replyText.trim() && !selectedFile) || isRecording}
+                                            disabled={(!replyText.trim() && !selectedFile && !selectedMediaItem) || isRecording}
                                             icon={Send}
                                         >
                                             Send
@@ -2129,6 +2217,13 @@ export const UnifiedInboxPage = () => {
                     </form>
                 </Modal>
             )}
+
+            {/* WordPress-style Media Library Picker Modal */}
+            <MediaPickerModal
+                isOpen={mediaPickerOpen}
+                onClose={() => setMediaPickerOpen(false)}
+                onSelectMedia={handleSelectMediaLibraryItem}
+            />
         </div>
     );
 };

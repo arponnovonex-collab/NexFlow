@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { AppearanceProvider } from './context/AppearanceContext';
 import { AppLayout } from './components/layout/AppLayout';
 
 import { LoginPage } from './pages/auth/LoginPage';
@@ -26,6 +27,9 @@ import { ActivityLogsPage } from './pages/system/ActivityLogsPage';
 import { WebhookDiagnosticsPage } from './pages/system/WebhookDiagnosticsPage';
 import { SecuritySettingsPage } from './pages/system/SecuritySettingsPage';
 import { DisplayAccessibilityPage } from './pages/system/DisplayAccessibilityPage';
+import { AppearancePage } from './pages/system/AppearancePage';
+import { MediaLibraryPage } from './pages/media/MediaLibraryPage';
+import { MediaUploadPage } from './pages/media/MediaUploadPage';
 import { NotificationSoundSettingsPage } from './pages/settings/NotificationSoundSettingsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
@@ -55,67 +59,76 @@ const ProtectedRoute = ({ children }) => {
 export const App = () => {
     return (
         <ThemeProvider>
-            <AuthProvider>
-                <BrowserRouter>
-                    <Routes>
-                    <Route path="/login" element={<LoginPage />} />
+            <AppearanceProvider>
+                <AuthProvider>
+                    <BrowserRouter>
+                        <Routes>
+                        <Route path="/login" element={<LoginPage />} />
 
-                    <Route
-                        path="/"
-                        element={
-                            <ProtectedRoute>
-                                <AppLayout />
-                            </ProtectedRoute>
-                        }
-                    >
-                        <Route index element={<Navigate to="/dashboard" replace />} />
-                        <Route path="dashboard" element={<DashboardPage />} />
-                        <Route path="inbox" element={<UnifiedInboxPage />} />
-                        <Route path="connections" element={<SocialConnectionsPage />} />
-                        <Route path="connections/diagnostics" element={<SocialConnectionsPage />} />
+                        <Route
+                            path="/"
+                            element={
+                                <ProtectedRoute>
+                                    <AppLayout />
+                                </ProtectedRoute>
+                            }
+                        >
+                            <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route path="dashboard" element={<DashboardPage />} />
+                            <Route path="inbox" element={<UnifiedInboxPage />} />
+                            <Route path="connections" element={<SocialConnectionsPage />} />
+                            <Route path="connections/diagnostics" element={<SocialConnectionsPage />} />
 
-                        {/* AI Automation */}
-                        <Route path="automation/comments" element={<CommentAutomationPage />} />
-                        <Route path="automation/rules" element={<AutomationRulesPage />} />
-                        <Route path="automation/ai-control" element={<AiControlCenterPage />} />
-                        <Route path="automation/playground" element={<AiPlaygroundPage />} />
+                            {/* Media Library (WordPress Style) */}
+                            <Route path="media" element={<MediaLibraryPage />} />
+                            <Route path="media/upload" element={<MediaUploadPage />} />
 
-                        {/* Products */}
-                        <Route path="products" element={<ProductsListPage />} />
-                        <Route path="products/mappings" element={<PostProductMappingPage />} />
+                            {/* Appearance & Branding */}
+                            <Route path="appearance" element={<AppearancePage />} />
 
-                        {/* Lead CRM */}
-                        <Route path="leads" element={<LeadsListPage />} />
-                        <Route path="leads/followups" element={<FollowupsPage />} />
-                        <Route path="customers" element={<CustomersPage />} />
-                        <Route path="orders" element={<OrdersPage />} />
+                            {/* AI Automation */}
+                            <Route path="automation/comments" element={<CommentAutomationPage />} />
+                            <Route path="automation/rules" element={<AutomationRulesPage />} />
+                            <Route path="automation/ai-control" element={<AiControlCenterPage />} />
+                            <Route path="automation/playground" element={<AiPlaygroundPage />} />
 
-                        {/* SMS Gateway & Marketing */}
-                        <Route path="sms/gateway" element={<SmsGatewayPage />} />
-                        <Route path="sms/marketing" element={<SmsMarketingPage />} />
-                        <Route path="sms/auto-sms" element={<AutoSmsPage />} />
+                            {/* Products */}
+                            <Route path="products" element={<ProductsListPage />} />
+                            <Route path="products/mappings" element={<PostProductMappingPage />} />
 
-                        {/* Steadfast Courier */}
-                        <Route path="courier/steadfast" element={<SteadfastPage />} />
+                            {/* Lead CRM */}
+                            <Route path="leads" element={<LeadsListPage />} />
+                            <Route path="leads/followups" element={<FollowupsPage />} />
+                            <Route path="customers" element={<CustomersPage />} />
+                            <Route path="orders" element={<OrdersPage />} />
 
-                        {/* Team */}
-                        <Route path="team" element={<TeamManagementPage />} />
-                        <Route path="team/performance" element={<ModeratorPerformancePage />} />
+                            {/* SMS Gateway & Marketing */}
+                            <Route path="sms/gateway" element={<SmsGatewayPage />} />
+                            <Route path="sms/marketing" element={<SmsMarketingPage />} />
+                            <Route path="sms/auto-sms" element={<AutoSmsPage />} />
 
-                        {/* Analytics & System */}
-                        <Route path="analytics" element={<AnalyticsPage />} />
-                        <Route path="system/activity-logs" element={<ActivityLogsPage />} />
-                        <Route path="system/webhooks" element={<WebhookDiagnosticsPage />} />
-                        <Route path="system/security" element={<SecuritySettingsPage />} />
-                        <Route path="system/display" element={<DisplayAccessibilityPage />} />
-                        <Route path="settings/notifications" element={<NotificationSoundSettingsPage />} />
-                        <Route path="profile" element={<ProfilePage />} />
+                            {/* Steadfast Courier */}
+                            <Route path="courier/steadfast" element={<SteadfastPage />} />
 
-                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                    </Route>
-                </Routes>
-            </BrowserRouter>
-        </AuthProvider>
+                            {/* Team */}
+                            <Route path="team" element={<TeamManagementPage />} />
+                            <Route path="team/performance" element={<ModeratorPerformancePage />} />
+
+                            {/* Analytics & System */}
+                            <Route path="analytics" element={<AnalyticsPage />} />
+                            <Route path="system/activity-logs" element={<ActivityLogsPage />} />
+                            <Route path="system/webhooks" element={<WebhookDiagnosticsPage />} />
+                            <Route path="system/security" element={<SecuritySettingsPage />} />
+                            <Route path="system/display" element={<DisplayAccessibilityPage />} />
+                            <Route path="settings/notifications" element={<NotificationSoundSettingsPage />} />
+                            <Route path="profile" element={<ProfilePage />} />
+
+                            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                        </Route>
+                    </Routes>
+                </BrowserRouter>
+            </AuthProvider>
+        </AppearanceProvider>
     </ThemeProvider>
 );
 };

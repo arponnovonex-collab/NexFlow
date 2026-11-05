@@ -211,14 +211,16 @@ class ConversationController extends Controller
             'file' => 'nullable|file|max:25600', // 25MB max (Meta's limit)
             'image' => 'nullable|file|max:25600',
             'audio' => 'nullable|file|max:25600',
+            'media_id' => 'nullable|integer|exists:media_files,id',
         ]);
 
         $user = $request->user();
         $isNote = filter_var($request->input('is_internal_note'), FILTER_VALIDATE_BOOLEAN);
         $text = $request->input('text');
         $uploadedFile = $request->file('file') ?? $request->file('image') ?? $request->file('audio');
+        $mediaId = $request->input('media_id');
 
-        if (empty(trim((string) $text)) && ! $uploadedFile) {
+        if (empty(trim((string) $text)) && ! $uploadedFile && ! $mediaId) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Please enter a message or attach a file/photo/voice note to send.',
@@ -283,6 +285,27 @@ class ConversationController extends Controller
                 'local_path' => $fullLocalPath,
                 'placeholder' => $placeholder,
             ];
+        } elseif ($mediaId) {
+            $media = \App\Models\MediaFile::find($mediaId);
+            if ($media) {
+                $localPath = public_path($media->file_path);
+                $category = $media->file_type === 'document' ? 'file' : $media->file_type;
+                $placeholder = match ($media->file_type) {
+                    'image' => '📷 [Photo]',
+                    'video' => '🎥 [Video]',
+                    'audio' => '🎤 [Audio]',
+                    default => '📎 [' . ($media->title ?: $media->file_name) . ']',
+                };
+
+                $attachmentData = [
+                    'file_url' => $media->file_url,
+                    'file_type' => $category,
+                    'file_name' => $media->file_name,
+                    'file_size' => $media->file_size ?: (file_exists($localPath) ? filesize($localPath) : 0),
+                    'local_path' => $localPath,
+                    'placeholder' => $placeholder,
+                ];
+            }
         }
 
         $deliveryError = null;

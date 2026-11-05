@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\Api\AiController;
 use App\Http\Controllers\Api\AnalyticsController;
+use App\Http\Controllers\Api\AppearanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CommentAutomationController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LeadController;
+use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MetaWebhookController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
@@ -23,6 +25,7 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::get('/appearance', [AppearanceController::class, 'get']);
 
 // Meta Webhook Challenge & Event Ingestion
 Route::get('/webhooks/facebook', [MetaWebhookController::class, 'verify']);
@@ -133,4 +136,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/analytics/ai-usage', [AnalyticsController::class, 'aiUsage']);
     Route::get('/system/activity-logs', [AnalyticsController::class, 'activityLogs']);
     Route::get('/system/webhooks', [AnalyticsController::class, 'webhookEvents']);
+
+    // Branding & Appearance Customization
+    Route::post('/appearance', [AppearanceController::class, 'update']);
+
+    // WordPress-style Media Library
+    Route::get('/media', [MediaController::class, 'index']);
+    Route::post('/media/upload', [MediaController::class, 'upload']);
+    Route::delete('/media/{media}', [MediaController::class, 'destroy']);
 });

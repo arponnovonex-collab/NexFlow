@@ -3,7 +3,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
-import { Link } from 'react-router-dom';
 import {
     Sun,
     Moon,
@@ -12,7 +11,6 @@ import {
     Eye,
     Palette,
     Layers,
-    Volume2,
     Sliders,
     Sparkles,
     Check,
@@ -270,22 +268,18 @@ export const DisplayAccessibilityPage = () => {
                     <div className="py-3.5 flex items-center justify-between gap-4">
                         <div className="space-y-0.5">
                             <div className="font-semibold text-slate-200 flex items-center gap-2">
-                                <Volume2 className="w-4 h-4 text-amber-400" />
-                                <span>Audio Alerts & Notification Sounds</span>
+                                <Eye className="w-4 h-4 text-amber-400" />
+                                <span>High-Legibility Typography (স্পষ্ট ফন্ট ও কনট্রাস্ট)</span>
                             </div>
                             <p className="text-slate-400 text-[11px]">
-                                নতুন মেসেজ আসলে মেসেঞ্জার সাউন্ড এবং কাস্টম নোটিফিকেশন অ্যালার্ট নিয়ন্ত্রণ করুন।
+                                কাস্টমার মেসেজ ও অর্ডার ডিটেইলস সহজে পড়ার জন্য অপ্টিমাইজড ফন্ট রেন্ডারিং ও ক্রিস্প কনট্রাস্ট।
                             </p>
                         </div>
-                        <Link
-                            to="/settings/notifications"
-                            className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 font-semibold"
-                        >
-                            Sound Settings &rarr;
-                        </Link>
+                        <Badge variant="warning" size="xs">Optimized</Badge>
                     </div>
                 </div>
             </Card>
         </div>
     );
 };
+
