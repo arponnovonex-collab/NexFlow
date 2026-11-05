@@ -88,6 +88,7 @@ export const MediaUploadPage = () => {
         if (e.target.files && e.target.files.length > 0) {
             handleFiles(e.target.files);
         }
+        e.target.value = '';
     };
 
     const removeFile = (id) => {
@@ -201,42 +202,61 @@ export const MediaUploadPage = () => {
             )}
 
             {/* Drop Zone */}
-            <Card
+            <div
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
-                className={`p-8 sm:p-12 text-center border-2 border-dashed rounded-3xl transition-all cursor-pointer ${
+                className={`relative p-8 sm:p-12 text-center border-2 border-dashed rounded-3xl transition-all ${
                     dragActive
                         ? 'border-indigo-500 bg-indigo-500/10 scale-[1.01]'
                         : 'border-slate-800 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/70'
                 }`}
-                onClick={() => inputRef.current?.click()}
             >
                 <input
+                    id="media-file-picker"
                     ref={inputRef}
                     type="file"
                     multiple
                     accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                     onChange={handleInputChange}
-                    className="hidden"
+                    className="sr-only"
                 />
 
                 <div className="max-w-md mx-auto space-y-4">
-                    <div className="w-16 h-16 mx-auto rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-lg shadow-indigo-500/10">
+                    <label
+                        htmlFor="media-file-picker"
+                        className="w-16 h-16 mx-auto rounded-2xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow-lg shadow-indigo-500/10 cursor-pointer hover:scale-105 transition-transform"
+                    >
                         <UploadCloud className="w-8 h-8" />
-                    </div>
+                    </label>
 
                     <div>
                         <h3 className="text-base font-bold text-white">
-                            Drop your files here, or <span className="text-indigo-400 underline decoration-indigo-500/50">browse desktop</span>
+                            Drop your files here, or{' '}
+                            <label
+                                htmlFor="media-file-picker"
+                                className="text-indigo-400 hover:text-indigo-300 underline decoration-indigo-500/50 cursor-pointer"
+                            >
+                                browse desktop
+                            </label>
                         </h3>
                         <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
                             Supports Images (PNG, JPG, WebP), Videos (MP4, WebM), Audio/Voice (MP3, WAV, M4A, OGG), and Documents (PDF, DOCX) up to 64MB each.
                         </p>
                     </div>
 
-                    <div className="flex items-center justify-center gap-3 pt-2 text-[11px] text-slate-500 font-medium">
+                    <div className="pt-2">
+                        <label
+                            htmlFor="media-file-picker"
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
+                        >
+                            <UploadCloud className="w-4 h-4" />
+                            <span>Select Files From Computer</span>
+                        </label>
+                    </div>
+
+                    <div className="flex items-center justify-center gap-3 pt-3 text-[11px] text-slate-500 font-medium">
                         <span className="flex items-center gap-1">
                             <ImageIcon className="w-3.5 h-3.5 text-indigo-400" /> Images
                         </span>
@@ -254,7 +274,7 @@ export const MediaUploadPage = () => {
                         </span>
                     </div>
                 </div>
-            </Card>
+            </div>
 
             {/* Selected Files Queue */}
             {filesToUpload.length > 0 && (

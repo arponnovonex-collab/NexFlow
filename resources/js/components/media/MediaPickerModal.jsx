@@ -79,6 +79,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
             alert('Upload failed: ' + (err.response?.data?.message || err.message));
         } finally {
             setIsUploading(false);
+            if (e.target) e.target.value = '';
         }
     };
 

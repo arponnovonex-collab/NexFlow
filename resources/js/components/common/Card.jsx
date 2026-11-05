@@ -1,8 +1,11 @@
 import React from 'react';
 
-export const Card = ({ children, className = '', title, subtitle, action, footer }) => {
+export const Card = ({ children, className = '', title, subtitle, action, footer, ...restProps }) => {
     return (
-        <div className={`bg-slate-900 border border-slate-800 rounded-xl shadow-sm overflow-hidden ${className}`}>
+        <div
+            className={`bg-slate-900 border border-slate-800 rounded-xl shadow-sm overflow-hidden ${className}`}
+            {...restProps}
+        >
             {(title || action) && (
                 <div className="px-5 py-4 border-b border-slate-800/80 flex items-center justify-between">
                     <div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\MediaFile;
 use App\Models\SystemSetting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,24 +65,60 @@ class AppearanceController extends Controller
             File::makeDirectory($brandingDir, 0755, true, true);
         }
 
+        $userId = $request->user()?->id;
+
         if ($request->hasFile('logo')) {
             $file = $request->file('logo');
-            $extension = $file->getClientOriginalExtension() ?: 'png';
+            $originalName = $file->getClientOriginalName() ?: 'logo.png';
+            $extension = strtolower($file->getClientOriginalExtension() ?: 'png');
             $fileName = 'logo_' . time() . '_' . Str::random(6) . '.' . $extension;
             $file->move($brandingDir, $fileName);
             $logoUrl = url('uploads/branding/' . $fileName);
             SystemSetting::set('app_logo_url', $logoUrl);
+
+            // Also register in Media Library
+            $fullPath = $brandingDir . DIRECTORY_SEPARATOR . $fileName;
+            $imageInfo = @getimagesize($fullPath);
+            MediaFile::create([
+                'user_id' => $userId,
+                'title' => 'Website Logo',
+                'file_name' => $fileName,
+                'file_path' => 'uploads/branding/' . $fileName,
+                'file_url' => $logoUrl,
+                'file_type' => 'image',
+                'mime_type' => 'image/' . $extension,
+                'file_size' => file_exists($fullPath) ? filesize($fullPath) : 0,
+                'width' => $imageInfo ? ($imageInfo[0] ?? null) : null,
+                'height' => $imageInfo ? ($imageInfo[1] ?? null) : null,
+            ]);
         } elseif ($request->has('remove_logo') && $request->boolean('remove_logo')) {
             SystemSetting::set('app_logo_url', null);
         }
 
         if ($request->hasFile('favicon')) {
             $file = $request->file('favicon');
-            $extension = $file->getClientOriginalExtension() ?: 'png';
+            $originalName = $file->getClientOriginalName() ?: 'favicon.png';
+            $extension = strtolower($file->getClientOriginalExtension() ?: 'png');
             $fileName = 'favicon_' . time() . '_' . Str::random(6) . '.' . $extension;
             $file->move($brandingDir, $fileName);
             $faviconUrl = url('uploads/branding/' . $fileName);
             SystemSetting::set('app_favicon_url', $faviconUrl);
+
+            // Also register in Media Library
+            $fullPath = $brandingDir . DIRECTORY_SEPARATOR . $fileName;
+            $imageInfo = @getimagesize($fullPath);
+            MediaFile::create([
+                'user_id' => $userId,
+                'title' => 'Website Favicon',
+                'file_name' => $fileName,
+                'file_path' => 'uploads/branding/' . $fileName,
+                'file_url' => $faviconUrl,
+                'file_type' => 'image',
+                'mime_type' => 'image/' . $extension,
+                'file_size' => file_exists($fullPath) ? filesize($fullPath) : 0,
+                'width' => $imageInfo ? ($imageInfo[0] ?? null) : null,
+                'height' => $imageInfo ? ($imageInfo[1] ?? null) : null,
+            ]);
         }
 
         return response()->json([

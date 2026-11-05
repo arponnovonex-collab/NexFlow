@@ -139,6 +139,8 @@ class MediaController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => count($createdRecords) . ' file(s) uploaded successfully.',
+            'uploaded_count' => count($createdRecords),
+            'files' => $createdRecords,
             'data' => count($createdRecords) === 1 ? $createdRecords[0] : $createdRecords,
         ]);
     }

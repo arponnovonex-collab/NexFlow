@@ -21,6 +21,10 @@ class MediaFile extends Model
         'metadata',
     ];
 
+    protected $appends = [
+        'formatted_size',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -34,6 +38,15 @@ class MediaFile extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function getFileUrlAttribute($value): string
+    {
+        if (empty($value)) return '';
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            return $value;
+        }
+        return url($value);
     }
 
     public function getFormattedSizeAttribute(): string
