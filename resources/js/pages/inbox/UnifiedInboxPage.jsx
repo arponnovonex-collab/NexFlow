@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { playIncomingMessageSound, playOutgoingMessageSound } from '../../utils/soundEffects';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
@@ -338,26 +339,9 @@ export const UnifiedInboxPage = () => {
         };
     }, [isDraggingLeft, isDraggingRight]);
 
-    // Play subtle audio alert for inbound messages
+    // Play subtle audio alert for inbound messages using user settings
     const playNotificationSound = () => {
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) return;
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-            osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12); // A5
-            gain.gain.setValueAtTime(0.2, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.3);
-        } catch (e) {
-            // Audio context might be restricted before first user gesture; ignore
-        }
+        playIncomingMessageSound();
     };
 
     // Fetch conversation list
@@ -564,6 +548,9 @@ export const UnifiedInboxPage = () => {
             setIsInternalNote(false);
             setSuggestedData(null);
             fetchConversations(true);
+
+            // Play outgoing Messenger-style message sound
+            playOutgoingMessageSound();
         } catch (err) {
             const failedMsg = err.response?.data?.data;
             if (failedMsg) {

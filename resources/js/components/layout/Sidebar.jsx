@@ -29,6 +29,7 @@ import {
     Radio,
     Send,
     Truck,
+    Volume2,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -390,6 +391,10 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <NavLink to="/system/security" className={linkClasses}>
                                     <Settings className="w-4 h-4 shrink-0" />
                                     {!isCollapsed && <span>Security & API</span>}
+                                </NavLink>
+                                <NavLink to="/settings/notifications" className={linkClasses}>
+                                    <Volume2 className="w-4 h-4 shrink-0 text-indigo-400" />
+                                    {!isCollapsed && <span>Sound & Alerts</span>}
                                 </NavLink>
                             </div>
                         )}

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\MetaWebhookController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SmsController;
@@ -120,6 +121,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Team & Moderator Management
     Route::apiResource('users', UserController::class);
+
+    // System Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+    Route::put('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+    Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy']);
 
     // Analytics & Diagnostics
     Route::get('/analytics/moderators', [AnalyticsController::class, 'moderatorPerformance']);

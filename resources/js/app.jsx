@@ -24,6 +24,7 @@ import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
 import { ActivityLogsPage } from './pages/system/ActivityLogsPage';
 import { WebhookDiagnosticsPage } from './pages/system/WebhookDiagnosticsPage';
 import { SecuritySettingsPage } from './pages/system/SecuritySettingsPage';
+import { NotificationSoundSettingsPage } from './pages/settings/NotificationSoundSettingsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
 import { SmsMarketingPage } from './pages/sms/SmsMarketingPage';
@@ -103,6 +104,7 @@ export const App = () => {
                         <Route path="system/activity-logs" element={<ActivityLogsPage />} />
                         <Route path="system/webhooks" element={<WebhookDiagnosticsPage />} />
                         <Route path="system/security" element={<SecuritySettingsPage />} />
+                        <Route path="settings/notifications" element={<NotificationSoundSettingsPage />} />
                         <Route path="profile" element={<ProfilePage />} />
 
                         <Route path="*" element={<Navigate to="/dashboard" replace />} />
