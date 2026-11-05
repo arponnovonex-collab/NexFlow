@@ -31,6 +31,7 @@ import {
     Truck,
     Volume2,
 } from 'lucide-react';
+import { ThemeToggle } from '../common/ThemeToggle';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
     const { user, isSuperAdmin, isAdmin, logout } = useAuth();
@@ -398,6 +399,17 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 </NavLink>
                             </div>
                         )}
+                    </div>
+                )}
+            </div>
+
+            {/* Dark / Light Theme Toggle in Sidebar */}
+            <div className="px-3 pb-2 pt-1 border-t border-slate-800/60">
+                {!isCollapsed ? (
+                    <ThemeToggle showLabel={true} />
+                ) : (
+                    <div className="flex justify-center">
+                        <ThemeToggle size="sm" />
                     </div>
                 )}
             </div>

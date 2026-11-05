@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Sparkles, Lock, Mail, ArrowRight, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { Button } from '../../components/common/Button';
+import { ThemeToggle } from '../../components/common/ThemeToggle';
 
 export const LoginPage = () => {
     const navigate = useNavigate();
@@ -66,6 +67,7 @@ export const LoginPage = () => {
                         >
                             Data Deletion
                         </a>
+                        <ThemeToggle size="sm" />
                     </nav>
                 </div>
             </header>

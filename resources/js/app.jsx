@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { AppLayout } from './components/layout/AppLayout';
 
 import { LoginPage } from './pages/auth/LoginPage';
@@ -52,9 +53,10 @@ const ProtectedRoute = ({ children }) => {
 
 export const App = () => {
     return (
-        <AuthProvider>
-            <BrowserRouter>
-                <Routes>
+        <ThemeProvider>
+            <AuthProvider>
+                <BrowserRouter>
+                    <Routes>
                     <Route path="/login" element={<LoginPage />} />
 
                     <Route
@@ -112,7 +114,8 @@ export const App = () => {
                 </Routes>
             </BrowserRouter>
         </AuthProvider>
-    );
+    </ThemeProvider>
+);
 };
 
 const container = document.getElementById('root');

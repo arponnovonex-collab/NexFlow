@@ -30,3 +30,152 @@
     background: #334155;
     border-radius: 9999px;
 }
+
+/* Light Mode Theme Overrides */
+html.light,
+html[data-theme='light'] {
+    color-scheme: light;
+
+    /* Slate palette mapping for light mode */
+    --color-slate-950: #f8fafc; /* app background (slate-50) */
+    --color-slate-900: #ffffff; /* cards / sidebar / header / panels */
+    --color-slate-850: #f1f5f9; /* card hovered / list hover */
+    --color-slate-800: #e2e8f0; /* borders / dividers / subtle bg (slate-200) */
+    --color-slate-700: #cbd5e1; /* secondary borders / inputs (slate-300) */
+    --color-slate-600: #94a3b8; /* tertiary text */
+    --color-slate-500: #64748b; /* muted text */
+    --color-slate-400: #64748b; /* readable muted descriptions (slate-500) */
+    --color-slate-300: #334155; /* secondary text (slate-700) */
+    --color-slate-200: #1e293b; /* primary text (slate-800) */
+    --color-slate-100: #0f172a; /* deep headings / titles (slate-900) */
+    --color-slate-50: #020617;
+
+    /* Dark tinted backgrounds mapped to gentle pastel tints in light mode */
+    --color-indigo-950: #eef2ff; /* indigo-50 */
+    --color-indigo-900: #e0e7ff; /* indigo-100 */
+    --color-blue-950: #eff6ff;   /* blue-50 */
+    --color-blue-900: #dbeafe;   /* blue-100 */
+    --color-emerald-950: #ecfdf5;/* emerald-50 */
+    --color-emerald-900: #d1fae5;/* emerald-100 */
+    --color-rose-950: #fff1f2;   /* rose-50 */
+    --color-rose-900: #ffe4e6;   /* rose-100 */
+    --color-amber-950: #fffbeb;  /* amber-50 */
+    --color-amber-900: #fef3c7;  /* amber-100 */
+    --color-violet-950: #f5f3ff; /* violet-50 */
+    --color-violet-900: #ede9fe; /* violet-100 */
+    --color-cyan-950: #ecfeff;   /* cyan-50 */
+    --color-cyan-900: #cffafe;   /* cyan-100 */
+}
+
+/* Light mode specific element adjustments */
+html.light h1.text-white,
+html.light h2.text-white,
+html.light h3.text-white,
+html.light h4.text-white,
+html.light .font-black.text-white,
+html.light .font-extrabold.text-white,
+html.light .font-bold.text-white {
+    color: #0f172a !important;
+}
+
+/* Ensure buttons and badges with solid colored backgrounds retain their crisp white text in light mode */
+html.light button.bg-indigo-600,
+html.light button.bg-blue-600,
+html.light button.bg-emerald-600,
+html.light button.bg-rose-600,
+html.light button.bg-amber-600,
+html.light button.bg-violet-600,
+html.light button[class*='bg-indigo-'],
+html.light button[class*='bg-blue-'],
+html.light button[class*='bg-emerald-'],
+html.light button[class*='bg-rose-'],
+html.light .badge[class*='bg-'],
+html.light .bg-indigo-600.text-white,
+html.light .bg-blue-600.text-white,
+html.light .bg-emerald-600.text-white,
+html.light .bg-rose-500.text-white,
+html.light .bg-gradient-to-r.text-white {
+    color: #ffffff !important;
+}
+
+/* Light mode scrollbar thumb */
+html.light .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+}
+
+/* Card subtle shadows in light mode for clean elevation */
+html.light .bg-slate-900 {
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+}
+
+/* Light mode Layout, Header & Sidebar refinements */
+html.light header {
+    background-color: rgba(255, 255, 255, 0.94) !important;
+    border-color: #e2e8f0 !important;
+}
+
+html.light aside {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+}
+
+html.light main {
+    background-color: #f8fafc;
+}
+
+/* Form controls in light mode */
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html.light select,
+html.light textarea {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+    color: #94a3b8 !important;
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+    border-color: #6366f1 !important;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Table styles in light mode */
+html.light table th {
+    background-color: #f8fafc !important;
+    color: #475569 !important;
+    border-color: #e2e8f0 !important;
+}
+
+html.light table td {
+    border-color: #f1f5f9 !important;
+}
+
+html.light tr:hover {
+    background-color: #f8fafc !important;
+}
+
+/* Popups, Dropdowns & Modals in light mode */
+html.light .bg-slate-900.shadow-2xl,
+html.light .bg-slate-900.shadow-xl,
+html.light .bg-slate-900.rounded-2xl {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Backdrop in light mode */
+html.light .bg-slate-950\/80 {
+    background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* Unified Inbox specific refinements in light mode */
+html.light .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-slate-800\/40 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #f1f5f9 !important;
+}

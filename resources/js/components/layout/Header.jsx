@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Facebook, Instagram } from '../common/SocialIcons';
 import { Badge } from '../common/Badge';
+import { ThemeToggle } from '../common/ThemeToggle';
 
 export const Header = ({ onMenuClick }) => {
     const { user, logout } = useAuth();
@@ -151,6 +152,9 @@ export const Header = ({ onMenuClick }) => {
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> WhatsApp
                     </span>
                 </div>
+
+                {/* Dark / Light Theme Toggle */}
+                <ThemeToggle size="md" />
 
                 {/* Notifications Dropdown */}
                 <div className="relative">
@@ -332,6 +336,9 @@ export const Header = ({ onMenuClick }) => {
                                 >
                                     <Volume2 className="w-3.5 h-3.5" /> Sound & Notification Settings
                                 </Link>
+                                <div className="p-2 border-t border-slate-800/80">
+                                    <ThemeToggle showLabel={true} />
+                                </div>
                                 <div className="border-t border-slate-800/80 my-1"></div>
                                 <a
                                     href="/privacy-policy"
