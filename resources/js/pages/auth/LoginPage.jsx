@@ -148,15 +148,9 @@ export const LoginPage = () => {
                     <span>Official Meta Cloud API & OpenAI Enterprise Architecture</span>
                 </div>
 
-                {/* Footer Legal Links */}
-                <footer className="mt-8 text-center text-xs text-slate-500 flex flex-wrap items-center justify-center gap-3">
-                    <span>&copy; 2026 NexFlow AI</span>
-                    <span>·</span>
-                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Privacy Policy</a>
-                    <span>·</span>
-                    <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Terms of Service</a>
-                    <span>·</span>
-                    <a href="/data-deletion" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Data Deletion</a>
+                {/* Footer */}
+                <footer className="mt-8 text-center text-xs text-slate-500">
+                    <span>&copy; 2026 NexFlow AI. All rights reserved.</span>
                 </footer>
             </div>
         </div>
