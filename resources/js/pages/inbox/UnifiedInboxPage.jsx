@@ -168,9 +168,10 @@ export const UnifiedInboxPage = () => {
 
     // Extract all image attachments from current active conversation messages
     const conversationImages = useMemo(() => {
-        if (!messages || messages.length === 0) return [];
+        const msgs = activeConversation?.messages || [];
+        if (msgs.length === 0) return [];
         const imgs = [];
-        messages.forEach((msg) => {
+        msgs.forEach((msg) => {
             if (msg.attachments && msg.attachments.length > 0) {
                 msg.attachments.forEach((att) => {
                     const rawType = (att.file_type || '').toLowerCase();
@@ -200,7 +201,7 @@ export const UnifiedInboxPage = () => {
             }
         });
         return imgs;
-    }, [messages, activeConversation]);
+    }, [activeConversation]);
 
     const handleOpenImageLightbox = (clickedAtt) => {
         const foundIdx = conversationImages.findIndex(
