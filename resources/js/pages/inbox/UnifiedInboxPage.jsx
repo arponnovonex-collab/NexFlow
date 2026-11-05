@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import { MediaPickerModal } from '../../components/media/MediaPickerModal';
+import { ImageLightboxModal } from '../../components/common/ImageLightboxModal';
 import {
     Search,
     Send,
@@ -51,6 +52,7 @@ import {
     Download,
     File,
     Square,
+    Maximize2,
     ChevronDown,
     ChevronUp,
 } from 'lucide-react';
@@ -159,6 +161,58 @@ export const UnifiedInboxPage = () => {
     const [filePreviewUrl, setFilePreviewUrl] = useState('');
     const [fileTypeCategory, setFileTypeCategory] = useState(''); // 'image' | 'video' | 'audio' | 'pdf' | 'file'
     const fileInputRef = useRef(null);
+
+    // Messenger-style Image Lightbox State
+    const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+    const [lightboxImageIndex, setLightboxImageIndex] = useState(0);
+
+    // Extract all image attachments from current active conversation messages
+    const conversationImages = useMemo(() => {
+        if (!messages || messages.length === 0) return [];
+        const imgs = [];
+        messages.forEach((msg) => {
+            if (msg.attachments && msg.attachments.length > 0) {
+                msg.attachments.forEach((att) => {
+                    const rawType = (att.file_type || '').toLowerCase();
+                    const name = (att.file_name || '').toLowerCase();
+                    const url = (att.file_url || '').toLowerCase();
+                    const ext = (name.split('.').pop() || url.split('.').pop() || '').split('?')[0];
+                    const isImg =
+                        rawType.startsWith('image') ||
+                        rawType === 'image' ||
+                        ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
+
+                    if (isImg && att.file_url) {
+                        imgs.push({
+                            ...att,
+                            messageId: msg.id,
+                            sender: msg.sender_type,
+                            senderName:
+                                msg.sender_name ||
+                                (msg.sender_type === 'customer'
+                                    ? activeConversation?.customer?.name
+                                    : 'Moderator'),
+                            createdAt: msg.created_at,
+                            text: msg.text,
+                        });
+                    }
+                });
+            }
+        });
+        return imgs;
+    }, [messages, activeConversation]);
+
+    const handleOpenImageLightbox = (clickedAtt) => {
+        const foundIdx = conversationImages.findIndex(
+            (img) => (clickedAtt.id && img.id === clickedAtt.id) || img.file_url === clickedAtt.file_url
+        );
+        if (foundIdx !== -1) {
+            setLightboxImageIndex(foundIdx);
+        } else {
+            setLightboxImageIndex(0);
+        }
+        setIsLightboxOpen(true);
+    };
 
     // Voice recording state & refs
     const [isRecording, setIsRecording] = useState(false);
@@ -1495,20 +1549,24 @@ export const UnifiedInboxPage = () => {
                                                             if (isImage) {
                                                                 return (
                                                                     <div key={att.id} className="relative group my-1">
-                                                                        <a
-                                                                            href={att.file_url}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className="block rounded-xl overflow-hidden border border-slate-700/60 hover:border-indigo-400/60 transition-all max-w-[260px] md:max-w-xs shadow-md"
-                                                                            title="Click to view full image"
+                                                                        <div
+                                                                            onClick={() => handleOpenImageLightbox(att)}
+                                                                            className="block rounded-xl overflow-hidden border border-slate-700/60 hover:border-indigo-400/60 transition-all max-w-[260px] md:max-w-xs shadow-md cursor-pointer group/img relative"
+                                                                            title="Click to view photo (Messenger style)"
                                                                         >
                                                                             <img
                                                                                 src={att.file_url}
                                                                                 alt={att.file_name || 'Photo'}
-                                                                                className="max-h-64 w-auto rounded-xl object-contain bg-slate-950/40 hover:scale-[1.02] transition-transform"
+                                                                                className="max-h-64 w-auto rounded-xl object-contain bg-slate-950/40 group-hover/img:scale-[1.02] transition-transform"
                                                                                 loading="lazy"
                                                                             />
-                                                                        </a>
+                                                                            <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                                                                <div className="px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-sm text-white text-[11px] font-medium flex items-center gap-1 shadow-lg border border-white/10">
+                                                                                    <Maximize2 className="w-3.5 h-3.5" />
+                                                                                    <span>View</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
                                                                     </div>
                                                                 );
                                                             }
@@ -2228,6 +2286,15 @@ export const UnifiedInboxPage = () => {
                 isOpen={mediaPickerOpen}
                 onClose={() => setMediaPickerOpen(false)}
                 onSelectMedia={handleSelectMediaLibraryItem}
+            />
+
+            {/* Messenger-style Full-screen Image Lightbox Overlay */}
+            <ImageLightboxModal
+                isOpen={isLightboxOpen}
+                onClose={() => setIsLightboxOpen(false)}
+                images={conversationImages}
+                currentIndex={lightboxImageIndex}
+                onIndexChange={(idx) => setLightboxImageIndex(idx)}
             />
         </div>
     );
