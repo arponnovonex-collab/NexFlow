@@ -27,11 +27,6 @@ export const LoginPage = () => {
         }
     };
 
-    const handleQuickLogin = (quickEmail, quickPassword) => {
-        setEmail(quickEmail);
-        setPassword(quickPassword);
-    };
-
     return (
         <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-16 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white relative">
             {/* Top Fixed Header for Unauthenticated Visitors */}
@@ -106,7 +101,7 @@ export const LoginPage = () => {
                                     required
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    placeholder="e.g. admin@nexflow.ai"
+                                    placeholder="e.g. atanjimurrahman@gmail.com"
                                     className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                                 />
                             </div>
@@ -146,39 +141,6 @@ export const LoginPage = () => {
                             Sign In to Workspace
                         </Button>
                     </form>
-
-                    {/* Quick Demo Logins */}
-                    <div className="mt-6 pt-6 border-t border-slate-800/80">
-                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 text-center">
-                            Instant Demo Logins
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('admin@nexflow.ai', 'password123')}
-                                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-medium text-slate-200 hover:border-indigo-500/50 transition-all text-center cursor-pointer"
-                            >
-                                <span className="block text-indigo-400 font-semibold">Super Admin</span>
-                                <span className="text-[10px] text-slate-400">Full Access</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('manager@nexflow.ai', 'password123')}
-                                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-medium text-slate-200 hover:border-indigo-500/50 transition-all text-center cursor-pointer"
-                            >
-                                <span className="block text-cyan-400 font-semibold">Manager</span>
-                                <span className="text-[10px] text-slate-400">Operations</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleQuickLogin('moderator@nexflow.ai', 'password123')}
-                                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-medium text-slate-200 hover:border-indigo-500/50 transition-all text-center cursor-pointer"
-                            >
-                                <span className="block text-emerald-400 font-semibold">Moderator</span>
-                                <span className="text-[10px] text-slate-400">Inbox Agent</span>
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 <div className="mt-6 text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">

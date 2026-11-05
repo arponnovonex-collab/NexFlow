@@ -111,6 +111,21 @@ class UserController extends Controller
             'social_account_ids.*' => 'exists:social_accounts,id',
         ]);
 
+        if ($user->isSuperAdmin() || $user->email === 'atanjimurrahman@gmail.com') {
+            if (isset($validated['role']) && $validated['role'] !== 'super_admin') {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Super Admin role cannot be demoted or changed.',
+                ], 403);
+            }
+            if (isset($validated['status']) && $validated['status'] === 'inactive') {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Super Admin account cannot be deactivated.',
+                ], 403);
+            }
+        }
+
         if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
@@ -135,10 +150,10 @@ class UserController extends Controller
      */
     public function destroy(User $user): JsonResponse
     {
-        if ($user->isSuperAdmin()) {
+        if ($user->isSuperAdmin() || $user->email === 'atanjimurrahman@gmail.com') {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Cannot delete the Super Admin account.',
+                'message' => 'Super Admin account cannot be deleted under any circumstances.',
             ], 403);
         }
 

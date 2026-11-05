@@ -168,7 +168,11 @@ export const TeamManagementPage = () => {
                                         </Badge>
                                     </td>
                                     <td className="px-4 py-3.5 text-right">
-                                        {u.role !== 'super_admin' && (
+                                        {u.role === 'super_admin' || u.email === 'atanjimurrahman@gmail.com' ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                                                Permanent Super Admin
+                                            </span>
+                                        ) : (
                                             <Button
                                                 variant="ghost"
                                                 size="xs"

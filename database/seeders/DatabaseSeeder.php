@@ -30,14 +30,14 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // 1. Users & Roles
-        $superAdmin = User::firstOrCreate(
-            ['email' => 'admin@nexflow.ai'],
+        $superAdmin = User::updateOrCreate(
+            ['email' => 'atanjimurrahman@gmail.com'],
             [
-                'name' => 'NexFlow Super Admin',
+                'name' => 'Tanjimur Rahman Arpon',
                 'password' => Hash::make('password123'),
                 'role' => 'super_admin',
                 'status' => 'active',
-                'phone' => '+8801811223344',
+                'phone' => '01580401289',
                 'avatar_url' => 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
             ]
         );

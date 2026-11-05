@@ -60,6 +60,15 @@ class User extends Authenticatable
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user) {
+            if ($user->role === 'super_admin' || $user->email === 'atanjimurrahman@gmail.com') {
+                throw new \Exception('Super Admin account cannot be deleted under any circumstances.');
+            }
+        });
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';
