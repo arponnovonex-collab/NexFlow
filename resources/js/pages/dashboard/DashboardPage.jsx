@@ -6,6 +6,7 @@ import { MetricCard } from '../../components/common/MetricCard';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
+import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import {
     Share2,
     MessageSquare,
@@ -325,10 +326,10 @@ export const DashboardPage = () => {
                                 >
                                     <div className="flex items-start gap-2.5">
                                         <div className="relative">
-                                            <img
-                                                src={c.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                                alt={c.customer?.name}
-                                                className="w-8 h-8 rounded-full object-cover"
+                                            <CustomerAvatar
+                                                name={c.customer?.name}
+                                                avatarUrl={c.customer?.avatar_url}
+                                                size="sm"
                                             />
                                             <span
                                                 className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-900 ${

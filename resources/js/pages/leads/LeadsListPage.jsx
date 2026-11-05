@@ -5,6 +5,7 @@ import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
+import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import {
     Users,
     Search,
@@ -146,10 +147,10 @@ export const LeadsListPage = () => {
                                     <tr key={l.id} className="hover:bg-slate-800/40 transition-colors">
                                         <td className="px-4 py-3.5">
                                             <div className="flex items-center gap-2.5">
-                                                <img
-                                                    src={l.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                                    alt={l.customer?.name}
-                                                    className="w-8 h-8 rounded-full object-cover"
+                                                <CustomerAvatar
+                                                    name={l.customer?.name}
+                                                    avatarUrl={l.customer?.avatar_url}
+                                                    size="sm"
                                                 />
                                                 <div>
                                                     <span className="font-semibold text-slate-200 block">{l.customer?.name}</span>

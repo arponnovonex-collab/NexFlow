@@ -342,7 +342,7 @@ class MetaWebhookController extends Controller
 
             $customer = Customer::create([
                 'name' => $initialName,
-                'avatar_url' => 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80',
+                'avatar_url' => null,
             ]);
 
             try {
@@ -452,12 +452,12 @@ class MetaWebhookController extends Controller
         $senderPsid = $task['sender_psid'];
         $text = $task['text'];
 
-        // 1. Fast profile enrichment if name is generic
-        if (str_starts_with($customer->name, 'Facebook Customer')) {
+        // 1. Fast profile enrichment if name is generic or profile pic is missing
+        if (str_starts_with($customer->name, 'Facebook Customer') || empty($customer->avatar_url)) {
             try {
                 \App\Services\FacebookProfileService::resolveCustomerName($account, (string) $senderPsid, $customer);
             } catch (\Throwable $e) {
-                Log::warning('Error resolving customer real name: ' . $e->getMessage());
+                Log::warning('Error resolving customer real name & avatar: ' . $e->getMessage());
             }
         }
 

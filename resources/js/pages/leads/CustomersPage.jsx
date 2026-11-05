@@ -3,6 +3,7 @@ import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
+import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import {
     Users,
     Search,
@@ -83,10 +84,10 @@ export const CustomersPage = () => {
                                     <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
                                         <td className="px-4 py-3.5">
                                             <div className="flex items-center gap-2.5">
-                                                <img
-                                                    src={c.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                                    alt={c.name}
-                                                    className="w-9 h-9 rounded-full object-cover"
+                                                <CustomerAvatar
+                                                    name={c.name}
+                                                    avatarUrl={c.avatar_url}
+                                                    size="md"
                                                 />
                                                 <div>
                                                     <span className="font-semibold text-slate-200 block">{c.name}</span>

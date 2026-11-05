@@ -112,11 +112,17 @@ class ConversationController extends Controller
             },
         ]);
 
-        // Auto-enrich customer profile if still named 'Facebook Customer'
-        if ($conversation->platform === 'facebook_page' && $conversation->customer && str_starts_with($conversation->customer->name, 'Facebook Customer')) {
-            $psid = str_replace('t_', '', $conversation->channel_conversation_id);
-            \App\Services\FacebookProfileService::resolveCustomerName($conversation->socialAccount, $psid, $conversation->customer);
-            $conversation->load('customer');
+        // Auto-enrich customer profile if still generic name or lacks real profile picture
+        if (($conversation->platform === 'facebook_page' || $conversation->platform === 'instagram_business') && $conversation->customer) {
+            $cust = $conversation->customer;
+            $needsName = str_starts_with($cust->name, 'Facebook Customer') || empty($cust->name);
+            $needsAvatar = empty($cust->avatar_url) || str_contains($cust->avatar_url, 'unsplash.com');
+
+            if ($needsName || $needsAvatar) {
+                $psid = preg_replace('/^t_(?:ig_|wa_)?/', '', $conversation->channel_conversation_id);
+                \App\Services\FacebookProfileService::resolveCustomerName($conversation->socialAccount, $psid, $cust);
+                $conversation->load('customer');
+            }
         }
 
         // Auto-backfill attachments for any photo messages that lack attachments
@@ -660,7 +666,7 @@ class ConversationController extends Controller
     }
 
     /**
-     * Bulk sync real customer names from Facebook page conversations.
+     * Bulk sync real customer names and profile pictures from Facebook page conversations.
      */
     public function syncNames(): JsonResponse
     {
@@ -668,7 +674,7 @@ class ConversationController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => "Successfully synced {$updated} customer name(s) from Facebook.",
+            'message' => "Successfully synced {$updated} customer profile(s) (name & picture) from Facebook.",
             'updated_count' => $updated,
         ]);
     }

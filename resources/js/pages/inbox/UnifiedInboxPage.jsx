@@ -7,6 +7,7 @@ import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
+import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import {
     Search,
@@ -835,10 +836,11 @@ export const UnifiedInboxPage = () => {
         <div className="space-y-4">
             {/* Customer Identity */}
             <div className="text-center">
-                <img
-                    src={activeConversation?.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100'}
-                    alt={activeConversation?.customer?.name}
-                    className="w-14 h-14 md:w-16 md:h-16 rounded-full mx-auto object-cover ring-2 ring-indigo-500/20"
+                <CustomerAvatar
+                    name={activeConversation?.customer?.name}
+                    avatarUrl={activeConversation?.customer?.avatar_url}
+                    size="xl"
+                    className="mx-auto ring-2 ring-indigo-500/20"
                 />
                 <div className="mt-2">
                     <h3 className="text-sm font-bold text-slate-100 flex items-center justify-center gap-1.5">
@@ -1126,10 +1128,10 @@ export const UnifiedInboxPage = () => {
                                     }`}
                                 >
                                     <div className="relative shrink-0">
-                                        <img
-                                            src={c.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                            alt={customerName}
-                                            className="w-8 h-8 rounded-full object-cover"
+                                        <CustomerAvatar
+                                            name={customerName}
+                                            avatarUrl={c.customer?.avatar_url}
+                                            size="sm"
                                         />
                                         <span
                                             className={`absolute -bottom-1 -right-1 p-0.5 rounded-full text-white ${
@@ -1233,10 +1235,10 @@ export const UnifiedInboxPage = () => {
                                 {/* Customer Info */}
                                 <div className="flex items-center gap-2 shrink-0">
                                     <div className="relative shrink-0">
-                                        <img
-                                            src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                            alt={activeConversation.customer?.name}
-                                            className="w-8 h-8 md:w-9 md:h-9 rounded-full object-cover ring-1 ring-slate-700"
+                                        <CustomerAvatar
+                                            name={activeConversation.customer?.name}
+                                            avatarUrl={activeConversation.customer?.avatar_url}
+                                            size="md"
                                         />
                                         <span
                                             className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full text-white text-[8px] ${
