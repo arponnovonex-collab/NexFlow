@@ -149,3 +149,4 @@ export const playOutgoingMessageSound = (force = false) => {
         // Audio context error ignore
     }
 };
+

@@ -154,12 +154,16 @@ export const UnifiedInboxPage = () => {
     const [fileTypeCategory, setFileTypeCategory] = useState(''); // 'image' | 'video' | 'audio' | 'pdf' | 'file'
     const fileInputRef = useRef(null);
 
-    // Voice recording state
+    // Voice recording state & refs
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
     const mediaRecorderRef = useRef(null);
+    const mediaStreamRef = useRef(null);
     const audioChunksRef = useRef([]);
     const timerRef = useRef(null);
+    const recorderMimeRef = useRef('');
+    const recorderExtRef = useRef('webm');
+    const sendImmediatelyRef = useRef(false);
 
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
@@ -200,15 +204,47 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    const getSupportedAudioMime = () => {
+        if (typeof MediaRecorder === 'undefined') return { mime: '', ext: 'webm' };
+        const candidates = [
+            { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+            { mime: 'audio/webm', ext: 'webm' },
+            { mime: 'audio/mp4', ext: 'mp4' },
+            { mime: 'audio/aac', ext: 'aac' },
+            { mime: 'audio/ogg;codecs=opus', ext: 'ogg' },
+            { mime: 'audio/ogg', ext: 'ogg' },
+        ];
+        for (const c of candidates) {
+            try {
+                if (MediaRecorder.isTypeSupported(c.mime)) {
+                    return c;
+                }
+            } catch (e) {}
+        }
+        return { mime: '', ext: 'webm' };
+    };
+
     const startRecording = async () => {
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 alert('আপনার ব্রাউজারে অডিও রেকর্ডিং সাপোর্ট করে না।');
                 return;
             }
+
+            // Clear any previously attached file/audio
+            handleRemoveFile();
+
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStreamRef.current = stream;
             audioChunksRef.current = [];
-            const mediaRecorder = new MediaRecorder(stream);
+            sendImmediatelyRef.current = false;
+
+            const { mime, ext } = getSupportedAudioMime();
+            recorderMimeRef.current = mime;
+            recorderExtRef.current = ext;
+
+            const options = mime ? { mimeType: mime } : undefined;
+            const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
 
             mediaRecorder.ondataavailable = (e) => {
@@ -218,44 +254,97 @@ export const UnifiedInboxPage = () => {
             };
 
             mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                const voiceFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-                setSelectedFile(voiceFile);
-                setFilePreviewUrl(URL.createObjectURL(audioBlob));
-                setFileTypeCategory('audio');
+                try {
+                    const actualMime = mediaRecorder.mimeType || recorderMimeRef.current || 'audio/webm';
+                    const actualExt = recorderExtRef.current || (actualMime.includes('mp4') ? 'mp4' : actualMime.includes('ogg') ? 'ogg' : 'webm');
+                    const audioBlob = new Blob(audioChunksRef.current, { type: actualMime });
 
-                stream.getTracks().forEach((track) => track.stop());
+                    if (audioBlob.size < 50) {
+                        console.warn('Recorded audio is empty or too short');
+                        return;
+                    }
+
+                    const filename = `voice_${Date.now()}.${actualExt}`;
+                    let voiceFile;
+                    try {
+                        voiceFile = new File([audioBlob], filename, { type: actualMime });
+                    } catch (e) {
+                        voiceFile = audioBlob;
+                        voiceFile.name = filename;
+                        voiceFile.lastModified = Date.now();
+                    }
+
+                    setSelectedFile(voiceFile);
+                    const previewUrl = URL.createObjectURL(audioBlob);
+                    setFilePreviewUrl(previewUrl);
+                    setFileTypeCategory('audio');
+
+                    if (sendImmediatelyRef.current) {
+                        sendImmediatelyRef.current = false;
+                        executeSendMessage(voiceFile, 'audio', filename);
+                    }
+                } catch (err) {
+                    console.error('Error handling recorded audio:', err);
+                } finally {
+                    if (mediaStreamRef.current) {
+                        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+                        mediaStreamRef.current = null;
+                    }
+                }
             };
 
-            mediaRecorder.start();
+            // Request timeslice every 200ms so chunks are continuously populated
+            mediaRecorder.start(200);
             setIsRecording(true);
             setRecordingTime(0);
+
             if (timerRef.current) clearInterval(timerRef.current);
             timerRef.current = setInterval(() => {
                 setRecordingTime((prev) => prev + 1);
             }, 1000);
         } catch (err) {
             console.error('Microphone access denied:', err);
-            alert('ভয়েস রেকর্ড করতে মাইক্রোফোন পারমিশন প্রয়োজন। ব্রাউজার সেটিংসে মাইক্রোফোন অ্যালাউ করুন।');
+            alert('ভয়েস রেকর্ড করতে মাইক্রোফোন পারমিশন প্রয়োজন। ব্রাউজার সেটিংসে মাইক্রোফোন অ্যাক্সেস অ্যালাউ করুন।');
         }
     };
 
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-            if (timerRef.current) clearInterval(timerRef.current);
+    const stopRecording = (andSendImmediately = false) => {
+        if (andSendImmediately) {
+            sendImmediatelyRef.current = true;
+        }
+        if (timerRef.current) clearInterval(timerRef.current);
+        setIsRecording(false);
+
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try {
+                mediaRecorderRef.current.requestData();
+            } catch (e) {}
+            try {
+                mediaRecorderRef.current.stop();
+            } catch (e) {}
         }
     };
 
     const cancelRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
+        sendImmediatelyRef.current = false;
+        if (timerRef.current) clearInterval(timerRef.current);
+        setIsRecording(false);
+        setRecordingTime(0);
+
+        if (mediaRecorderRef.current) {
             mediaRecorderRef.current.onstop = null;
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-            if (timerRef.current) clearInterval(timerRef.current);
-            mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+            if (mediaRecorderRef.current.state !== 'inactive') {
+                try {
+                    mediaRecorderRef.current.stop();
+                } catch (e) {}
+            }
+            mediaRecorderRef.current = null;
         }
+        if (mediaStreamRef.current) {
+            mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+            mediaStreamRef.current = null;
+        }
+        audioChunksRef.current = [];
     };
 
     // Channel Access Token Update Modal State
@@ -509,25 +598,31 @@ export const UnifiedInboxPage = () => {
     }, [activeConversation?.messages, mobileView, isMobile]);
 
     // Send Message (supports text, photo, video, audio, and documents)
-    const handleSendMessage = async (e) => {
-        e.preventDefault();
-        if ((!replyText.trim() && !selectedFile) || !activeConversation) return;
+    const executeSendMessage = async (fileOverride = null, fileTypeOverride = null, filenameOverride = null) => {
+        const fileToSend = fileOverride || selectedFile;
+        const catToSend = fileTypeOverride || fileTypeCategory;
+        const textToSend = replyText.trim();
+
+        if ((!textToSend && !fileToSend) || !activeConversation) return;
 
         setSending(true);
         try {
             let res;
-            if (selectedFile) {
+            if (fileToSend) {
                 const formData = new FormData();
-                if (replyText.trim()) {
-                    formData.append('text', replyText.trim());
+                if (textToSend) {
+                    formData.append('text', textToSend);
                 }
                 formData.append('is_internal_note', isInternalNote ? '1' : '0');
-                formData.append('file', selectedFile);
+                formData.append('file_type', catToSend || 'file');
+
+                const fname = filenameOverride || fileToSend.name || `voice_${Date.now()}.webm`;
+                formData.append('file', fileToSend, fname);
 
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
             } else {
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, {
-                    text: replyText.trim(),
+                    text: textToSend,
                     is_internal_note: isInternalNote,
                 });
             }
@@ -570,6 +665,11 @@ export const UnifiedInboxPage = () => {
         } finally {
             setSending(false);
         }
+    };
+
+    const handleSendMessage = (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        executeSendMessage();
     };
 
     // Update Channel Page Access Token
@@ -1652,39 +1752,114 @@ export const UnifiedInboxPage = () => {
 
                                 {/* Active Voice Recording Status Bar */}
                                 {isRecording && (
-                                    <div className="flex items-center justify-between p-2 px-3 bg-rose-950/60 border border-rose-500/40 rounded-xl animate-fade-in text-xs">
-                                        <div className="flex items-center gap-2">
-                                            <span className="relative flex h-2.5 w-2.5">
+                                    <div className="flex items-center justify-between p-2.5 px-3 bg-rose-950/80 border border-rose-500/50 rounded-xl animate-fade-in text-xs shadow-lg">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="relative flex h-3 w-3 shrink-0">
                                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                                                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
                                             </span>
-                                            <span className="font-semibold text-rose-300">ভয়েস রেকর্ড হচ্ছে...</span>
-                                            <span className="font-mono text-rose-200 bg-rose-900/60 px-1.5 py-0.5 rounded border border-rose-700/50">
+                                            <span className="font-semibold text-rose-200 text-xs truncate">ভয়েস রেকর্ড হচ্ছে...</span>
+                                            <span className="font-mono text-rose-100 bg-rose-900/90 px-2 py-0.5 rounded-md border border-rose-700/60 font-bold shrink-0">
                                                 {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                             <button
                                                 type="button"
                                                 onClick={cancelRecording}
-                                                className="text-[11px] text-slate-400 hover:text-rose-300 px-2 py-1 rounded hover:bg-rose-900/40 transition-colors cursor-pointer"
+                                                className="text-[11px] text-slate-300 hover:text-rose-300 px-2 py-1 rounded hover:bg-rose-900/40 transition-colors cursor-pointer"
                                             >
                                                 Cancel
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={stopRecording}
-                                                className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-500 px-2.5 py-1 rounded-lg transition-colors cursor-pointer shadow-sm"
+                                                onClick={() => stopRecording(false)}
+                                                className="flex items-center gap-1 text-[11px] font-semibold text-slate-100 bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                                                title="রেকর্ডিং শেষ করে শুনুন"
                                             >
-                                                <Square className="w-3 h-3 fill-white" />
-                                                Done
+                                                <Square className="w-3 h-3 fill-slate-300 text-slate-300" />
+                                                Done (শুনুন)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => stopRecording(true)}
+                                                className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg transition-colors cursor-pointer shadow-md"
+                                                title="সরাসরি কাস্টমারকে পাঠিয়ে দিন"
+                                            >
+                                                <Send className="w-3 h-3" />
+                                                Send (পাঠান)
                                             </button>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Selected File / Media Preview Chip */}
-                                {selectedFile && (
+                                {/* Recorded Voice Note Review Card */}
+                                {selectedFile && fileTypeCategory === 'audio' && (
+                                    <div className="p-3 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/40 rounded-xl shadow-lg animate-fade-in space-y-2.5 max-w-lg">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                                                    <Mic className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-xs font-semibold text-slate-100">
+                                                            🎤 ভয়েস মেসেজ প্রস্তুত
+                                                        </p>
+                                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                                                            Ready
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                        {selectedFile.size > 1024
+                                                            ? `${(selectedFile.size / 1024).toFixed(0)} KB`
+                                                            : `${selectedFile.size || 0} B`}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveFile}
+                                                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                                title="ভয়েস ডিলিট করুন"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+
+                                        {/* Audio Player */}
+                                        {filePreviewUrl && (
+                                            <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                                                <audio controls src={filePreviewUrl} className="w-full h-8" />
+                                            </div>
+                                        )}
+
+                                        {/* Send Action */}
+                                        <div className="flex items-center justify-between pt-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveFile}
+                                                className="text-[11px] text-slate-400 hover:text-rose-400 hover:underline transition-colors cursor-pointer"
+                                            >
+                                                মুছে ফেলুন (Discard)
+                                            </button>
+                                            <Button
+                                                type="button"
+                                                variant="primary"
+                                                size="xs"
+                                                loading={sending}
+                                                onClick={() => executeSendMessage()}
+                                                icon={Send}
+                                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md px-3.5"
+                                            >
+                                                ভয়েস পাঠান (Send Voice Note)
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Selected Non-Audio File / Media Preview Chip */}
+                                {selectedFile && fileTypeCategory !== 'audio' && (
                                     <div className="flex items-center gap-2.5 p-2 px-3 bg-slate-900 border border-indigo-500/40 rounded-xl animate-fade-in max-w-md">
                                         {fileTypeCategory === 'image' && filePreviewUrl && (
                                             <img
@@ -1698,16 +1873,6 @@ export const UnifiedInboxPage = () => {
                                                 <Video className="w-5 h-5" />
                                             </div>
                                         )}
-                                        {fileTypeCategory === 'audio' && (
-                                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                                <div className="w-8 h-8 rounded-lg bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center shrink-0 text-indigo-400">
-                                                    <Mic className="w-4 h-4" />
-                                                </div>
-                                                {filePreviewUrl && (
-                                                    <audio controls src={filePreviewUrl} className="h-7 max-w-[190px] sm:max-w-xs" />
-                                                )}
-                                            </div>
-                                        )}
                                         {fileTypeCategory === 'pdf' && (
                                             <div className="w-10 h-10 rounded-lg bg-rose-950/60 border border-rose-500/30 flex items-center justify-center shrink-0 text-rose-400">
                                                 <FileText className="w-5 h-5" />
@@ -1719,17 +1884,15 @@ export const UnifiedInboxPage = () => {
                                             </div>
                                         )}
 
-                                        {fileTypeCategory !== 'audio' && (
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedFile.name}</p>
-                                                <p className="text-[10px] text-indigo-400">
-                                                    {selectedFile.size > 1024 * 1024
-                                                        ? `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`
-                                                        : `${(selectedFile.size / 1024).toFixed(0)} KB`}{' '}
-                                                    · Ready to send
-                                                </p>
-                                            </div>
-                                        )}
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedFile.name}</p>
+                                            <p className="text-[10px] text-indigo-400">
+                                                {selectedFile.size > 1024 * 1024
+                                                    ? `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`
+                                                    : `${(selectedFile.size / 1024).toFixed(0)} KB`}{' '}
+                                                · Ready to send
+                                            </p>
+                                        </div>
 
                                         <button
                                             type="button"

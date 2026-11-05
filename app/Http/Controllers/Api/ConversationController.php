@@ -218,22 +218,31 @@ class ConversationController extends Controller
             $mime = $uploadedFile->getMimeType() ?: 'application/octet-stream';
             $clientExt = strtolower($uploadedFile->getClientOriginalExtension() ?: '');
             $originalName = $uploadedFile->getClientOriginalName() ?: 'attachment';
+            $requestedFileType = $request->input('file_type');
 
             $category = 'file';
             $placeholder = '📎 [Attachment]';
 
-            if (str_starts_with($mime, 'image/') || in_array($clientExt, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])) {
+            // 1. Voice / Audio detection (must take precedence over video because finfo detects .webm as video/webm)
+            $isVoice = ($requestedFileType === 'audio')
+                || $request->hasFile('audio')
+                || str_starts_with($originalName, 'voice_')
+                || str_starts_with($mime, 'audio/')
+                || in_array($clientExt, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'weba', 'opus', 'caf'])
+                || ($clientExt === 'webm' && (str_contains($originalName, 'voice') || $requestedFileType === 'audio'));
+
+            if ($isVoice) {
+                $category = 'audio';
+                $placeholder = '🎤 [Voice Note]';
+                $ext = in_array($clientExt, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'mp4']) ? $clientExt : 'webm';
+            } elseif (str_starts_with($mime, 'image/') || in_array($clientExt, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])) {
                 $category = 'image';
                 $placeholder = '📷 [Photo]';
                 $ext = $clientExt ?: 'jpg';
-            } elseif (str_starts_with($mime, 'video/') || in_array($clientExt, ['mp4', 'mov', 'webm', 'avi', 'mkv'])) {
+            } elseif (str_starts_with($mime, 'video/') || in_array($clientExt, ['mp4', 'mov', 'avi', 'mkv', 'webm'])) {
                 $category = 'video';
                 $placeholder = '🎥 [Video]';
                 $ext = $clientExt ?: 'mp4';
-            } elseif (str_starts_with($mime, 'audio/') || in_array($clientExt, ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'webm'])) {
-                $category = 'audio';
-                $placeholder = '🎤 [Voice Note]';
-                $ext = $clientExt ?: 'webm';
             } elseif ($clientExt === 'pdf' || $mime === 'application/pdf') {
                 $category = 'file';
                 $placeholder = '📄 [PDF Document]';
@@ -321,9 +330,13 @@ class ConversationController extends Controller
                                 $metaType = in_array($attachmentData['file_type'], ['image', 'video', 'audio', 'file'])
                                     ? $attachmentData['file_type']
                                     : 'file';
+                                $sendFileName = $attachmentData['file_name'];
+                                if ($metaType === 'audio' && str_ends_with(strtolower($sendFileName), '.webm')) {
+                                    $sendFileName = preg_replace('/\.webm$/i', '.ogg', $sendFileName);
+                                }
 
                                 $mediaRes = Http::timeout(45)->withToken($pageToken)
-                                    ->attach('filedata', $handle, $attachmentData['file_name'])
+                                    ->attach('filedata', $handle, $sendFileName)
                                     ->post("https://graph.facebook.com/{$version}/me/messages", [
                                         'recipient' => json_encode(['id' => $psid]),
                                         'message' => json_encode([
@@ -352,7 +365,7 @@ class ConversationController extends Controller
 
                                         $retryHandle = fopen($attachmentData['local_path'], 'r');
                                         $mediaRes = Http::timeout(45)->withToken($pageToken)
-                                            ->attach('filedata', $retryHandle, $attachmentData['file_name'])
+                                            ->attach('filedata', $retryHandle, $sendFileName)
                                             ->post("https://graph.facebook.com/{$version}/me/messages", [
                                                 'recipient' => json_encode(['id' => $psid]),
                                                 'message' => json_encode([
