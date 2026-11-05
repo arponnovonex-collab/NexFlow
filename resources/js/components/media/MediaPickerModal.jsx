@@ -14,7 +14,6 @@ import {
     X,
     Check,
     CheckSquare,
-    Square,
     UploadCloud,
     Play,
     Layers,
@@ -43,12 +42,17 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedItem, setSelectedItem] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
-    const [uploadTargetFolder, setUploadTargetFolder] = useState(''); // empty = auto (current folder or null)
+    const [uploadTargetFolder, setUploadTargetFolder] = useState(''); // empty = auto
     const quickUploadRef = useRef(null);
 
     // Single item moving state & feedback
     const [isMovingSingle, setIsMovingSingle] = useState(false);
     const [moveToast, setMoveToast] = useState(null);
+
+    // Dedicated Move-to-Folder Modal
+    const [moveModalOpen, setMoveModalOpen] = useState(false);
+    const [itemToMove, setItemToMove] = useState(null); // single item or null for bulk
+    const [targetMoveFolderId, setTargetMoveFolderId] = useState('');
 
     // Bulk selection state inside modal
     const [isBulkMode, setIsBulkMode] = useState(false);
@@ -62,8 +66,14 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
     const [newFolderColor, setNewFolderColor] = useState('#6366f1');
     const [creatingFolder, setCreatingFolder] = useState(false);
 
-    // Drag-over folder indicator
+    // Drag-over folder indicator & dragged item ref
     const [dragOverFolderId, setDragOverFolderId] = useState(null);
+    const [draggedItem, setDraggedItem] = useState(null);
+
+    const showToast = (msg) => {
+        setMoveToast(msg);
+        setTimeout(() => setMoveToast(null), 3500);
+    };
 
     const fetchFolders = async () => {
         try {
@@ -104,6 +114,8 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
             setIsBulkMode(false);
             setBulkSelectedIds([]);
             setMoveToast(null);
+            setItemToMove(null);
+            setMoveModalOpen(false);
         }
     }, [isOpen, filterType, selectedFolderId]);
 
@@ -151,7 +163,6 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                     setSelectedItem(uploadedFirst);
                 }
 
-                // If uploaded into a specific folder, show toast
                 const targetFolderObj = folders.find((f) => f.id === parseInt(destFolderId, 10));
                 if (targetFolderObj) {
                     showToast(`Uploaded ${uploadedList.length} file(s) into "${targetFolderObj.name}"`);
@@ -170,17 +181,44 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
         }
     };
 
+    // Open Move-to-Folder Modal for single item or bulk selection
+    const openMoveModal = (item) => {
+        if (item) {
+            setItemToMove(item);
+            setTargetMoveFolderId(item.folder_id ? String(item.folder_id) : 'uncategorized');
+        } else {
+            // Bulk mode
+            setItemToMove(null);
+            setTargetMoveFolderId(folders[0]?.id ? String(folders[0].id) : 'uncategorized');
+        }
+        setMoveModalOpen(true);
+    };
+
+    // Confirm Move from Dedicated Modal
+    const handleConfirmMoveModal = async () => {
+        if (targetMoveFolderId === '') return;
+
+        if (itemToMove) {
+            await handleMoveSingleItem(itemToMove.id, targetMoveFolderId);
+            setMoveModalOpen(false);
+            setItemToMove(null);
+        } else if (bulkSelectedIds.length > 0) {
+            await handleBulkMove(targetMoveFolderId);
+            setMoveModalOpen(false);
+        }
+    };
+
     // Move single media item to a folder immediately
     const handleMoveSingleItem = async (mediaId, newFolderId) => {
         if (!mediaId) return;
         setIsMovingSingle(true);
 
-        const targetFolderId = newFolderId === 'uncategorized' ? null : newFolderId;
+        const targetFolderId = !newFolderId || newFolderId === 'uncategorized' ? null : parseInt(newFolderId, 10);
         const targetFolderObj = folders.find((f) => f.id === parseInt(newFolderId, 10));
 
         try {
             const res = await api.post('/media/move-folder', {
-                media_ids: [mediaId],
+                media_ids: [parseInt(mediaId, 10)],
                 folder_id: targetFolderId,
             });
 
@@ -208,7 +246,8 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                         : 'Moved to Uncategorized'
                 );
 
-                fetchFolders();
+                await fetchFolders();
+                await fetchMedia(filterType, selectedFolderId, searchQuery);
             }
         } catch (err) {
             alert('Failed to move media: ' + (err.response?.data?.message || err.message));
@@ -217,7 +256,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
         }
     };
 
-    // Bulk Selection & Move Handlers
+    // Bulk Selection Handlers
     const toggleBulkSelect = (id, e) => {
         if (e) e.stopPropagation();
         setBulkSelectedIds((prev) => {
@@ -242,7 +281,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
         if (bulkSelectedIds.length === 0) return;
         setIsBulkMoving(true);
 
-        const folderId = targetFolderId === 'uncategorized' ? null : targetFolderId;
+        const folderId = !targetFolderId || targetFolderId === 'uncategorized' ? null : parseInt(targetFolderId, 10);
         const targetFolderObj = folders.find((f) => f.id === parseInt(targetFolderId, 10));
 
         try {
@@ -276,7 +315,8 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
 
                 setBulkSelectedIds([]);
                 setIsBulkMode(false);
-                fetchFolders();
+                await fetchFolders();
+                await fetchMedia(filterType, selectedFolderId, searchQuery);
             }
         } catch (err) {
             alert('Failed to move files: ' + (err.response?.data?.message || err.message));
@@ -301,12 +341,15 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                 const created = res.data.data;
                 await fetchFolders();
 
-                // If user had a selected item, offer or auto-move it to the new folder
-                if (selectedItem) {
+                // If user was moving an item, assign to new folder
+                if (itemToMove) {
+                    await handleMoveSingleItem(itemToMove.id, created.id);
+                    setItemToMove(null);
+                    setMoveModalOpen(false);
+                } else if (selectedItem) {
                     await handleMoveSingleItem(selectedItem.id, created.id);
                 }
 
-                // Switch upload target to new folder
                 setUploadTargetFolder(String(created.id));
                 setSelectedFolderId(created.id);
                 setCreateFolderModalOpen(false);
@@ -322,27 +365,25 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
 
     // Drag and Drop files onto folder pills
     const handleDragStartCard = (e, item) => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({ id: item.id }));
+        setDraggedItem(item);
+        e.dataTransfer.setData('text/plain', String(item.id));
+        e.dataTransfer.effectAllowed = 'move';
     };
 
     const handleDropOnFolder = async (folderId, e) => {
         e.preventDefault();
         setDragOverFolderId(null);
         try {
-            const dataStr = e.dataTransfer.getData('text/plain');
-            if (!dataStr) return;
-            const data = JSON.parse(dataStr);
-            if (data?.id) {
-                await handleMoveSingleItem(data.id, folderId);
+            const rawId = draggedItem?.id || e.dataTransfer.getData('text/plain');
+            const parsedId = parseInt(rawId, 10);
+            if (!isNaN(parsedId)) {
+                await handleMoveSingleItem(parsedId, folderId);
             }
         } catch (err) {
             console.error('Drop error', err);
+        } finally {
+            setDraggedItem(null);
         }
-    };
-
-    const showToast = (msg) => {
-        setMoveToast(msg);
-        setTimeout(() => setMoveToast(null), 3000);
     };
 
     const handleCardClick = (item) => {
@@ -380,7 +421,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
             >
                 {/* Floating Notification Toast */}
                 {moveToast && (
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-xl flex items-center gap-2 animate-fade-in">
+                    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 animate-fade-in">
                         <Check className="w-4 h-4 shrink-0" />
                         <span>{moveToast}</span>
                     </div>
@@ -394,7 +435,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                         </div>
                         <div className="min-w-0">
                             <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 truncate">
-                                <span>Send Media & Organize Folders</span>
+                                <span>Media Library & Product Folders</span>
                                 {currentFolder && (
                                     <span
                                         className="text-[10px] px-2 py-0.5 rounded-full font-semibold text-white shrink-0"
@@ -405,7 +446,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 )}
                             </h3>
                             <p className="text-[11px] text-slate-400 truncate">
-                                Bulk select images, move to Product Folders, or upload directly to folder
+                                Click "Move to Folder" on any image, drag onto folder tabs, or bulk select to organize
                             </p>
                         </div>
                     </div>
@@ -422,7 +463,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 else setIsBulkMode(true);
                             }}
                             className={isBulkMode ? 'bg-indigo-600 text-white' : ''}
-                            title="Select multiple images to move to a folder"
+                            title="Select multiple images to move together"
                         >
                             {isBulkMode ? 'Done' : 'Bulk Select'}
                         </Button>
@@ -580,6 +621,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                             onClick={() => setSelectedFolderId('uncategorized')}
                             onDragOver={(e) => {
                                 e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
                                 setDragOverFolderId('uncategorized');
                             }}
                             onDragLeave={() => setDragOverFolderId(null)}
@@ -607,6 +649,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                     onClick={() => setSelectedFolderId(folder.id)}
                                     onDragOver={(e) => {
                                         e.preventDefault();
+                                        e.dataTransfer.dropEffect = 'move';
                                         setDragOverFolderId(folder.id);
                                     }}
                                     onDragLeave={() => setDragOverFolderId(null)}
@@ -615,10 +658,10 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                         isSelected
                                             ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-white/30'
                                             : isDragOver
-                                            ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 ring-2 ring-indigo-500'
+                                            ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 ring-2 ring-indigo-500 scale-105'
                                             : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white'
                                     }`}
-                                    title="Click to filter, or drag any image card onto this folder to move it"
+                                    title="Click to filter, or drag and drop image here to move"
                                 >
                                     <span
                                         className="w-2 h-2 rounded-full"
@@ -707,13 +750,14 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                         <div className="aspect-square w-full bg-slate-900 flex items-center justify-center relative overflow-hidden">
                                             {item.file_type === 'image' ? (
                                                 <img
+                                                    draggable={false}
                                                     src={item.file_url}
                                                     alt={item.title}
-                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 pointer-events-none select-none"
                                                     loading="lazy"
                                                 />
                                             ) : item.file_type === 'video' ? (
-                                                <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
+                                                <div className="relative w-full h-full flex items-center justify-center bg-slate-950 pointer-events-none">
                                                     <Video className="w-8 h-8 text-purple-400 opacity-80" />
                                                     <div className="absolute inset-0 flex items-center justify-center">
                                                         <div className="w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white">
@@ -722,14 +766,14 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                     </div>
                                                 </div>
                                             ) : item.file_type === 'audio' ? (
-                                                <div className="w-full h-full flex flex-col items-center justify-center bg-amber-500/10 p-2 text-center">
+                                                <div className="w-full h-full flex flex-col items-center justify-center bg-amber-500/10 p-2 text-center pointer-events-none">
                                                     <Music className="w-7 h-7 text-amber-400 mb-1" />
                                                     <span className="text-[9px] font-mono text-amber-300 uppercase">
                                                         {item.file_name.split('.').pop()}
                                                     </span>
                                                 </div>
                                             ) : (
-                                                <div className="w-full h-full flex flex-col items-center justify-center bg-emerald-500/10 p-2 text-center">
+                                                <div className="w-full h-full flex flex-col items-center justify-center bg-emerald-500/10 p-2 text-center pointer-events-none">
                                                     <FileText className="w-7 h-7 text-emerald-400 mb-1" />
                                                     <span className="text-[9px] font-mono text-emerald-300 uppercase">
                                                         {item.file_name.split('.').pop()}
@@ -737,19 +781,47 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                 </div>
                                             )}
 
-                                            {/* Folder badge if item has folder */}
+                                            {/* Hover Quick Action: Move to Folder */}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openMoveModal(item);
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 z-20 px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-indigo-600 text-[10px] font-semibold text-white shadow-md border border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
+                                                title="Move this image to a product folder"
+                                            >
+                                                <Folder className="w-3 h-3 text-indigo-400" />
+                                                <span>Move</span>
+                                            </button>
+
+                                            {/* Folder badge if item has folder (clickable to change) */}
                                             {item.folder ? (
                                                 <div
-                                                    className="absolute bottom-1 left-1 right-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white truncate shadow-sm flex items-center gap-1"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openMoveModal(item);
+                                                    }}
+                                                    className="absolute bottom-1 left-1 right-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white truncate shadow-sm flex items-center justify-between gap-1 cursor-pointer hover:brightness-110"
                                                     style={{ backgroundColor: `${item.folder.color || '#6366f1'}ee` }}
-                                                    title={`Product: ${item.folder.name}`}
+                                                    title={`Product: ${item.folder.name}. Click to change folder.`}
                                                 >
-                                                    <Folder className="w-2.5 h-2.5 shrink-0" />
-                                                    <span className="truncate">{item.folder.name}</span>
+                                                    <span className="truncate flex items-center gap-1">
+                                                        <Folder className="w-2.5 h-2.5 shrink-0" />
+                                                        <span className="truncate">{item.folder.name}</span>
+                                                    </span>
+                                                    <span className="text-[7px] opacity-75">Change</span>
                                                 </div>
                                             ) : (
-                                                <div className="absolute bottom-1 left-1 right-1 px-1 py-0.2 rounded text-[7px] font-semibold text-slate-400 bg-black/60 truncate text-center">
-                                                    Uncategorized
+                                                <div
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openMoveModal(item);
+                                                    }}
+                                                    className="absolute bottom-1 left-1 right-1 px-1 py-0.5 rounded text-[8px] font-semibold text-slate-300 bg-black/75 hover:bg-indigo-600 hover:text-white transition-colors truncate text-center cursor-pointer shadow-sm"
+                                                    title="Click to move into a Product Folder"
+                                                >
+                                                    + Move to Folder
                                                 </div>
                                             )}
 
@@ -766,7 +838,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                     <Check className={`w-3 h-3 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
                                                 </div>
                                             ) : isSelected ? (
-                                                <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md">
+                                                <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md">
                                                     <Check className="w-3 h-3" />
                                                 </div>
                                             ) : null}
@@ -810,48 +882,17 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                            <div className="flex items-center gap-1.5 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700">
-                                <span className="text-[11px] text-slate-400">Move to:</span>
-                                <select
-                                    value={bulkTargetFolderId}
-                                    onChange={(e) => {
-                                        if (e.target.value === '__new__') {
-                                            setCreateFolderModalOpen(true);
-                                        } else {
-                                            setBulkTargetFolderId(e.target.value);
-                                        }
-                                    }}
-                                    className="bg-transparent text-xs text-white focus:outline-none max-w-[150px] truncate"
-                                >
-                                    <option value="" className="bg-slate-900">
-                                        Choose Folder...
-                                    </option>
-                                    <option value="uncategorized" className="bg-slate-900">
-                                        📂 Uncategorized
-                                    </option>
-                                    {folders.map((f) => (
-                                        <option key={f.id} value={f.id} className="bg-slate-900">
-                                            📁 {f.name}
-                                        </option>
-                                    ))}
-                                    <option value="__new__" className="bg-slate-900 text-indigo-400 font-bold">
-                                        ➕ Create New Folder...
-                                    </option>
-                                </select>
-
-                                <Button
-                                    type="button"
-                                    variant="primary"
-                                    size="xs"
-                                    disabled={!bulkTargetFolderId || bulkSelectedIds.length === 0}
-                                    loading={isBulkMoving}
-                                    onClick={() => handleBulkMove(bulkTargetFolderId)}
-                                    icon={ArrowRight}
-                                    className="bg-indigo-600 hover:bg-indigo-500"
-                                >
-                                    Move Now
-                                </Button>
-                            </div>
+                            <Button
+                                type="button"
+                                variant="primary"
+                                size="sm"
+                                icon={Folder}
+                                disabled={bulkSelectedIds.length === 0}
+                                onClick={() => openMoveModal(null)}
+                                className="bg-indigo-600 hover:bg-indigo-500 font-semibold shadow-md"
+                            >
+                                Move {bulkSelectedIds.length} to Folder...
+                            </Button>
 
                             <Button
                                 type="button"
@@ -864,7 +905,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                         </div>
                     </div>
                 ) : (
-                    /* Standard Single Select Footer with Folder Reassignment */
+                    /* Standard Single Select Footer with Prominent "Move to Folder" & "Send" */
                     <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                             {selectedItem ? (
@@ -914,12 +955,24 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 </div>
                             ) : (
                                 <span className="text-xs text-slate-400">
-                                    Click any image to select and send to customer, or upload into a product folder
+                                    Click any image to select, send to customer, or move into a Product Folder
                                 </span>
                             )}
                         </div>
 
                         <div className="flex items-center justify-end gap-2 shrink-0">
+                            {selectedItem && (
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    icon={Folder}
+                                    onClick={() => openMoveModal(selectedItem)}
+                                    className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-semibold"
+                                >
+                                    Move to Folder
+                                </Button>
+                            )}
                             <Button type="button" variant="secondary" size="xs" onClick={onClose}>
                                 Cancel
                             </Button>
@@ -930,12 +983,118 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 disabled={!selectedItem}
                                 onClick={handleConfirm}
                                 icon={Check}
-                                className="bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30"
+                                className="bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 font-semibold"
                             >
                                 Select & Send Media
                             </Button>
                         </div>
                     </div>
+                )}
+
+                {/* Dedicated Move-to-Folder Modal Dialog */}
+                {moveModalOpen && (
+                    <Modal
+                        isOpen={moveModalOpen}
+                        onClose={() => setMoveModalOpen(false)}
+                        title={
+                            itemToMove
+                                ? `Move "${itemToMove.title}" to Product Folder`
+                                : `Move ${bulkSelectedIds.length} Selected Files to Product Folder`
+                        }
+                    >
+                        <div className="space-y-4">
+                            <p className="text-xs text-slate-300">
+                                Select which Product Folder to assign{' '}
+                                <strong>{itemToMove ? 'this item' : `${bulkSelectedIds.length} items`}</strong> to:
+                            </p>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                                {/* Uncategorized option */}
+                                <button
+                                    type="button"
+                                    onClick={() => setTargetMoveFolderId('uncategorized')}
+                                    className={`p-3 rounded-xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                                        targetMoveFolderId === 'uncategorized'
+                                            ? 'bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/30'
+                                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                                    }`}
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                                        <Folder className="w-4 h-4" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-bold text-white truncate">Uncategorized</p>
+                                        <p className="text-[10px] text-slate-400">Remove from any folder</p>
+                                    </div>
+                                </button>
+
+                                {/* Product Folders */}
+                                {folders.map((f) => {
+                                    const isTarget = String(targetMoveFolderId) === String(f.id);
+                                    return (
+                                        <button
+                                            key={f.id}
+                                            type="button"
+                                            onClick={() => setTargetMoveFolderId(String(f.id))}
+                                            className={`p-3 rounded-xl border flex items-center gap-3 transition-all text-left cursor-pointer ${
+                                                isTarget
+                                                    ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40'
+                                                    : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                                            }`}
+                                        >
+                                            <div
+                                                className="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
+                                                style={{ backgroundColor: f.color || '#6366f1' }}
+                                            >
+                                                <Folder className="w-4 h-4" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-bold text-white truncate">{f.name}</p>
+                                                <p className="text-[10px] text-slate-400">{f.media_files_count || 0} items</p>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setMoveModalOpen(false);
+                                        setCreateFolderModalOpen(true);
+                                    }}
+                                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                    <FolderPlus className="w-3.5 h-3.5" />
+                                    <span>Create New Folder</span>
+                                </button>
+
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => setMoveModalOpen(false)}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="primary"
+                                        size="sm"
+                                        disabled={targetMoveFolderId === ''}
+                                        loading={isMovingSingle || isBulkMoving}
+                                        onClick={handleConfirmMoveModal}
+                                        icon={ArrowRight}
+                                        className="bg-indigo-600 hover:bg-indigo-500"
+                                    >
+                                        Confirm & Move
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    </Modal>
                 )}
 
                 {/* Inline Create Product Folder Modal */}
