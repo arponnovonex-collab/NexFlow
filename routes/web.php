@@ -81,24 +81,55 @@ Route::get('/maintenance/clear-cache', function () {
     $msgCount = \App\Models\Message::count();
 
     // Debug: test customer avatars in DB and Facebook API response
-    $convs = \App\Models\Conversation::with('customer')->get()->map(function ($c) {
-        return [
-            'id' => $c->id,
-            'customer_id' => $c->customer_id,
+    $convs = \App\Models\Conversation::with(['customer', 'socialAccount'])->whereNotNull('customer_id')->get();
+    $results = [];
+
+    foreach ($convs as $c) {
+        $acc = $c->socialAccount;
+        if (! $acc || ! $acc->access_token || str_starts_with($acc->access_token, 'EAAXMOCK')) {
+            continue;
+        }
+
+        $psid = preg_replace('/^t_(?:ig_|wa_)?/', '', $c->channel_conversation_id);
+        $version = config('services.meta.graph_version', 'v19.0');
+
+        // Test 1: Query User Profile API for PSID with page token
+        $res1 = \Illuminate\Support\Facades\Http::timeout(3)->get("https://graph.facebook.com/{$version}/{$psid}", [
+            'fields' => 'name,first_name,last_name,profile_pic',
+            'access_token' => $acc->access_token,
+        ]);
+
+        // Test 2: Query Picture edge for PSID with page token
+        $res2 = \Illuminate\Support\Facades\Http::timeout(3)->get("https://graph.facebook.com/{$version}/{$psid}/picture", [
+            'type' => 'large',
+            'redirect' => false,
+            'access_token' => $acc->access_token,
+        ]);
+
+        $results[] = [
+            'conv_id' => $c->id,
+            'page_name' => $acc->name,
+            'page_id' => $acc->account_id,
+            'psid' => $psid,
             'customer_name' => $c->customer?->name,
-            'customer_avatar' => $c->customer?->avatar_url,
-            'platform' => $c->platform,
-            'channel_conv_id' => $c->channel_conversation_id,
+            'current_avatar' => $c->customer?->avatar_url,
+            'user_endpoint' => [
+                'status' => $res1->status(),
+                'body' => $res1->json(),
+            ],
+            'pic_endpoint' => [
+                'status' => $res2->status(),
+                'body' => $res2->json(),
+            ],
         ];
-    });
+
+        if (count($results) >= 4) break;
+    }
 
     return response()->json([
         'status' => 'success',
         'view_cleared' => true,
-        'composer_lock_deleted' => $lockDeleted,
-        'conversations_count' => $convCount,
-        'messages_count' => $msgCount,
-        'conversations' => $convs,
+        'results' => $results,
         'super_admin' => [
             'id' => $superAdmin->id,
             'name' => $superAdmin->name,
