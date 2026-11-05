@@ -1126,9 +1126,9 @@ export const UnifiedInboxPage = () => {
                 {activeConversation ? (
                     <>
                         {/* Conversation Header */}
-                        <div className="h-14 md:h-16 px-2.5 md:px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0 gap-2">
-                            <div className="flex items-center gap-1.5 md:gap-3 min-w-0 flex-1">
-                                {/* Mobile Back Button to Conversation List (Messenger Style) */}
+                        <div className="h-14 md:h-16 px-2.5 md:px-5 border-b border-slate-800 flex items-center bg-slate-950/70 shrink-0 gap-2 relative">
+                            {/* Pinned / Fixed Left: Mobile Back Button */}
+                            <div className="md:hidden shrink-0 flex items-center pr-2 border-r border-slate-800/80 z-20">
                                 <button
                                     type="button"
                                     onClick={handleBackToList}
@@ -1137,126 +1137,130 @@ export const UnifiedInboxPage = () => {
                                         handleBackToList();
                                     }}
                                     title="Back to conversation list"
-                                    className="md:hidden flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-100 bg-slate-800/95 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/80 rounded-lg shrink-0 cursor-pointer shadow-sm select-none touch-manipulation mr-0.5"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-100 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/90 rounded-lg shrink-0 cursor-pointer shadow-sm select-none touch-manipulation"
                                 >
                                     <ArrowLeft className="w-4 h-4 text-indigo-400 shrink-0" />
                                     <span>Chats</span>
                                 </button>
+                            </div>
 
-                                <div className="relative shrink-0">
-                                    <img
-                                        src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
-                                        alt={activeConversation.customer?.name}
-                                        className="w-7 h-7 md:w-9 md:h-9 rounded-full object-cover"
-                                    />
-                                    <span
-                                        className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full text-white text-[8px] ${
-                                            activeConversation.platform === 'facebook_page'
-                                                ? 'bg-blue-600'
-                                                : activeConversation.platform === 'instagram_business'
-                                                ? 'bg-pink-600'
-                                                : 'bg-emerald-600'
-                                        }`}
-                                    >
-                                        {activeConversation.platform === 'facebook_page' ? (
-                                            <Facebook className="w-2 h-2" />
-                                        ) : activeConversation.platform === 'instagram_business' ? (
-                                            <Instagram className="w-2 h-2" />
-                                        ) : (
-                                            <PhoneCall className="w-2 h-2" />
-                                        )}
-                                    </span>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                        <h2 className="text-xs md:text-sm font-bold text-white flex items-center gap-1 min-w-0 truncate">
-                                            <span className="truncate">{activeConversation.customer?.name || 'Customer'}</span>
+                            {/* Horizontally Scrollable Content Area: Customer Info + Action Buttons */}
+                            <div className="flex-1 min-w-0 flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth py-1">
+                                {/* Customer Info */}
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <div className="relative shrink-0">
+                                        <img
+                                            src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
+                                            alt={activeConversation.customer?.name}
+                                            className="w-8 h-8 md:w-9 md:h-9 rounded-full object-cover ring-1 ring-slate-700"
+                                        />
+                                        <span
+                                            className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full text-white text-[8px] ${
+                                                activeConversation.platform === 'facebook_page'
+                                                    ? 'bg-blue-600'
+                                                    : activeConversation.platform === 'instagram_business'
+                                                    ? 'bg-pink-600'
+                                                    : 'bg-emerald-600'
+                                            }`}
+                                        >
+                                            {activeConversation.platform === 'facebook_page' ? (
+                                                <Facebook className="w-2 h-2" />
+                                            ) : activeConversation.platform === 'instagram_business' ? (
+                                                <Instagram className="w-2 h-2" />
+                                            ) : (
+                                                <PhoneCall className="w-2 h-2" />
+                                            )}
+                                        </span>
+                                    </div>
+                                    <div className="shrink-0 max-w-[140px] xs:max-w-[180px] sm:max-w-xs">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <h2 className="text-xs md:text-sm font-bold text-white truncate">
+                                                {activeConversation.customer?.name || 'Customer'}
+                                            </h2>
                                             {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
-                                                <span className="text-[10px] md:text-xs font-semibold text-cyan-400 shrink-0 truncate">
+                                                <span className="text-[10px] md:text-xs font-semibold text-cyan-400 shrink-0 truncate hidden xs:inline">
                                                     ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
                                                 </span>
                                             )}
-                                        </h2>
-                                        <div className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[9px] font-medium tracking-wide shrink-0">
-                                            <span className="relative flex h-1.5 w-1.5">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                                            </span>
-                                            <span>Live</span>
                                         </div>
+                                        <span className="text-[10px] text-slate-400 truncate block">
+                                            Assigned: {activeConversation.assigned_user?.name || 'Unassigned'}
+                                        </span>
                                     </div>
-                                    <span className="text-[10px] text-slate-400 truncate block">
-                                        Assigned: {activeConversation.assigned_user?.name || 'Unassigned'}
-                                    </span>
                                 </div>
-                            </div>
 
-                            {/* Right Actions: Compact & Horizontally Scrollable on Mobile */}
-                            <div className="flex items-center gap-1 md:gap-1.5 shrink-0 overflow-x-auto no-scrollbar py-0.5">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        fetchConversations(true);
-                                        if (activeConversation) loadConversationDetails(activeConversation.id);
-                                    }}
-                                    title="Manual Refresh"
-                                    className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
-                                >
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleSyncNames}
-                                    disabled={syncingNames}
-                                    title="Sync Real Customer Names from Facebook"
-                                    className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer disabled:opacity-50"
-                                >
-                                    <Users className={`w-3.5 h-3.5 ${syncingNames ? 'animate-spin text-cyan-400' : ''}`} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleToggleTakeover}
-                                    title={activeConversation.is_human_takeover ? 'Switch to AI Auto-Reply' : 'Take over as Human Moderator'}
-                                    className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer ${
-                                        activeConversation.is_human_takeover
-                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                            : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                                    }`}
-                                >
-                                    <Bot className="w-3.5 h-3.5" />
-                                    <span className="hidden xs:inline">{activeConversation.is_human_takeover ? 'Human' : 'AI'}</span>
-                                </button>
+                                {/* Divider */}
+                                <div className="h-5 w-px bg-slate-800 shrink-0" />
 
-                                {/* Mobile Customer Details Button (Toggle Bottom CRM Panel) */}
-                                <button
-                                    type="button"
-                                    onClick={() => setMobileCrmExpanded((prev) => !prev)}
-                                    title="Customer Details & CRM"
-                                    className={`px-2 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer ${
-                                        mobileCrmExpanded
-                                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
-                                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
-                                    }`}
-                                >
-                                    <User className="w-3.5 h-3.5 text-cyan-400" />
-                                    <span>CRM</span>
-                                    {mobileCrmExpanded ? (
-                                        <ChevronUp className="w-3 h-3 text-cyan-400" />
-                                    ) : (
-                                        <ChevronDown className="w-3 h-3 text-slate-400" />
-                                    )}
-                                </button>
+                                {/* Action Buttons: Guaranteed No Overlap with shrink-0 and whitespace-nowrap */}
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            fetchConversations(true);
+                                            if (activeConversation) loadConversationDetails(activeConversation.id);
+                                        }}
+                                        title="Manual Refresh"
+                                        className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                    </button>
 
-                                <Button
-                                    variant="ghost"
-                                    size="xs"
-                                    onClick={() => setShowRightPanel((prev) => !prev)}
-                                    icon={showRightPanel ? PanelRightClose : PanelRightOpen}
-                                    title={showRightPanel ? 'Hide Details Panel (Expand Chat)' : 'Show Customer Details'}
-                                    className="hidden md:flex text-slate-400 hover:text-white"
-                                >
-                                    {showRightPanel ? 'Hide Details' : 'Details'}
-                                </Button>
+                                    <button
+                                        type="button"
+                                        onClick={handleSyncNames}
+                                        disabled={syncingNames}
+                                        title="Sync Real Customer Names from Facebook"
+                                        className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                                    >
+                                        <Users className={`w-3.5 h-3.5 ${syncingNames ? 'animate-spin text-cyan-400' : ''}`} />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleToggleTakeover}
+                                        title={activeConversation.is_human_takeover ? 'Switch to AI Auto-Reply' : 'Take over as Human Moderator'}
+                                        className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer whitespace-nowrap ${
+                                            activeConversation.is_human_takeover
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                        }`}
+                                    >
+                                        <Bot className="w-3.5 h-3.5 shrink-0" />
+                                        <span>{activeConversation.is_human_takeover ? 'Human' : 'AI Active'}</span>
+                                    </button>
+
+                                    {/* Mobile Customer Details Button (Toggle Bottom CRM Panel) */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setMobileCrmExpanded((prev) => !prev)}
+                                        title="Customer Details & CRM"
+                                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer whitespace-nowrap ${
+                                            mobileCrmExpanded
+                                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                                : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                                        }`}
+                                    >
+                                        <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                        <span>CRM</span>
+                                        {mobileCrmExpanded ? (
+                                            <ChevronUp className="w-3 h-3 text-cyan-400 shrink-0" />
+                                        ) : (
+                                            <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+                                        )}
+                                    </button>
+
+                                    <Button
+                                        variant="ghost"
+                                        size="xs"
+                                        onClick={() => setShowRightPanel((prev) => !prev)}
+                                        icon={showRightPanel ? PanelRightClose : PanelRightOpen}
+                                        title={showRightPanel ? 'Hide Details Panel (Expand Chat)' : 'Show Customer Details'}
+                                        className="hidden md:flex text-slate-400 hover:text-white shrink-0 whitespace-nowrap"
+                                    >
+                                        {showRightPanel ? 'Hide Details' : 'Details'}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
 
