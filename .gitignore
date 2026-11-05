@@ -23,8 +23,6 @@ Homestead.yaml
 database/*.sqlite
 Thumbs.db
 
-composer.lock
-
 /public/uploads/media/*
 !/public/uploads/media/.gitkeep
 /public/uploads/branding/*
