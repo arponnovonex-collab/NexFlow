@@ -145,6 +145,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/media', [MediaController::class, 'index']);
     Route::post('/media/upload', [MediaController::class, 'upload']);
     Route::post('/media/move-folder', [MediaController::class, 'moveToFolder']);
+    Route::post('/media/bulk-delete', [MediaController::class, 'bulkDestroy']);
     Route::delete('/media/{media}', [MediaController::class, 'destroy']);
     Route::get('/media/folders', [MediaFolderController::class, 'index']);
     Route::post('/media/folders', [MediaFolderController::class, 'store']);

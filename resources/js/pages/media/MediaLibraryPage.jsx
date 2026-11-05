@@ -17,6 +17,8 @@ import {
     Trash2,
     Copy,
     Check,
+    CheckSquare,
+    Square,
     ExternalLink,
     Play,
     X,
@@ -29,6 +31,7 @@ import {
     Tag,
     Layers,
     ChevronRight,
+    ArrowRight,
 } from 'lucide-react';
 
 const FOLDER_COLORS = [
@@ -54,21 +57,31 @@ export const MediaLibraryPage = () => {
     const [selectedFolderId, setSelectedFolderId] = useState('all'); // 'all', 'uncategorized', or numeric id
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Modals & Selections
+    // Modals & Single Selection Preview
     const [selectedMedia, setSelectedMedia] = useState(null);
     const [copiedUrl, setCopiedUrl] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+
+    // Bulk Selection State
+    const [selectedMediaIds, setSelectedMediaIds] = useState([]);
+    const [isSelectMode, setIsSelectMode] = useState(false);
+    const [bulkMoveModalOpen, setBulkMoveModalOpen] = useState(false);
+    const [bulkTargetFolderId, setBulkTargetFolderId] = useState('');
+    const [bulkMoving, setBulkMoving] = useState(false);
+    const [bulkDeleting, setBulkDeleting] = useState(false);
+    const [toastMsg, setToastMsg] = useState(null);
+    const [dragOverFolderId, setDragOverFolderId] = useState(null);
+
+    const showToast = (msg) => {
+        setToastMsg(msg);
+        setTimeout(() => setToastMsg(null), 3500);
+    };
 
     // Folder Create / Edit Modal
     const [folderModalOpen, setFolderModalOpen] = useState(false);
     const [editingFolder, setEditingFolder] = useState(null);
     const [folderForm, setFolderForm] = useState({ name: '', color: '#6366f1', description: '' });
     const [savingFolder, setSavingFolder] = useState(false);
-
-    // Move file to folder modal
-    const [movingMedia, setMovingMedia] = useState(null);
-    const [targetFolderSelection, setTargetFolderSelection] = useState('');
-    const [movingFile, setMovingFile] = useState(false);
 
     const [pagination, setPagination] = useState({
         current_page: 1,
@@ -125,6 +138,7 @@ export const MediaLibraryPage = () => {
 
     useEffect(() => {
         fetchMedia(1, filterType, selectedFolderId, searchQuery);
+        setSelectedMediaIds([]);
     }, [filterType, selectedFolderId]);
 
     const handleSearchSubmit = (e) => {
@@ -148,6 +162,7 @@ export const MediaLibraryPage = () => {
         try {
             await api.delete(`/media/${id}`);
             setMediaItems((prev) => prev.filter((m) => m.id !== id));
+            setSelectedMediaIds((prev) => prev.filter((i) => i !== id));
             if (selectedMedia?.id === id) {
                 setSelectedMedia(null);
             }
@@ -160,14 +175,226 @@ export const MediaLibraryPage = () => {
         }
     };
 
-    // Open Create Folder Modal
+    // Bulk selection handlers
+    const toggleSelectMedia = (id, e) => {
+        if (e) e.stopPropagation();
+        setSelectedMediaIds((prev) => {
+            const exists = prev.includes(id);
+            const next = exists ? prev.filter((item) => item !== id) : [...prev, id];
+            if (next.length > 0) setIsSelectMode(true);
+            return next;
+        });
+    };
+
+    const handleCardClick = (item) => {
+        if (isSelectMode) {
+            toggleSelectMedia(item.id);
+        } else {
+            setSelectedMedia(item);
+        }
+    };
+
+    const selectAllOnPage = () => {
+        const allIds = mediaItems.map((m) => m.id);
+        setSelectedMediaIds(allIds);
+        setIsSelectMode(true);
+    };
+
+    const deselectAll = () => {
+        setSelectedMediaIds([]);
+        setIsSelectMode(false);
+    };
+
+    // Bulk Move to Folder via Modal
+    const handleBulkMoveConfirm = async (e) => {
+        e.preventDefault();
+        if (selectedMediaIds.length === 0) return;
+
+        setBulkMoving(true);
+        try {
+            const folderId = bulkTargetFolderId === 'uncategorized' ? null : bulkTargetFolderId;
+            const res = await api.post('/media/move-folder', {
+                media_ids: selectedMediaIds,
+                folder_id: folderId,
+            });
+
+            if (res.data?.status === 'success') {
+                const targetFolder = folders.find((f) => f.id === parseInt(bulkTargetFolderId, 10));
+                // Update local items
+                setMediaItems((prev) =>
+                    prev.map((m) =>
+                        selectedMediaIds.includes(m.id)
+                            ? { ...m, folder_id: folderId, folder: targetFolder || null }
+                            : m
+                    )
+                );
+
+                showToast(
+                    targetFolder
+                        ? `Moved ${selectedMediaIds.length} item(s) to "${targetFolder.name}"`
+                        : `Moved ${selectedMediaIds.length} item(s) to Uncategorized`
+                );
+
+                setBulkMoveModalOpen(false);
+                setSelectedMediaIds([]);
+                setIsSelectMode(false);
+                fetchFolders();
+            }
+        } catch (err) {
+            alert('Failed to move files: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setBulkMoving(false);
+        }
+    };
+
+    // Direct Bulk Move from Floating Bar (No modal needed)
+    const handleDirectBulkMove = async (targetFolderId) => {
+        if (selectedMediaIds.length === 0 || !targetFolderId) return;
+
+        setBulkMoving(true);
+        try {
+            const folderId = targetFolderId === 'uncategorized' ? null : targetFolderId;
+            const res = await api.post('/media/move-folder', {
+                media_ids: selectedMediaIds,
+                folder_id: folderId,
+            });
+
+            if (res.data?.status === 'success') {
+                const targetFolder = folders.find((f) => f.id === parseInt(targetFolderId, 10));
+                setMediaItems((prev) =>
+                    prev.map((m) =>
+                        selectedMediaIds.includes(m.id)
+                            ? { ...m, folder_id: folderId, folder: targetFolder || null }
+                            : m
+                    )
+                );
+
+                showToast(
+                    targetFolder
+                        ? `Moved ${selectedMediaIds.length} item(s) to "${targetFolder.name}"`
+                        : `Moved ${selectedMediaIds.length} item(s) to Uncategorized`
+                );
+
+                setSelectedMediaIds([]);
+                setIsSelectMode(false);
+                setBulkTargetFolderId('');
+                fetchFolders();
+            }
+        } catch (err) {
+            alert('Failed to move files: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setBulkMoving(false);
+        }
+    };
+
+    // Drag and Drop files directly onto folder cards
+    const handleDropOnFolder = async (targetFolderId, e) => {
+        e.preventDefault();
+        setDragOverFolderId(null);
+        try {
+            const dataStr = e.dataTransfer.getData('text/plain');
+            if (!dataStr) return;
+            const data = JSON.parse(dataStr);
+            const draggedId = data?.id;
+
+            // If dragged item is in selectedMediaIds, move all selected items, otherwise just the dragged item
+            const idsToMove =
+                selectedMediaIds.includes(draggedId) && selectedMediaIds.length > 0
+                    ? selectedMediaIds
+                    : [draggedId];
+
+            const folderId = targetFolderId === 'uncategorized' ? null : targetFolderId;
+            const targetFolder = folders.find((f) => f.id === parseInt(targetFolderId, 10));
+
+            const res = await api.post('/media/move-folder', {
+                media_ids: idsToMove,
+                folder_id: folderId,
+            });
+
+            if (res.data?.status === 'success') {
+                setMediaItems((prev) =>
+                    prev.map((m) =>
+                        idsToMove.includes(m.id)
+                            ? { ...m, folder_id: folderId, folder: targetFolder || null }
+                            : m
+                    )
+                );
+
+                showToast(
+                    targetFolder
+                        ? `Moved ${idsToMove.length} item(s) to "${targetFolder.name}"`
+                        : `Moved ${idsToMove.length} item(s) to Uncategorized`
+                );
+
+                setSelectedMediaIds([]);
+                setIsSelectMode(false);
+                fetchFolders();
+            }
+        } catch (err) {
+            console.error('Drop move error', err);
+        }
+    };
+
+    // Bulk Delete
+    const handleBulkDelete = async () => {
+        if (selectedMediaIds.length === 0) return;
+        if (!window.confirm(`Are you sure you want to delete ${selectedMediaIds.length} media files permanently?`)) {
+            return;
+        }
+
+        setBulkDeleting(true);
+        try {
+            const res = await api.post('/media/bulk-delete', { media_ids: selectedMediaIds });
+            if (res.data?.status === 'success') {
+                setMediaItems((prev) => prev.filter((m) => !selectedMediaIds.includes(m.id)));
+                setSelectedMediaIds([]);
+                setIsSelectMode(false);
+                fetchFolders();
+            }
+        } catch (err) {
+            alert('Failed to delete files: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setBulkDeleting(false);
+        }
+    };
+
+    // Move single file to folder
+    const handleMoveFileToFolder = async (mediaId, folderId) => {
+        try {
+            await api.post('/media/move-folder', {
+                media_ids: [mediaId],
+                folder_id: folderId === 'uncategorized' ? null : folderId,
+            });
+
+            const targetFolder = folders.find((f) => f.id === parseInt(folderId, 10));
+            setMediaItems((prev) =>
+                prev.map((m) =>
+                    m.id === mediaId
+                        ? { ...m, folder_id: folderId === 'uncategorized' ? null : folderId, folder: targetFolder || null }
+                        : m
+                )
+            );
+
+            if (selectedMedia && selectedMedia.id === mediaId) {
+                setSelectedMedia((prev) => ({
+                    ...prev,
+                    folder_id: folderId === 'uncategorized' ? null : folderId,
+                    folder: targetFolder || null,
+                }));
+            }
+            fetchFolders();
+        } catch (err) {
+            alert('Failed to move media: ' + (err.response?.data?.message || err.message));
+        }
+    };
+
+    // Folder Modals
     const openCreateFolder = () => {
         setEditingFolder(null);
         setFolderForm({ name: '', color: '#6366f1', description: '' });
         setFolderModalOpen(true);
     };
 
-    // Open Edit Folder Modal
     const openEditFolder = (f, e) => {
         if (e) e.stopPropagation();
         setEditingFolder(f);
@@ -197,7 +424,7 @@ export const MediaLibraryPage = () => {
 
     const handleDeleteFolder = async (folder, e) => {
         if (e) e.stopPropagation();
-        if (!window.confirm(`Delete folder "${folder.name}"? Media files inside will NOT be deleted, but will become Uncategorized.`)) {
+        if (!window.confirm(`Delete folder "${folder.name}"? Files inside will be moved to Uncategorized.`)) {
             return;
         }
 
@@ -210,42 +437,6 @@ export const MediaLibraryPage = () => {
             fetchMedia(1, filterType, 'all', searchQuery);
         } catch (err) {
             alert('Failed to delete folder: ' + (err.response?.data?.message || err.message));
-        }
-    };
-
-    // Move single file to folder
-    const handleMoveFileToFolder = async (mediaId, folderId) => {
-        setMovingFile(true);
-        try {
-            await api.post('/media/move-folder', {
-                media_ids: [mediaId],
-                folder_id: folderId === 'uncategorized' ? null : folderId,
-            });
-
-            // Update item locally
-            const targetFolder = folders.find((f) => f.id === parseInt(folderId, 10));
-            setMediaItems((prev) =>
-                prev.map((m) =>
-                    m.id === mediaId
-                        ? { ...m, folder_id: folderId === 'uncategorized' ? null : folderId, folder: targetFolder || null }
-                        : m
-                )
-            );
-
-            if (selectedMedia && selectedMedia.id === mediaId) {
-                setSelectedMedia((prev) => ({
-                    ...prev,
-                    folder_id: folderId === 'uncategorized' ? null : folderId,
-                    folder: targetFolder || null,
-                }));
-            }
-
-            setMovingMedia(null);
-            fetchFolders();
-        } catch (err) {
-            alert('Failed to move media: ' + (err.response?.data?.message || err.message));
-        } finally {
-            setMovingFile(false);
         }
     };
 
@@ -278,7 +469,15 @@ export const MediaLibraryPage = () => {
             : folders.find((f) => f.id === parseInt(selectedFolderId, 10))?.name || 'Selected Folder';
 
     return (
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 pb-24 relative">
+            {/* Top Floating Toast Notification */}
+            {toastMsg && (
+                <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white text-xs font-semibold px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 animate-fade-in">
+                    <Check className="w-4 h-4 shrink-0" />
+                    <span>{toastMsg}</span>
+                </div>
+            )}
+
             {/* Page Header */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-800">
                 <div>
@@ -287,10 +486,23 @@ export const MediaLibraryPage = () => {
                         Media Library & Product Folders
                     </h1>
                     <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                        Organize photos, videos, and documents by Product Folders to send quickly to customers in chat.
+                        Bulk select images to organize into Product Folders. Fast search and instant chat sending.
                     </p>
                 </div>
                 <div className="flex items-center gap-2.5">
+                    <Button
+                        type="button"
+                        variant={isSelectMode ? 'primary' : 'secondary'}
+                        size="sm"
+                        onClick={() => {
+                            if (isSelectMode) deselectAll();
+                            else setIsSelectMode(true);
+                        }}
+                        icon={CheckSquare}
+                        className={isSelectMode ? 'bg-indigo-600 text-white' : ''}
+                    >
+                        {isSelectMode ? 'Cancel Selection' : 'Bulk Select'}
+                    </Button>
                     <Button
                         type="button"
                         variant="secondary"
@@ -309,7 +521,7 @@ export const MediaLibraryPage = () => {
                 </div>
             </div>
 
-            {/* Product Folders Carousel / Grid */}
+            {/* Product Folders Carousel / Shelf */}
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
@@ -353,11 +565,20 @@ export const MediaLibraryPage = () => {
                     {/* Uncategorized Folder */}
                     <div
                         onClick={() => setSelectedFolderId('uncategorized')}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setDragOverFolderId('uncategorized');
+                        }}
+                        onDragLeave={() => setDragOverFolderId(null)}
+                        onDrop={(e) => handleDropOnFolder('uncategorized', e)}
                         className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                             selectedFolderId === 'uncategorized'
                                 ? 'bg-amber-600/15 border-amber-500 ring-2 ring-amber-500/30'
+                                : dragOverFolderId === 'uncategorized'
+                                ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500'
                                 : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
                         }`}
+                        title="Click to view uncategorized, or drag & drop images here to remove folder"
                     >
                         <div className="flex items-center justify-between">
                             <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
@@ -376,15 +597,25 @@ export const MediaLibraryPage = () => {
                     {/* Custom Product Folders */}
                     {folders.map((folder) => {
                         const isSelected = selectedFolderId === folder.id;
+                        const isDragOver = dragOverFolderId === folder.id;
                         return (
                             <div
                                 key={folder.id}
                                 onClick={() => setSelectedFolderId(folder.id)}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    setDragOverFolderId(folder.id);
+                                }}
+                                onDragLeave={() => setDragOverFolderId(null)}
+                                onDrop={(e) => handleDropOnFolder(folder.id, e)}
                                 className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative ${
                                     isSelected
                                         ? 'bg-indigo-600/15 border-indigo-500 ring-2 ring-indigo-500/30'
+                                        : isDragOver
+                                        ? 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500 scale-[1.02]'
                                         : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
                                 }`}
+                                title="Click to filter, or drag & drop image cards directly here to move into this folder"
                             >
                                 <div className="flex items-center justify-between">
                                     <div
@@ -494,6 +725,11 @@ export const MediaLibraryPage = () => {
                     Showing <strong className="text-slate-200">{mediaItems.length}</strong> of{' '}
                     <strong className="text-slate-200">{pagination.total}</strong> items
                 </span>
+                {isSelectMode && (
+                    <span className="text-indigo-400 font-semibold">
+                        {selectedMediaIds.length} of {mediaItems.length} selected
+                    </span>
+                )}
             </div>
 
             {/* Media Grid */}
@@ -526,78 +762,104 @@ export const MediaLibraryPage = () => {
                 </Card>
             ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
-                    {mediaItems.map((item) => (
-                        <div
-                            key={item.id}
-                            onClick={() => setSelectedMedia(item)}
-                            className="group relative rounded-2xl border border-slate-800 bg-slate-900/60 hover:bg-slate-850 hover:border-indigo-500/50 transition-all cursor-pointer overflow-hidden flex flex-col shadow-md"
-                        >
-                            {/* Media Preview Box */}
-                            <div className="aspect-square w-full bg-slate-950 flex items-center justify-center relative overflow-hidden">
-                                {item.file_type === 'image' ? (
-                                    <img
-                                        src={item.file_url}
-                                        alt={item.title}
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                        loading="lazy"
-                                    />
-                                ) : item.file_type === 'video' ? (
-                                    <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
-                                        <Video className="w-10 h-10 text-purple-400 opacity-80" />
-                                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-colors">
-                                            <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white">
-                                                <Play className="w-4 h-4 ml-0.5 fill-current" />
+                    {mediaItems.map((item) => {
+                        const isSelected = selectedMediaIds.includes(item.id);
+                        return (
+                            <div
+                                key={item.id}
+                                draggable
+                                onDragStart={(e) => {
+                                    e.dataTransfer.setData('text/plain', JSON.stringify({ id: item.id }));
+                                }}
+                                onClick={() => handleCardClick(item)}
+                                className={`group relative rounded-2xl border transition-all cursor-pointer overflow-hidden flex flex-col shadow-md ${
+                                    isSelected
+                                        ? 'border-indigo-500 bg-indigo-600/10 ring-2 ring-indigo-500/40 shadow-indigo-500/10 scale-[0.99]'
+                                        : 'border-slate-800 bg-slate-900/60 hover:bg-slate-850 hover:border-indigo-500/50'
+                                }`}
+                            >
+                                {/* Media Preview Box */}
+                                <div className="aspect-square w-full bg-slate-950 flex items-center justify-center relative overflow-hidden">
+                                    {item.file_type === 'image' ? (
+                                        <img
+                                            src={item.file_url}
+                                            alt={item.title}
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                            loading="lazy"
+                                        />
+                                    ) : item.file_type === 'video' ? (
+                                        <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
+                                            <Video className="w-10 h-10 text-purple-400 opacity-80" />
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-colors">
+                                                <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white">
+                                                    <Play className="w-4 h-4 ml-0.5 fill-current" />
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ) : item.file_type === 'audio' ? (
-                                    <div className="w-full h-full flex flex-col items-center justify-center bg-amber-500/10 p-2">
-                                        <Music className="w-8 h-8 text-amber-400 mb-1" />
-                                        <span className="text-[10px] font-mono text-amber-300 uppercase">
-                                            {item.file_name.split('.').pop()}
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <div className="w-full h-full flex flex-col items-center justify-center bg-emerald-500/10 p-2">
-                                        <FileText className="w-8 h-8 text-emerald-400 mb-1" />
-                                        <span className="text-[10px] font-mono text-emerald-300 uppercase">
-                                            {item.file_name.split('.').pop()}
-                                        </span>
-                                    </div>
-                                )}
+                                    ) : item.file_type === 'audio' ? (
+                                        <div className="w-full h-full flex flex-col items-center justify-center bg-amber-500/10 p-2">
+                                            <Music className="w-8 h-8 text-amber-400 mb-1" />
+                                            <span className="text-[10px] font-mono text-amber-300 uppercase">
+                                                {item.file_name.split('.').pop()}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="w-full h-full flex flex-col items-center justify-center bg-emerald-500/10 p-2">
+                                            <FileText className="w-8 h-8 text-emerald-400 mb-1" />
+                                            <span className="text-[10px] font-mono text-emerald-300 uppercase">
+                                                {item.file_name.split('.').pop()}
+                                            </span>
+                                        </div>
+                                    )}
 
-                                {/* Category indicator */}
-                                <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-bold text-white uppercase tracking-wider">
-                                    {item.file_type}
-                                </div>
-
-                                {/* Folder Badge if assigned */}
-                                {item.folder && (
+                                    {/* Selection Checkbox */}
                                     <div
-                                        className="absolute bottom-2 left-2 right-2 px-1.5 py-0.5 rounded-md text-[9px] font-semibold text-white truncate shadow-sm flex items-center gap-1"
-                                        style={{ backgroundColor: `${item.folder.color || '#6366f1'}cc` }}
-                                        title={`Product: ${item.folder.name}`}
+                                        onClick={(e) => toggleSelectMedia(item.id, e)}
+                                        className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                                            isSelected
+                                                ? 'bg-indigo-600 text-white shadow-md'
+                                                : isSelectMode
+                                                ? 'bg-black/60 border border-slate-500 text-transparent hover:border-indigo-400'
+                                                : 'opacity-0 group-hover:opacity-100 bg-black/60 border border-slate-500 text-transparent hover:border-indigo-400'
+                                        }`}
+                                        title={isSelected ? 'Deselect' : 'Select for Bulk Actions'}
                                     >
-                                        <Folder className="w-2.5 h-2.5 shrink-0" />
-                                        <span className="truncate">{item.folder.name}</span>
+                                        <Check className={`w-3.5 h-3.5 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
                                     </div>
-                                )}
-                            </div>
 
-                            {/* Info */}
-                            <div className="p-2.5 flex-1 flex flex-col justify-between">
-                                <p className="text-xs font-semibold text-slate-200 truncate" title={item.title}>
-                                    {item.title}
-                                </p>
-                                <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                                    <span>{item.formatted_size || '—'}</span>
-                                    <span className="uppercase text-slate-500 font-mono">
-                                        {item.file_name.split('.').pop()}
-                                    </span>
+                                    {/* Category indicator (top-right if not selected) */}
+                                    <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-bold text-white uppercase tracking-wider">
+                                        {item.file_type}
+                                    </div>
+
+                                    {/* Folder Badge if assigned */}
+                                    {item.folder && (
+                                        <div
+                                            className="absolute bottom-2 left-2 right-2 px-1.5 py-0.5 rounded-md text-[9px] font-semibold text-white truncate shadow-sm flex items-center gap-1"
+                                            style={{ backgroundColor: `${item.folder.color || '#6366f1'}e6` }}
+                                            title={`Product: ${item.folder.name}`}
+                                        >
+                                            <Folder className="w-2.5 h-2.5 shrink-0" />
+                                            <span className="truncate">{item.folder.name}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Info */}
+                                <div className="p-2.5 flex-1 flex flex-col justify-between">
+                                    <p className="text-xs font-semibold text-slate-200 truncate" title={item.title}>
+                                        {item.title}
+                                    </p>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                                        <span>{item.formatted_size || '—'}</span>
+                                        <span className="uppercase text-slate-500 font-mono">
+                                            {item.file_name.split('.').pop()}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
@@ -626,8 +888,147 @@ export const MediaLibraryPage = () => {
                 </div>
             )}
 
-            {/* Media Details & Preview Modal */}
-            {selectedMedia && (
+            {/* Floating Bulk Action Bar (When items are selected) */}
+            {selectedMediaIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 border border-indigo-500/50 shadow-2xl rounded-2xl p-3 px-5 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 backdrop-blur-md animate-fade-in text-xs max-w-2xl w-[92%] sm:w-full">
+                    <div className="flex items-center gap-2.5 text-white font-semibold min-w-0">
+                        <span className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">
+                            {selectedMediaIds.length}
+                        </span>
+                        <span className="truncate">{selectedMediaIds.length} files selected</span>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="xs"
+                            onClick={selectAllOnPage}
+                            className="hidden sm:inline-flex ml-1"
+                        >
+                            Select All
+                        </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                        {/* Instant 1-Click Move Dropdown & Button */}
+                        <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-700">
+                            <span className="text-[11px] text-slate-400 pl-1 hidden md:inline">To:</span>
+                            <select
+                                value={bulkTargetFolderId}
+                                onChange={(e) => setBulkTargetFolderId(e.target.value)}
+                                className="bg-transparent text-xs text-white focus:outline-none max-w-[130px] sm:max-w-[160px] truncate"
+                            >
+                                <option value="" className="bg-slate-900">Choose Folder...</option>
+                                <option value="uncategorized" className="bg-slate-900">📂 Uncategorized</option>
+                                {folders.map((f) => (
+                                    <option key={f.id} value={f.id} className="bg-slate-900">
+                                        📁 {f.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <Button
+                                type="button"
+                                variant="primary"
+                                size="xs"
+                                disabled={!bulkTargetFolderId}
+                                loading={bulkMoving}
+                                onClick={() => handleDirectBulkMove(bulkTargetFolderId)}
+                                icon={ArrowRight}
+                                className="bg-indigo-600 hover:bg-indigo-500 font-semibold"
+                            >
+                                Move
+                            </Button>
+                        </div>
+
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="xs"
+                            icon={Folder}
+                            onClick={() => {
+                                setBulkTargetFolderId(folders[0]?.id || 'uncategorized');
+                                setBulkMoveModalOpen(true);
+                            }}
+                            className="hidden md:inline-flex"
+                        >
+                            More...
+                        </Button>
+
+                        <Button
+                            type="button"
+                            variant="danger"
+                            size="xs"
+                            icon={Trash2}
+                            loading={bulkDeleting}
+                            onClick={handleBulkDelete}
+                        >
+                            Delete
+                        </Button>
+                        <button
+                            type="button"
+                            onClick={deselectAll}
+                            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Cancel Selection"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Bulk Move to Folder Modal */}
+            {bulkMoveModalOpen && (
+                <Modal
+                    isOpen={bulkMoveModalOpen}
+                    onClose={() => setBulkMoveModalOpen(false)}
+                    title={`Move ${selectedMediaIds.length} Selected Items to Folder`}
+                >
+                    <form onSubmit={handleBulkMoveConfirm} className="space-y-4">
+                        <div>
+                            <p className="text-xs text-slate-300 mb-3 leading-relaxed">
+                                Choose which Product Folder to assign these <strong>{selectedMediaIds.length}</strong> media files to.
+                            </p>
+
+                            <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                                Select Destination Folder
+                            </label>
+                            <select
+                                value={bulkTargetFolderId}
+                                onChange={(e) => setBulkTargetFolderId(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-indigo-500"
+                            >
+                                <option value="uncategorized">📂 Uncategorized (No Folder)</option>
+                                {folders.map((f) => (
+                                    <option key={f.id} value={f.id}>
+                                        📁 {f.name} ({f.media_files_count || 0} items)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setBulkMoveModalOpen(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={bulkMoving}
+                                icon={ArrowRight}
+                            >
+                                Move {selectedMediaIds.length} Files Now
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
+
+            {/* Media Details & Preview Modal (Single Item) */}
+            {selectedMedia && !isSelectMode && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
                     <div
                         className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
@@ -704,7 +1105,7 @@ export const MediaLibraryPage = () => {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <select
-                                        value={selectedMedia.folder_id || ''}
+                                        value={selectedMedia.folder_id || 'uncategorized'}
                                         onChange={(e) => handleMoveFileToFolder(selectedMedia.id, e.target.value)}
                                         className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                                     >

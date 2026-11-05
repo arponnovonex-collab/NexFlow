@@ -1959,10 +1959,18 @@ export const UnifiedInboxPage = () => {
                                         )}
 
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-semibold uppercase">
                                                     Library
                                                 </span>
+                                                {selectedMediaItem.folder && (
+                                                    <span
+                                                        className="text-[9px] px-1.5 py-0.2 rounded font-semibold text-white truncate max-w-[130px] flex items-center gap-1"
+                                                        style={{ backgroundColor: selectedMediaItem.folder.color || '#6366f1' }}
+                                                    >
+                                                        📁 {selectedMediaItem.folder.name}
+                                                    </span>
+                                                )}
                                                 <p className="text-[11px] font-semibold text-slate-200 truncate">{selectedMediaItem.title}</p>
                                             </div>
                                             <p className="text-[10px] text-amber-400">
