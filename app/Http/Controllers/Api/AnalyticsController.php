@@ -44,10 +44,92 @@ class AnalyticsController extends Controller
             $endDate = $temp->copy()->endOfDay();
         }
 
-        $moderators = User::whereIn('role', ['moderator', 'admin'])
+        // 1. Calculate Read vs Unread Messages in this date range
+        $customerMessagesInRange = Message::where('sender_type', 'customer')
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->get(['id', 'conversation_id', 'delivery_status', 'created_at']);
+
+        $totalCustomerMessages = $customerMessagesInRange->count();
+        $conversationIds = $customerMessagesInRange->pluck('conversation_id')->unique();
+        $conversationsMap = Conversation::whereIn('id', $conversationIds)->get()->keyBy('id');
+
+        $readCount = 0;
+        $unreadCount = 0;
+
+        foreach ($customerMessagesInRange as $cMsg) {
+            $conv = $conversationsMap->get($cMsg->conversation_id);
+            if ($cMsg->delivery_status === 'read' || ($conv && $conv->unread_count === 0)) {
+                $readCount++;
+            } else {
+                $unreadCount++;
+            }
+        }
+
+        $readRate = $totalCustomerMessages > 0 ? round(($readCount / $totalCustomerMessages) * 100, 1) : 100;
+        $activeUnreadConversationsCount = Conversation::whereIn('id', $conversationIds)
+            ->where('unread_count', '>', 0)
+            ->count();
+
+        // 2. Calculate Average Response Times in this date range
+        $allMessagesForTiming = Message::whereIn('conversation_id', $conversationIds)
+            ->orderBy('conversation_id')
+            ->orderBy('created_at', 'asc')
+            ->get(['id', 'conversation_id', 'sender_type', 'sender_user_id', 'created_at']);
+
+        $allResponseTimes = [];
+        $moderatorResponseTimes = [];
+        $messagesByConv = $allMessagesForTiming->groupBy('conversation_id');
+
+        foreach ($messagesByConv as $convId => $convMsgs) {
+            $pendingCustomerTime = null;
+
+            foreach ($convMsgs as $m) {
+                $mCreated = Carbon::parse($m->created_at);
+                if ($m->sender_type === 'customer') {
+                    if ($pendingCustomerTime === null) {
+                        $pendingCustomerTime = $mCreated;
+                    }
+                } elseif (in_array($m->sender_type, ['moderator', 'ai', 'system'])) {
+                    if ($pendingCustomerTime !== null) {
+                        $inRange = ($pendingCustomerTime >= $startDate && $pendingCustomerTime <= $endDate)
+                            || ($mCreated >= $startDate && $mCreated <= $endDate);
+
+                        if ($inRange) {
+                            $diffSec = abs($mCreated->diffInSeconds($pendingCustomerTime));
+                            // Accept response times up to 7 days
+                            if ($diffSec >= 0 && $diffSec <= 604800) {
+                                $allResponseTimes[] = $diffSec;
+                                if ($m->sender_user_id) {
+                                    $moderatorResponseTimes[$m->sender_user_id][] = $diffSec;
+                                }
+                            }
+                        }
+                        $pendingCustomerTime = null;
+                    }
+                }
+            }
+        }
+
+        $avgTeamResponseSec = count($allResponseTimes) > 0 ? (int) round(array_sum($allResponseTimes) / count($allResponseTimes)) : null;
+
+        $formatSecondsToHuman = function (?int $seconds): string {
+            if ($seconds === null) return 'No replies yet';
+            if ($seconds < 60) return "{$seconds}s";
+            $mins = floor($seconds / 60);
+            $remSecs = $seconds % 60;
+            if ($mins < 60) {
+                return $remSecs > 0 ? "{$mins}m {$remSecs}s" : "{$mins}m";
+            }
+            $hours = floor($mins / 60);
+            $remMins = $mins % 60;
+            return $remMins > 0 ? "{$hours}h {$remMins}m" : "{$hours}h";
+        };
+
+        // 3. Moderator metrics
+        $moderators = User::whereIn('role', ['moderator', 'admin', 'super_admin'])
             ->withCount(['assignedConversations', 'assignedLeads'])
             ->get()
-            ->map(function ($mod) use ($startDate, $endDate) {
+            ->map(function ($mod) use ($startDate, $endDate, $moderatorResponseTimes, $formatSecondsToHuman) {
                 // Messages sent in the date range
                 $messagesSentInRange = Message::where('sender_user_id', $mod->id)
                     ->whereBetween('created_at', [$startDate, $endDate])
@@ -86,6 +168,9 @@ class AnalyticsController extends Controller
                 $followupsCompleted = LeadFollowup::where('user_id', $mod->id)->where('status', 'completed')->count();
                 $followupsPending = LeadFollowup::where('user_id', $mod->id)->whereIn('status', ['scheduled', 'due_today', 'overdue'])->count();
 
+                $modTimes = $moderatorResponseTimes[$mod->id] ?? [];
+                $modAvgSec = count($modTimes) > 0 ? (int) round(array_sum($modTimes) / count($modTimes)) : null;
+
                 return [
                     'id' => $mod->id,
                     'name' => $mod->name,
@@ -109,7 +194,10 @@ class AnalyticsController extends Controller
                     'converted_leads_range' => $convertedInRange,
                     'followups_completed' => $followupsCompleted,
                     'followups_pending' => $followupsPending,
-                    'avg_first_response_min' => 3.5,
+                    'avg_first_response_min' => $modAvgSec !== null ? round($modAvgSec / 60, 1) : null,
+                    'avg_response_time_seconds' => $modAvgSec,
+                    'avg_response_time_formatted' => $formatSecondsToHuman($modAvgSec),
+                    'total_replies_timed' => count($modTimes),
                     'conversion_rate' => $mod->assigned_leads_count > 0 ? round(($allTimeConverted / $mod->assigned_leads_count) * 100, 1) : 0,
                 ];
             });
@@ -123,6 +211,19 @@ class AnalyticsController extends Controller
             'total_messages_sent' => $moderators->sum('messages_sent_range'),
             'total_comments_replied' => $moderators->sum('comments_replied_range'),
             'active_moderators_count' => $moderators->where('customers_handled', '>', 0)->count(),
+
+            // Read / Unread message metrics for selected date
+            'total_customer_messages' => $totalCustomerMessages,
+            'read_messages_count' => $readCount,
+            'unread_messages_count' => $unreadCount,
+            'read_rate_percentage' => $readRate,
+            'unread_conversations_count' => $activeUnreadConversationsCount,
+            'active_conversations_count' => count($conversationIds),
+
+            // Average Response Time metrics
+            'avg_response_time_seconds' => $avgTeamResponseSec,
+            'avg_response_time_formatted' => $formatSecondsToHuman($avgTeamResponseSec),
+            'total_replies_timed' => count($allResponseTimes),
         ];
 
         return response()->json([

@@ -1070,17 +1070,27 @@ export const UnifiedInboxPage = () => {
 
                     {/* Filter Tabs */}
                     <div className="flex gap-1 overflow-x-auto pb-1 text-[10px] text-slate-400">
-                        {['all', 'assigned_to_me', 'unassigned', 'human_takeover'].map((tab) => (
-                            <button
-                                key={tab}
-                                onClick={() => setFilterTab(tab)}
-                                className={`px-2 py-0.5 rounded-full capitalize whitespace-nowrap cursor-pointer ${
-                                    filterTab === tab ? 'bg-indigo-600 text-white font-semibold' : 'hover:bg-slate-800'
-                                }`}
-                            >
-                                {tab.replace(/_/g, ' ')}
-                            </button>
-                        ))}
+                        {['all', 'unread', 'assigned_to_me', 'unassigned', 'human_takeover'].map((tab) => {
+                            const unreadTabCount = conversations.filter(c => (c.unread_count || 0) > 0).length;
+                            return (
+                                <button
+                                    key={tab}
+                                    onClick={() => setFilterTab(tab)}
+                                    className={`px-2.5 py-1 rounded-full capitalize whitespace-nowrap cursor-pointer flex items-center gap-1.5 transition-colors ${
+                                        filterTab === tab
+                                            ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                                            : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    {tab.replace(/_/g, ' ')}
+                                    {tab === 'unread' && unreadTabCount > 0 && (
+                                        <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[9px] font-bold">
+                                            {unreadTabCount}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -1108,6 +1118,7 @@ export const UnifiedInboxPage = () => {
                     ) : (
                         conversations.map((c) => {
                             const isSelected = activeConversation?.id === c.id;
+                            const isUnread = (c.unread_count || 0) > 0;
                             const isFB = c.platform === 'facebook_page';
                             const isIG = c.platform === 'instagram_business';
                             const customerName = c.customer?.name || 'Customer';
@@ -1117,14 +1128,26 @@ export const UnifiedInboxPage = () => {
                                 <div
                                     key={c.id}
                                     onClick={() => {
+                                        // Optimistically mark as read in local list for instant visual update
+                                        if (c.unread_count > 0) {
+                                            setConversations((prev) =>
+                                                prev.map((item) =>
+                                                    item.id === c.id ? { ...item, unread_count: 0 } : item
+                                                )
+                                            );
+                                        }
                                         loadConversationDetails(c.id, true);
                                         if (isMobile) {
                                             setMobileView('chat');
                                             setMobileCrmExpanded(false);
                                         }
                                     }}
-                                    className={`p-2.5 flex items-start gap-2.5 transition-colors cursor-pointer ${
-                                        isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/60'
+                                    className={`p-2.5 flex items-start gap-2.5 transition-all cursor-pointer relative ${
+                                        isSelected
+                                            ? 'bg-indigo-950/60 border-l-[3.5px] border-indigo-500 shadow-sm'
+                                            : isUnread
+                                            ? 'bg-slate-900/95 hover:bg-slate-850 border-l-[3.5px] border-indigo-400 shadow-sm'
+                                            : 'border-l-[3.5px] border-transparent hover:bg-slate-900/50 opacity-85 hover:opacity-100'
                                     }`}
                                 >
                                     <div className="relative shrink-0">
@@ -1144,8 +1167,11 @@ export const UnifiedInboxPage = () => {
 
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between gap-1.5">
-                                            <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden" title={`${customerName}${pageName ? ` (${pageName})` : ''}`}>
-                                                <span className="text-xs font-semibold text-slate-100 truncate">
+                                            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden" title={`${customerName}${pageName ? ` (${pageName})` : ''}`}>
+                                                {isUnread && (
+                                                    <span className="w-2 h-2 rounded-full bg-indigo-400 ring-2 ring-indigo-400/40 animate-pulse shrink-0" title="Unread Message" />
+                                                )}
+                                                <span className={`text-xs truncate ${isUnread ? 'font-bold text-white' : 'font-medium text-slate-300'}`}>
                                                     {customerName}
                                                 </span>
                                                 {pageName && (
@@ -1154,12 +1180,12 @@ export const UnifiedInboxPage = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="text-[10px] text-slate-400 shrink-0">
+                                            <span className={`text-[10px] shrink-0 ${isUnread ? 'font-bold text-indigo-400' : 'text-slate-400'}`}>
                                                 {c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                             </span>
                                         </div>
 
-                                        <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                                        <p className={`text-[11px] truncate mt-0.5 ${isUnread ? 'font-semibold text-slate-100' : 'font-normal text-slate-400'}`}>
                                             {c.latest_message?.text || 'No messages yet'}
                                         </p>
 
@@ -1178,9 +1204,13 @@ export const UnifiedInboxPage = () => {
                                                     AI
                                                 </Badge>
                                             )}
-                                            {c.unread_count > 0 && (
-                                                <span className="ml-auto w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold">
+                                            {isUnread ? (
+                                                <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-600 text-white text-[10px] flex items-center justify-center font-black shadow-md shadow-indigo-500/25 ring-2 ring-indigo-400/30">
                                                     {c.unread_count}
+                                                </span>
+                                            ) : (
+                                                <span className="ml-auto text-[10px] text-slate-600 font-medium select-none">
+                                                    Read
                                                 </span>
                                             )}
                                         </div>

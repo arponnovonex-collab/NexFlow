@@ -72,6 +72,8 @@ class ConversationController extends Controller
             $query->whereNull('assigned_to_user_id');
         } elseif ($request->filter === 'human_takeover') {
             $query->where('is_human_takeover', true);
+        } elseif ($request->filter === 'unread') {
+            $query->where('unread_count', '>', 0);
         }
 
         // Search customer name, phone, message text
@@ -157,8 +159,12 @@ class ConversationController extends Controller
         // Hide sensitive token before returning
         $conversation->socialAccount?->makeHidden(['access_token', 'refresh_token']);
 
-        // Reset unread count when opened
+        // Reset unread count and mark customer messages as read when opened
         $conversation->update(['unread_count' => 0]);
+        $conversation->messages()
+            ->where('sender_type', 'customer')
+            ->where('delivery_status', '!=', 'read')
+            ->update(['delivery_status' => 'read']);
 
         return response()->json([
             'status' => 'success',
