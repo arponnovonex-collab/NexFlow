@@ -1126,8 +1126,8 @@ export const UnifiedInboxPage = () => {
                 {activeConversation ? (
                     <>
                         {/* Conversation Header */}
-                        <div className="h-16 px-3 md:px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40 shrink-0">
-                            <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                        <div className="h-14 md:h-16 px-2.5 md:px-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0 gap-2">
+                            <div className="flex items-center gap-1.5 md:gap-3 min-w-0 flex-1">
                                 {/* Mobile Back Button to Conversation List (Messenger Style) */}
                                 <button
                                     type="button"
@@ -1137,42 +1137,46 @@ export const UnifiedInboxPage = () => {
                                         handleBackToList();
                                     }}
                                     title="Back to conversation list"
-                                    className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-slate-100 hover:text-white rounded-xl bg-slate-800/95 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/90 transition-all shrink-0 cursor-pointer shadow-md select-none touch-manipulation z-30 relative"
+                                    className="md:hidden flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-100 bg-slate-800/95 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/80 rounded-lg shrink-0 cursor-pointer shadow-sm select-none touch-manipulation mr-0.5"
                                 >
                                     <ArrowLeft className="w-4 h-4 text-indigo-400 shrink-0" />
-                                    <span className="text-xs font-bold text-slate-100">Chats</span>
+                                    <span>Chats</span>
                                 </button>
 
                                 <div className="relative shrink-0">
                                     <img
                                         src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=80'}
                                         alt={activeConversation.customer?.name}
-                                        className="w-8 h-8 md:w-9 md:h-9 rounded-full object-cover"
+                                        className="w-7 h-7 md:w-9 md:h-9 rounded-full object-cover"
                                     />
+                                    <span
+                                        className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full text-white text-[8px] ${
+                                            activeConversation.platform === 'facebook_page'
+                                                ? 'bg-blue-600'
+                                                : activeConversation.platform === 'instagram_business'
+                                                ? 'bg-pink-600'
+                                                : 'bg-emerald-600'
+                                        }`}
+                                    >
+                                        {activeConversation.platform === 'facebook_page' ? (
+                                            <Facebook className="w-2 h-2" />
+                                        ) : activeConversation.platform === 'instagram_business' ? (
+                                            <Instagram className="w-2 h-2" />
+                                        ) : (
+                                            <PhoneCall className="w-2 h-2" />
+                                        )}
+                                    </span>
                                 </div>
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 min-w-0">
                                         <h2 className="text-xs md:text-sm font-bold text-white flex items-center gap-1 min-w-0 truncate">
                                             <span className="truncate">{activeConversation.customer?.name || 'Customer'}</span>
                                             {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
-                                                <span className="text-[11px] md:text-xs font-semibold text-cyan-400 shrink-0">
+                                                <span className="text-[10px] md:text-xs font-semibold text-cyan-400 shrink-0 truncate">
                                                     ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
                                                 </span>
                                             )}
                                         </h2>
-                                        <Badge
-                                            variant={
-                                                activeConversation.platform === 'facebook_page'
-                                                    ? 'facebook'
-                                                    : activeConversation.platform === 'instagram_business'
-                                                    ? 'instagram'
-                                                    : 'whatsapp'
-                                            }
-                                            size="xs"
-                                            className="hidden sm:inline-flex"
-                                        >
-                                            {activeConversation.social_account?.name || activeConversation.socialAccount?.name}
-                                        </Badge>
                                         <div className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[9px] font-medium tracking-wide shrink-0">
                                             <span className="relative flex h-1.5 w-1.5">
                                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1182,12 +1186,13 @@ export const UnifiedInboxPage = () => {
                                         </div>
                                     </div>
                                     <span className="text-[10px] text-slate-400 truncate block">
-                                        Assigned to: {activeConversation.assigned_user?.name || 'Unassigned'}
+                                        Assigned: {activeConversation.assigned_user?.name || 'Unassigned'}
                                     </span>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-1 md:gap-2 shrink-0">
+                            {/* Right Actions: Compact & Horizontally Scrollable on Mobile */}
+                            <div className="flex items-center gap-1 md:gap-1.5 shrink-0 overflow-x-auto no-scrollbar py-0.5">
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -1195,7 +1200,7 @@ export const UnifiedInboxPage = () => {
                                         if (activeConversation) loadConversationDetails(activeConversation.id);
                                     }}
                                     title="Manual Refresh"
-                                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                    className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
                                 >
                                     <RefreshCw className="w-3.5 h-3.5" />
                                 </button>
@@ -1204,26 +1209,30 @@ export const UnifiedInboxPage = () => {
                                     onClick={handleSyncNames}
                                     disabled={syncingNames}
                                     title="Sync Real Customer Names from Facebook"
-                                    className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                                    className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer disabled:opacity-50"
                                 >
                                     <Users className={`w-3.5 h-3.5 ${syncingNames ? 'animate-spin text-cyan-400' : ''}`} />
                                 </button>
-                                <Button
-                                    variant={activeConversation.is_human_takeover ? 'warning' : 'secondary'}
-                                    size="xs"
+                                <button
+                                    type="button"
                                     onClick={handleToggleTakeover}
-                                    icon={Bot}
-                                    className="hidden sm:flex"
+                                    title={activeConversation.is_human_takeover ? 'Switch to AI Auto-Reply' : 'Take over as Human Moderator'}
+                                    className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer ${
+                                        activeConversation.is_human_takeover
+                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                            : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                    }`}
                                 >
-                                    {activeConversation.is_human_takeover ? 'Human' : 'AI Active'}
-                                </Button>
+                                    <Bot className="w-3.5 h-3.5" />
+                                    <span className="hidden xs:inline">{activeConversation.is_human_takeover ? 'Human' : 'AI'}</span>
+                                </button>
 
                                 {/* Mobile Customer Details Button (Toggle Bottom CRM Panel) */}
                                 <button
                                     type="button"
                                     onClick={() => setMobileCrmExpanded((prev) => !prev)}
                                     title="Customer Details & CRM"
-                                    className={`md:hidden px-2 py-1 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1 shrink-0 ${
+                                    className={`px-2 py-1 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1 shrink-0 cursor-pointer ${
                                         mobileCrmExpanded
                                             ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
                                             : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
@@ -1232,9 +1241,9 @@ export const UnifiedInboxPage = () => {
                                     <User className="w-3.5 h-3.5 text-cyan-400" />
                                     <span>CRM</span>
                                     {mobileCrmExpanded ? (
-                                        <ChevronUp className="w-3.5 h-3.5 text-cyan-400" />
+                                        <ChevronUp className="w-3 h-3 text-cyan-400" />
                                     ) : (
-                                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                        <ChevronDown className="w-3 h-3 text-slate-400" />
                                     )}
                                 </button>
 
