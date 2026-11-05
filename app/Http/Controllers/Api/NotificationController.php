@@ -96,7 +96,11 @@ class NotificationController extends Controller
         return response()->json([
             'status' => 'success',
             'unread_count' => $unreadCount,
-            'data' => $notifications,
+            'data' => [
+                'notifications' => $notifications,
+                'unread_count' => $unreadCount,
+            ],
+            'notifications' => $notifications,
             'bulk_sms_balance' => $smsSettings ? (float) $smsSettings->last_balance : null,
         ]);
     }

@@ -49,8 +49,12 @@ export const Header = ({ onMenuClick }) => {
         try {
             const res = await api.get('/notifications');
             if (res.data?.status === 'success') {
-                setNotifications(res.data.data?.notifications || []);
-                setUnreadCount(res.data.data?.unread_count || 0);
+                const list = Array.isArray(res.data.data)
+                    ? res.data.data
+                    : (res.data.data?.notifications || res.data.notifications || []);
+                const unread = res.data.unread_count ?? (res.data.data?.unread_count ?? 0);
+                setNotifications(list);
+                setUnreadCount(unread);
             }
         } catch (err) {
             // silent fail on notification poll
