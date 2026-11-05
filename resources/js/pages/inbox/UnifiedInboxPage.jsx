@@ -46,6 +46,8 @@ import {
     Download,
     File,
     Square,
+    ChevronDown,
+    ChevronUp,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -65,19 +67,28 @@ export const UnifiedInboxPage = () => {
     const [isDraggingLeft, setIsDraggingLeft] = useState(false);
     const [isDraggingRight, setIsDraggingRight] = useState(false);
 
-    // Mobile Navigation State: 'list' | 'chat' | 'details' (Messenger style on phone)
-    const [mobileView, setMobileView] = useState(() => {
-        return searchParams.get('conversation') && typeof window !== 'undefined' && window.innerWidth < 768 ? 'chat' : 'list';
-    });
+    // Mobile Navigation State: 'list' | 'chat' (Always start on customer list on mobile)
+    const [mobileView, setMobileView] = useState('list');
     const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+    const [mobileCrmExpanded, setMobileCrmExpanded] = useState(false);
 
     useEffect(() => {
         const handleResize = () => {
-            setIsMobile(window.innerWidth < 768);
+            const mobile = window.innerWidth < 768;
+            setIsMobile(mobile);
+            if (!mobile) {
+                setMobileView('chat');
+            }
         };
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    const handleBackToList = () => {
+        setMobileView('list');
+        setMobileCrmExpanded(false);
+        setSearchParams({});
+    };
 
     const [conversations, setConversations] = useState([]);
     const [activeConversation, setActiveConversation] = useState(null);
@@ -338,18 +349,20 @@ export const UnifiedInboxPage = () => {
             }
 
             if (!silent) {
-                // Set active conversation from query param or first item
-                const queryConvId = searchParams.get('conversation');
-                if (queryConvId) {
-                    const found = list.find((c) => c.id === parseInt(queryConvId));
-                    if (found) {
-                        loadConversationDetails(found.id);
-                        if (isMobile) setMobileView('chat');
-                    } else if (list.length > 0 && !isMobile) {
+                // On desktop, auto-select conversation from query param or first item
+                // On mobile, DO NOT auto-select so user always starts on customer list view
+                if (!isMobile) {
+                    const queryConvId = searchParams.get('conversation');
+                    if (queryConvId) {
+                        const found = list.find((c) => c.id === parseInt(queryConvId));
+                        if (found) {
+                            loadConversationDetails(found.id);
+                        } else if (list.length > 0) {
+                            loadConversationDetails(list[0].id);
+                        }
+                    } else if (!activeConversation && list.length > 0) {
                         loadConversationDetails(list[0].id);
                     }
-                } else if (!activeConversation && list.length > 0 && !isMobile) {
-                    loadConversationDetails(list[0].id);
                 }
             }
         } catch (err) {
@@ -366,8 +379,9 @@ export const UnifiedInboxPage = () => {
             setActiveConversation(res.data.data);
             setSearchParams({ conversation: id });
 
-            if (isExplicitUserClick) {
+            if (isExplicitUserClick && isMobile) {
                 setMobileView('chat');
+                setMobileCrmExpanded(false);
             }
 
             // Prefill order modal if customer exists
@@ -684,6 +698,171 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    // Reusable Customer & Lead CRM Panel Content
+    const renderCrmDetails = () => (
+        <div className="space-y-4">
+            {/* Customer Identity */}
+            <div className="text-center">
+                <img
+                    src={activeConversation?.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100'}
+                    alt={activeConversation?.customer?.name}
+                    className="w-14 h-14 md:w-16 md:h-16 rounded-full mx-auto object-cover ring-2 ring-indigo-500/20"
+                />
+                <div className="mt-2">
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center justify-center gap-1.5">
+                        <span>{activeConversation?.customer?.name || 'Customer'}</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCustEditName(activeConversation?.customer?.name || '');
+                                setCustEditPhone(activeConversation?.customer?.phone || '');
+                                setEditingCustomer((prev) => !prev);
+                            }}
+                            title="Edit Customer"
+                            className="text-slate-400 hover:text-cyan-400 transition-colors p-1 rounded hover:bg-slate-800 cursor-pointer"
+                        >
+                            <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                    </h3>
+                    {(activeConversation?.social_account?.name || activeConversation?.socialAccount?.name) && (
+                        <p className="text-xs text-cyan-400 font-semibold mt-0.5">
+                            ({activeConversation?.social_account?.name || activeConversation?.socialAccount?.name})
+                        </p>
+                    )}
+                    <p className="text-xs text-slate-400 mt-0.5">{activeConversation?.customer?.phone || 'No phone recorded'}</p>
+                </div>
+            </div>
+
+            {/* Inline Customer Edit Form */}
+            {editingCustomer && (
+                <form onSubmit={handleSaveCustomer} className="p-3 bg-slate-900 border border-cyan-500/30 rounded-xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-200">Edit Customer Info</span>
+                        <button
+                            type="button"
+                            onClick={() => setEditingCustomer(false)}
+                            className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-medium text-slate-400 mb-1">Customer Name</label>
+                        <input
+                            type="text"
+                            value={custEditName}
+                            onChange={(e) => setCustEditName(e.target.value)}
+                            placeholder="Enter real customer name"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-medium text-slate-400 mb-1">Phone Number</label>
+                        <input
+                            type="text"
+                            value={custEditPhone}
+                            onChange={(e) => setCustEditPhone(e.target.value)}
+                            placeholder="01XXXXXXXXX"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => setEditingCustomer(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            size="xs"
+                            disabled={savingCustomer}
+                        >
+                            {savingCustomer ? 'Saving...' : 'Save'}
+                        </Button>
+                    </div>
+                </form>
+            )}
+
+            {/* Quick Lead Status Selector */}
+            <div className="space-y-1.5 border-t border-slate-800/80 pt-3">
+                <label className="text-xs font-semibold text-slate-300 block">Lead CRM Classification</label>
+                <select
+                    value={activeConversation?.lead?.status || 'cold'}
+                    onChange={(e) => handleLeadStatusChange(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-medium capitalize"
+                >
+                    <option value="cold">Cold Lead (Browsing / Passive)</option>
+                    <option value="warm">Warm Lead (Price / Size / Specs Inquired)</option>
+                    <option value="hot">Hot Lead (Purchase Intent / Address Shared)</option>
+                    <option value="converted">Converted (Verified Order Created)</option>
+                    <option value="lost">Lost Lead (Declined / Cancelled)</option>
+                </select>
+                {activeConversation?.lead?.suggested_status && (
+                    <p className="text-[10px] text-violet-400 mt-1">
+                        AI Suggested: <span className="font-semibold uppercase">{activeConversation.lead.suggested_status}</span> ({(activeConversation.lead.confidence * 100).toFixed(0)}% confidence)
+                    </p>
+                )}
+            </div>
+
+            {/* Mapped Product Context */}
+            {activeConversation?.lead?.related_product && (
+                <div className="border border-slate-800 rounded-xl p-3 bg-slate-900/60 space-y-1.5">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Inquired Product
+                    </span>
+                    <p className="text-xs font-bold text-slate-200">
+                        {activeConversation.lead.related_product.name}
+                    </p>
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+                        <span>Verified Price:</span>
+                        <span className="font-semibold text-emerald-400">
+                            {activeConversation.lead.related_product.selling_price} BDT
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {/* Quick Action Buttons */}
+            <div className="space-y-2 border-t border-slate-800/80 pt-3">
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full justify-start"
+                    icon={Calendar}
+                    onClick={() => setFollowupModal(true)}
+                >
+                    Schedule Follow-up
+                </Button>
+                <Button
+                    variant="primary"
+                    size="sm"
+                    className="w-full justify-start"
+                    icon={ShoppingBag}
+                    onClick={() => setOrderModal(true)}
+                >
+                    Create Verified Order
+                </Button>
+            </div>
+
+            {/* Tags */}
+            <div className="border-t border-slate-800/80 pt-3 space-y-2">
+                <span className="text-xs font-semibold text-slate-300 block">Conversation Tags</span>
+                <div className="flex flex-wrap gap-1.5">
+                    {activeConversation?.tags?.map((t) => (
+                        <Badge key={t.id} variant="neutral" size="xs">
+                            {t.tag}
+                        </Badge>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <div
             ref={containerRef}
@@ -772,7 +951,7 @@ export const UnifiedInboxPage = () => {
                 </div>
 
                 {/* Conversation Items List */}
-                <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 min-h-0 overscroll-contain">
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 min-h-0 overscroll-contain scroll-smooth">
                     {loadingList ? (
                         <div className="p-8 text-center text-xs text-slate-400">Loading inbox...</div>
                     ) : conversations.length === 0 ? (
@@ -805,7 +984,10 @@ export const UnifiedInboxPage = () => {
                                     key={c.id}
                                     onClick={() => {
                                         loadConversationDetails(c.id, true);
-                                        setMobileView('chat');
+                                        if (isMobile) {
+                                            setMobileView('chat');
+                                            setMobileCrmExpanded(false);
+                                        }
                                     }}
                                     className={`p-2.5 flex items-start gap-2.5 transition-colors cursor-pointer ${
                                         isSelected ? 'bg-indigo-950/40 border-l-2 border-indigo-500' : 'hover:bg-slate-900/60'
@@ -901,11 +1083,12 @@ export const UnifiedInboxPage = () => {
                                 {/* Mobile Back Button to Conversation List (Messenger Style) */}
                                 <button
                                     type="button"
-                                    onClick={() => setMobileView('list')}
+                                    onClick={handleBackToList}
                                     title="Back to conversation list"
-                                    className="md:hidden p-1.5 -ml-1 text-slate-300 hover:text-white rounded-lg hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                                    className="md:hidden flex items-center gap-1 p-1.5 -ml-1 text-slate-200 hover:text-white rounded-lg bg-slate-800/80 active:bg-slate-700 transition-colors shrink-0 cursor-pointer shadow-sm"
                                 >
                                     <ArrowLeft className="w-5 h-5 text-indigo-400" />
+                                    <span className="text-xs font-semibold text-slate-200">Chats</span>
                                 </button>
 
                                 <div className="relative shrink-0">
@@ -983,14 +1166,24 @@ export const UnifiedInboxPage = () => {
                                     {activeConversation.is_human_takeover ? 'Human' : 'AI Active'}
                                 </Button>
 
-                                {/* Mobile Customer Details Button (Messenger Style Info Icon) */}
+                                {/* Mobile Customer Details Button (Toggle Bottom CRM Panel) */}
                                 <button
                                     type="button"
-                                    onClick={() => setMobileView('details')}
-                                    title="View Customer Details & CRM"
-                                    className="md:hidden p-1.5 text-slate-300 hover:text-cyan-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer bg-slate-900 border border-slate-800 shrink-0"
+                                    onClick={() => setMobileCrmExpanded((prev) => !prev)}
+                                    title="Customer Details & CRM"
+                                    className={`md:hidden px-2 py-1 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1 shrink-0 ${
+                                        mobileCrmExpanded
+                                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                            : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
+                                    }`}
                                 >
-                                    <Info className="w-4 h-4 text-cyan-400" />
+                                    <User className="w-3.5 h-3.5 text-cyan-400" />
+                                    <span>CRM</span>
+                                    {mobileCrmExpanded ? (
+                                        <ChevronUp className="w-3.5 h-3.5 text-cyan-400" />
+                                    ) : (
+                                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
                                 </button>
 
                                 <Button
@@ -1029,7 +1222,7 @@ export const UnifiedInboxPage = () => {
                         )}
 
                         {/* Messages Scroll Area */}
-                        <div className="flex-1 p-3 md:p-6 overflow-y-auto space-y-3 md:space-y-4 min-h-0 overscroll-contain">
+                        <div className="flex-1 p-3 md:p-6 overflow-y-auto space-y-3 md:space-y-4 min-h-0 overscroll-contain scroll-smooth">
                             {loadingThread ? (
                                 <div className="py-20 text-center text-xs text-slate-400">Loading conversation...</div>
                             ) : (
@@ -1536,6 +1729,38 @@ export const UnifiedInboxPage = () => {
                                 </div>
                             </form>
                         </div>
+
+                        {/* Mobile Bottom CRM Section (r dan pasher ta nice thakbe) */}
+                        <div className="md:hidden border-t border-slate-800 bg-slate-950 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setMobileCrmExpanded((prev) => !prev)}
+                                className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-200 bg-slate-900/70 hover:bg-slate-900 active:bg-slate-800 transition-colors cursor-pointer"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <User className="w-4 h-4 text-cyan-400" />
+                                    <span>Customer & Lead CRM (কাস্টমার ও লিড তথ্য)</span>
+                                    {activeConversation.lead?.status && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase font-bold">
+                                            {activeConversation.lead.status}
+                                        </span>
+                                    )}
+                                </span>
+                                <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                                    <span>{mobileCrmExpanded ? 'Hide' : 'View'}</span>
+                                    {mobileCrmExpanded ? (
+                                        <ChevronUp className="w-4 h-4 text-cyan-400" />
+                                    ) : (
+                                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                                    )}
+                                </span>
+                            </button>
+                            {mobileCrmExpanded && (
+                                <div className="max-h-[50vh] overflow-y-auto p-4 border-t border-slate-800/80 overscroll-contain scroll-smooth animate-fade-in bg-slate-950/90">
+                                    {renderCrmDetails()}
+                                </div>
+                            )}
+                        </div>
                     </>
                 ) : (
                     <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
@@ -1558,182 +1783,13 @@ export const UnifiedInboxPage = () => {
                 </div>
             )}
 
-            {/* COLUMN 3: Customer CRM & Details (Right Panel - Resizable & Collapsible) */}
-            {activeConversation && ((!isMobile && showRightPanel) || (isMobile && mobileView === 'details')) && (
+            {/* COLUMN 3: Customer CRM & Details (Desktop Right Panel - Resizable & Collapsible) */}
+            {activeConversation && !isMobile && showRightPanel && (
                 <div
-                    style={isMobile ? undefined : { width: `${rightWidth}px` }}
-                    className="flex flex-col w-full md:w-auto border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/80 p-4 md:p-5 overflow-y-auto space-y-4 md:space-y-5 shrink-0 h-full min-h-0 overscroll-contain"
+                    style={{ width: `${rightWidth}px` }}
+                    className="hidden md:flex flex-col border-l border-slate-800 bg-slate-950/80 p-4 md:p-5 overflow-y-auto shrink-0 h-full min-h-0 overscroll-contain scroll-smooth"
                 >
-                    {/* Mobile Back Button to return to Chat (Messenger style) */}
-                    <div className="md:hidden flex items-center justify-between pb-3 border-b border-slate-800">
-                        <button
-                            type="button"
-                            onClick={() => setMobileView('chat')}
-                            className="flex items-center gap-1.5 text-xs text-indigo-400 font-semibold hover:text-indigo-300 p-1 rounded-lg hover:bg-slate-900 cursor-pointer"
-                        >
-                            <ArrowLeft className="w-4 h-4" /> Back to Chat
-                        </button>
-                        <span className="text-xs font-bold text-slate-200">Customer CRM</span>
-                    </div>
-                    {/* Customer Identity */}
-                    <div className="text-center">
-                        <img
-                            src={activeConversation.customer?.avatar_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100'}
-                            alt={activeConversation.customer?.name}
-                            className="w-16 h-16 rounded-full mx-auto object-cover ring-2 ring-indigo-500/20"
-                        />
-                        <div className="mt-2">
-                            <h3 className="text-sm font-bold text-slate-100 flex items-center justify-center gap-1.5">
-                                <span>{activeConversation.customer?.name || 'Customer'}</span>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setCustEditName(activeConversation.customer?.name || '');
-                                        setCustEditPhone(activeConversation.customer?.phone || '');
-                                        setEditingCustomer((prev) => !prev);
-                                    }}
-                                    title="Edit Customer"
-                                    className="text-slate-400 hover:text-cyan-400 transition-colors p-1 rounded hover:bg-slate-800"
-                                >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                            </h3>
-                            {(activeConversation.social_account?.name || activeConversation.socialAccount?.name) && (
-                                <p className="text-xs text-cyan-400 font-semibold mt-0.5">
-                                    ({activeConversation.social_account?.name || activeConversation.socialAccount?.name})
-                                </p>
-                            )}
-                            <p className="text-xs text-slate-400 mt-0.5">{activeConversation.customer?.phone || 'No phone recorded'}</p>
-                        </div>
-                    </div>
-
-                    {/* Inline Customer Edit Form */}
-                    {editingCustomer && (
-                        <form onSubmit={handleSaveCustomer} className="p-3 bg-slate-900 border border-cyan-500/30 rounded-xl space-y-2.5">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-semibold text-slate-200">Edit Customer Info</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setEditingCustomer(false)}
-                                    className="text-slate-400 hover:text-slate-200 text-xs px-1"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-medium text-slate-400 mb-1">Customer Name</label>
-                                <input
-                                    type="text"
-                                    value={custEditName}
-                                    onChange={(e) => setCustEditName(e.target.value)}
-                                    placeholder="Enter real customer name"
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-medium text-slate-400 mb-1">Phone Number</label>
-                                <input
-                                    type="text"
-                                    value={custEditPhone}
-                                    onChange={(e) => setCustEditPhone(e.target.value)}
-                                    placeholder="01XXXXXXXXX"
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-cyan-500"
-                                />
-                            </div>
-                            <div className="flex justify-end gap-2 pt-1">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    onClick={() => setEditingCustomer(false)}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    variant="primary"
-                                    size="xs"
-                                    disabled={savingCustomer}
-                                >
-                                    {savingCustomer ? 'Saving...' : 'Save'}
-                                </Button>
-                            </div>
-                        </form>
-                    )}
-
-                    {/* Quick Lead Status Selector */}
-                    <div className="space-y-1.5 border-t border-slate-800/80 pt-4">
-                        <label className="text-xs font-semibold text-slate-300 block">Lead CRM Classification</label>
-                        <select
-                            value={activeConversation.lead?.status || 'cold'}
-                            onChange={(e) => handleLeadStatusChange(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-medium capitalize"
-                        >
-                            <option value="cold">Cold Lead (Browsing / Passive)</option>
-                            <option value="warm">Warm Lead (Price / Size / Specs Inquired)</option>
-                            <option value="hot">Hot Lead (Purchase Intent / Address Shared)</option>
-                            <option value="converted">Converted (Verified Order Created)</option>
-                            <option value="lost">Lost Lead (Declined / Cancelled)</option>
-                        </select>
-                        {activeConversation.lead?.suggested_status && (
-                            <p className="text-[10px] text-violet-400 mt-1">
-                                AI Suggested: <span className="font-semibold uppercase">{activeConversation.lead.suggested_status}</span> ({(activeConversation.lead.confidence * 100).toFixed(0)}% confidence)
-                            </p>
-                        )}
-                    </div>
-
-                    {/* Mapped Product Context */}
-                    {activeConversation.lead?.related_product && (
-                        <div className="border border-slate-800 rounded-xl p-3 bg-slate-900/60 space-y-1.5">
-                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                                Inquired Product
-                            </span>
-                            <p className="text-xs font-bold text-slate-200">
-                                {activeConversation.lead.related_product.name}
-                            </p>
-                            <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                                <span>Verified Price:</span>
-                                <span className="font-semibold text-emerald-400">
-                                    {activeConversation.lead.related_product.selling_price} BDT
-                                </span>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Quick Action Buttons */}
-                    <div className="space-y-2 border-t border-slate-800/80 pt-4">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            className="w-full justify-start"
-                            icon={Calendar}
-                            onClick={() => setFollowupModal(true)}
-                        >
-                            Schedule Follow-up
-                        </Button>
-                        <Button
-                            variant="primary"
-                            size="sm"
-                            className="w-full justify-start"
-                            icon={ShoppingBag}
-                            onClick={() => setOrderModal(true)}
-                        >
-                            Create Verified Order
-                        </Button>
-                    </div>
-
-                    {/* Tags */}
-                    <div className="border-t border-slate-800/80 pt-4 space-y-2">
-                        <span className="text-xs font-semibold text-slate-300 block">Conversation Tags</span>
-                        <div className="flex flex-wrap gap-1.5">
-                            {activeConversation.tags?.map((t) => (
-                                <Badge key={t.id} variant="neutral" size="xs">
-                                    {t.tag}
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
+                    {renderCrmDetails()}
                 </div>
             )}
 
