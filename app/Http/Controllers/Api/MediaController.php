@@ -185,7 +185,6 @@ class MediaController extends Controller
             'updated_count' => $updatedCount,
         ]);
     }
-    }
 
     /**
      * Delete a media file.

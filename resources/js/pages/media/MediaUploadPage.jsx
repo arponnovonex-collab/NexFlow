@@ -139,9 +139,7 @@ export const MediaUploadPage = () => {
         }
 
         try {
-            const res = await api.post('/media/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
+            const res = await api.post('/media/upload', formData);
 
             if (res.data?.status === 'success') {
                 setUploadResults(res.data);

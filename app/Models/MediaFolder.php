@@ -53,3 +53,4 @@ class MediaFolder extends Model
         return $this->hasMany(MediaFolder::class, 'parent_id');
     }
 }
+

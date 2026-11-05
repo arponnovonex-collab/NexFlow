@@ -116,3 +116,4 @@ class MediaFolderController extends Controller
         ]);
     }
 }
+

@@ -87,9 +87,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
         }
 
         try {
-            const res = await api.post('/media/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
+            const res = await api.post('/media/upload', formData);
             if (res.data?.status === 'success') {
                 const uploaded = res.data.files?.[0];
                 if (uploaded) {

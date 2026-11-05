@@ -109,9 +109,7 @@ export const AppearancePage = () => {
                 formData.append('favicon', faviconFile);
             }
 
-            const res = await api.post('/appearance', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
+            const res = await api.post('/appearance', formData);
 
             if (res.data?.status === 'success') {
                 setSavedMsg('Appearance and branding settings saved successfully!');
