@@ -9,6 +9,7 @@ class MediaFile extends Model
 {
     protected $fillable = [
         'user_id',
+        'folder_id',
         'title',
         'file_name',
         'file_path',
@@ -38,6 +39,11 @@ class MediaFile extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function folder(): BelongsTo
+    {
+        return $this->belongsTo(MediaFolder::class, 'folder_id');
     }
 
     public function getFileUrlAttribute($value): string

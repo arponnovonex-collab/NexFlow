@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Modal } from '../../components/common/Modal';
 import {
     FolderOpen,
+    FolderPlus,
+    Folder,
     UploadCloud,
     Image as ImageIcon,
     Video,
@@ -21,16 +24,51 @@ import {
     Calendar,
     HardDrive,
     Eye,
+    Edit3,
+    CornerDownRight,
+    Tag,
+    Layers,
+    ChevronRight,
 } from 'lucide-react';
+
+const FOLDER_COLORS = [
+    '#6366f1', // Indigo
+    '#0ea5e9', // Sky Cyan
+    '#10b981', // Emerald
+    '#8b5cf6', // Violet
+    '#f43f5e', // Rose
+    '#f59e0b', // Amber
+    '#ec4899', // Pink
+    '#14b8a6', // Teal
+];
 
 export const MediaLibraryPage = () => {
     const [mediaItems, setMediaItems] = useState([]);
+    const [folders, setFolders] = useState([]);
+    const [folderStats, setFolderStats] = useState({ total_files: 0, uncategorized_files: 0 });
     const [loading, setLoading] = useState(true);
+    const [foldersLoading, setFoldersLoading] = useState(false);
+
+    // Filters
     const [filterType, setFilterType] = useState('all');
+    const [selectedFolderId, setSelectedFolderId] = useState('all'); // 'all', 'uncategorized', or numeric id
     const [searchQuery, setSearchQuery] = useState('');
+
+    // Modals & Selections
     const [selectedMedia, setSelectedMedia] = useState(null);
     const [copiedUrl, setCopiedUrl] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+
+    // Folder Create / Edit Modal
+    const [folderModalOpen, setFolderModalOpen] = useState(false);
+    const [editingFolder, setEditingFolder] = useState(null);
+    const [folderForm, setFolderForm] = useState({ name: '', color: '#6366f1', description: '' });
+    const [savingFolder, setSavingFolder] = useState(false);
+
+    // Move file to folder modal
+    const [movingMedia, setMovingMedia] = useState(null);
+    const [targetFolderSelection, setTargetFolderSelection] = useState('');
+    const [movingFile, setMovingFile] = useState(false);
 
     const [pagination, setPagination] = useState({
         current_page: 1,
@@ -38,11 +76,30 @@ export const MediaLibraryPage = () => {
         total: 0,
     });
 
-    const fetchMedia = async (page = 1, type = filterType, search = searchQuery) => {
+    const fetchFolders = async () => {
+        setFoldersLoading(true);
+        try {
+            const res = await api.get('/media/folders');
+            if (res.data?.status === 'success') {
+                setFolders(res.data.data.folders || []);
+                setFolderStats({
+                    total_files: res.data.data.total_files || 0,
+                    uncategorized_files: res.data.data.uncategorized_files || 0,
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load folders', err);
+        } finally {
+            setFoldersLoading(false);
+        }
+    };
+
+    const fetchMedia = async (page = 1, type = filterType, folderId = selectedFolderId, search = searchQuery) => {
         setLoading(true);
         try {
             const params = { page, per_page: 24 };
             if (type && type !== 'all') params.type = type;
+            if (folderId && folderId !== 'all') params.folder_id = folderId;
             if (search && search.trim()) params.search = search.trim();
 
             const res = await api.get('/media', { params });
@@ -63,12 +120,16 @@ export const MediaLibraryPage = () => {
     };
 
     useEffect(() => {
-        fetchMedia(1, filterType, searchQuery);
-    }, [filterType]);
+        fetchFolders();
+    }, []);
+
+    useEffect(() => {
+        fetchMedia(1, filterType, selectedFolderId, searchQuery);
+    }, [filterType, selectedFolderId]);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
-        fetchMedia(1, filterType, searchQuery);
+        fetchMedia(1, filterType, selectedFolderId, searchQuery);
     };
 
     const handleCopyUrl = (url) => {
@@ -91,10 +152,100 @@ export const MediaLibraryPage = () => {
                 setSelectedMedia(null);
             }
             setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+            fetchFolders();
         } catch (err) {
             alert('Failed to delete media file: ' + (err.response?.data?.message || err.message));
         } finally {
             setDeletingId(null);
+        }
+    };
+
+    // Open Create Folder Modal
+    const openCreateFolder = () => {
+        setEditingFolder(null);
+        setFolderForm({ name: '', color: '#6366f1', description: '' });
+        setFolderModalOpen(true);
+    };
+
+    // Open Edit Folder Modal
+    const openEditFolder = (f, e) => {
+        if (e) e.stopPropagation();
+        setEditingFolder(f);
+        setFolderForm({ name: f.name, color: f.color || '#6366f1', description: f.description || '' });
+        setFolderModalOpen(true);
+    };
+
+    const handleSaveFolder = async (e) => {
+        e.preventDefault();
+        if (!folderForm.name.trim()) return;
+
+        setSavingFolder(true);
+        try {
+            if (editingFolder) {
+                await api.put(`/media/folders/${editingFolder.id}`, folderForm);
+            } else {
+                await api.post('/media/folders', folderForm);
+            }
+            setFolderModalOpen(false);
+            fetchFolders();
+        } catch (err) {
+            alert('Failed to save folder: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setSavingFolder(false);
+        }
+    };
+
+    const handleDeleteFolder = async (folder, e) => {
+        if (e) e.stopPropagation();
+        if (!window.confirm(`Delete folder "${folder.name}"? Media files inside will NOT be deleted, but will become Uncategorized.`)) {
+            return;
+        }
+
+        try {
+            await api.delete(`/media/folders/${folder.id}`);
+            if (selectedFolderId === folder.id) {
+                setSelectedFolderId('all');
+            }
+            fetchFolders();
+            fetchMedia(1, filterType, 'all', searchQuery);
+        } catch (err) {
+            alert('Failed to delete folder: ' + (err.response?.data?.message || err.message));
+        }
+    };
+
+    // Move single file to folder
+    const handleMoveFileToFolder = async (mediaId, folderId) => {
+        setMovingFile(true);
+        try {
+            await api.post('/media/move-folder', {
+                media_ids: [mediaId],
+                folder_id: folderId === 'uncategorized' ? null : folderId,
+            });
+
+            // Update item locally
+            const targetFolder = folders.find((f) => f.id === parseInt(folderId, 10));
+            setMediaItems((prev) =>
+                prev.map((m) =>
+                    m.id === mediaId
+                        ? { ...m, folder_id: folderId === 'uncategorized' ? null : folderId, folder: targetFolder || null }
+                        : m
+                )
+            );
+
+            if (selectedMedia && selectedMedia.id === mediaId) {
+                setSelectedMedia((prev) => ({
+                    ...prev,
+                    folder_id: folderId === 'uncategorized' ? null : folderId,
+                    folder: targetFolder || null,
+                }));
+            }
+
+            setMovingMedia(null);
+            fetchFolders();
+        } catch (err) {
+            alert('Failed to move media: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setMovingFile(false);
         }
     };
 
@@ -119,6 +270,13 @@ export const MediaLibraryPage = () => {
         { key: 'document', label: 'Documents', icon: FileText },
     ];
 
+    const currentFolderName =
+        selectedFolderId === 'all'
+            ? 'All Media'
+            : selectedFolderId === 'uncategorized'
+            ? 'Uncategorized Media'
+            : folders.find((f) => f.id === parseInt(selectedFolderId, 10))?.name || 'Selected Folder';
+
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
             {/* Page Header */}
@@ -126,13 +284,23 @@ export const MediaLibraryPage = () => {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
                         <FolderOpen className="w-6 h-6 text-indigo-400" />
-                        Media Library
+                        Media Library & Product Folders
                     </h1>
                     <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                        Manage all website photos, videos, voice recordings, and files. Easily attach to customer chats.
+                        Organize photos, videos, and documents by Product Folders to send quickly to customers in chat.
                     </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={openCreateFolder}
+                        icon={FolderPlus}
+                        className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
+                    >
+                        New Product Folder
+                    </Button>
                     <Link to="/media/upload">
                         <Button variant="primary" size="sm" icon={UploadCloud}>
                             Upload New Media
@@ -140,6 +308,147 @@ export const MediaLibraryPage = () => {
                     </Link>
                 </div>
             </div>
+
+            {/* Product Folders Carousel / Grid */}
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Product Folders ({folders.length})</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={openCreateFolder}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 font-medium inline-flex items-center gap-1 cursor-pointer"
+                    >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        <span>Create Folder</span>
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {/* All Files Tab Card */}
+                    <div
+                        onClick={() => setSelectedFolderId('all')}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                            selectedFolderId === 'all'
+                                ? 'bg-indigo-600/15 border-indigo-500 ring-2 ring-indigo-500/30'
+                                : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                                <FolderOpen className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-800 text-slate-300">
+                                {folderStats.total_files}
+                            </span>
+                        </div>
+                        <div className="mt-3">
+                            <h4 className="text-xs font-bold text-white truncate">All Media</h4>
+                            <p className="text-[10px] text-slate-400">All uploaded files</p>
+                        </div>
+                    </div>
+
+                    {/* Uncategorized Folder */}
+                    <div
+                        onClick={() => setSelectedFolderId('uncategorized')}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                            selectedFolderId === 'uncategorized'
+                                ? 'bg-amber-600/15 border-amber-500 ring-2 ring-amber-500/30'
+                                : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                                <Folder className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-800 text-slate-300">
+                                {folderStats.uncategorized_files}
+                            </span>
+                        </div>
+                        <div className="mt-3">
+                            <h4 className="text-xs font-bold text-white truncate">Uncategorized</h4>
+                            <p className="text-[10px] text-slate-400">Not in a folder</p>
+                        </div>
+                    </div>
+
+                    {/* Custom Product Folders */}
+                    {folders.map((folder) => {
+                        const isSelected = selectedFolderId === folder.id;
+                        return (
+                            <div
+                                key={folder.id}
+                                onClick={() => setSelectedFolderId(folder.id)}
+                                className={`group p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between relative ${
+                                    isSelected
+                                        ? 'bg-indigo-600/15 border-indigo-500 ring-2 ring-indigo-500/30'
+                                        : 'bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div
+                                        className="w-8 h-8 rounded-xl flex items-center justify-center text-white shadow-sm"
+                                        style={{ backgroundColor: folder.color || '#6366f1' }}
+                                    >
+                                        <Folder className="w-4 h-4" />
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-800 text-slate-300">
+                                            {folder.media_files_count || 0}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => openEditFolder(folder, e)}
+                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-opacity"
+                                            title="Edit Folder"
+                                        >
+                                            <Edit3 className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDeleteFolder(folder, e)}
+                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition-opacity"
+                                            title="Delete Folder"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="mt-3 min-w-0">
+                                    <h4 className="text-xs font-bold text-white truncate" title={folder.name}>
+                                        {folder.name}
+                                    </h4>
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                        {folder.description || 'Product media folder'}
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Active Folder Breadcrumb & Filter Status */}
+            {selectedFolderId !== 'all' && (
+                <div className="flex items-center justify-between p-3 px-4 rounded-xl bg-slate-900/90 border border-indigo-500/30 text-xs">
+                    <div className="flex items-center gap-2 text-slate-300">
+                        <Folder className="w-4 h-4 text-indigo-400" />
+                        <span>Filtering by Folder:</span>
+                        <strong className="text-white bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30 font-semibold">
+                            {currentFolderName}
+                        </strong>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setSelectedFolderId('all')}
+                        className="text-xs text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Clear folder filter (Show all)</span>
+                    </button>
+                </div>
+            )}
 
             {/* Filter Tabs & Search Bar */}
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
@@ -167,13 +476,13 @@ export const MediaLibraryPage = () => {
                 </div>
 
                 {/* Search Box */}
-                <form onSubmit={handleSearchSubmit} className="relative min-w-[240px] md:w-72">
+                <form onSubmit={handleSearchSubmit} className="relative min-w-[240px] md:w-80">
                     <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search media files..."
+                        placeholder="Search product folders or file title..."
                         className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
                     />
                 </form>
@@ -198,14 +507,19 @@ export const MediaLibraryPage = () => {
                     <FolderOpen className="w-12 h-12 text-slate-600 mx-auto mb-3 opacity-60" />
                     <h3 className="text-base font-bold text-white">No media files found</h3>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                        {searchQuery || filterType !== 'all'
-                            ? 'No items matched your current filter or search criteria.'
-                            : 'You have not uploaded any media files yet. Upload images, videos, audio, or documents to use across your CRM.'}
+                        {searchQuery || filterType !== 'all' || selectedFolderId !== 'all'
+                            ? 'No items matched your current folder or search filter.'
+                            : 'You have not uploaded any media files yet. Upload images, videos, audio, or documents to organize by product.'}
                     </p>
-                    <div className="mt-4">
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                        {selectedFolderId !== 'all' && (
+                            <Button variant="secondary" size="sm" onClick={() => setSelectedFolderId('all')}>
+                                View All Media
+                            </Button>
+                        )}
                         <Link to="/media/upload">
                             <Button variant="primary" size="sm" icon={UploadCloud}>
-                                Upload Your First File
+                                Upload Files
                             </Button>
                         </Link>
                     </div>
@@ -256,6 +570,18 @@ export const MediaLibraryPage = () => {
                                 <div className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[9px] font-bold text-white uppercase tracking-wider">
                                     {item.file_type}
                                 </div>
+
+                                {/* Folder Badge if assigned */}
+                                {item.folder && (
+                                    <div
+                                        className="absolute bottom-2 left-2 right-2 px-1.5 py-0.5 rounded-md text-[9px] font-semibold text-white truncate shadow-sm flex items-center gap-1"
+                                        style={{ backgroundColor: `${item.folder.color || '#6366f1'}cc` }}
+                                        title={`Product: ${item.folder.name}`}
+                                    >
+                                        <Folder className="w-2.5 h-2.5 shrink-0" />
+                                        <span className="truncate">{item.folder.name}</span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Info */}
@@ -363,6 +689,35 @@ export const MediaLibraryPage = () => {
                                 )}
                             </div>
 
+                            {/* Folder Assignment Box */}
+                            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <span className="text-[10px] text-slate-400 uppercase font-semibold block mb-0.5">
+                                        Product Folder
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <Folder className="w-4 h-4 text-indigo-400" />
+                                        <span className="text-xs font-semibold text-white">
+                                            {selectedMedia.folder?.name || 'Uncategorized (No Folder)'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={selectedMedia.folder_id || ''}
+                                        onChange={(e) => handleMoveFileToFolder(selectedMedia.id, e.target.value)}
+                                        className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                                    >
+                                        <option value="uncategorized">No Folder (Uncategorized)</option>
+                                        {folders.map((f) => (
+                                            <option key={f.id} value={f.id}>
+                                                📁 {f.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
                             {/* Metadata Details */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 text-xs">
                                 <div>
@@ -448,8 +803,84 @@ export const MediaLibraryPage = () => {
                     </div>
                 </div>
             )}
+
+            {/* Create / Edit Folder Modal */}
+            {folderModalOpen && (
+                <Modal
+                    isOpen={folderModalOpen}
+                    onClose={() => setFolderModalOpen(false)}
+                    title={editingFolder ? `Edit Folder: ${editingFolder.name}` : 'Create Product Folder'}
+                >
+                    <form onSubmit={handleSaveFolder} className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                                Folder Name (e.g. Product Name) *
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={folderForm.name}
+                                onChange={(e) => setFolderForm({ ...folderForm, name: e.target.value })}
+                                placeholder="e.g. Smart Watch Series 8, Men's Panjabi"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                                Folder Color Badge
+                            </label>
+                            <div className="flex items-center gap-2">
+                                {FOLDER_COLORS.map((c) => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => setFolderForm({ ...folderForm, color: c })}
+                                        className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                                            folderForm.color === c ? 'scale-110 border-white' : 'border-transparent hover:scale-105'
+                                        }`}
+                                        style={{ backgroundColor: c }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                                Description / Notes (Optional)
+                            </label>
+                            <textarea
+                                rows={2}
+                                value={folderForm.description}
+                                onChange={(e) => setFolderForm({ ...folderForm, description: e.target.value })}
+                                placeholder="e.g. Product promo photos, demonstration videos, unboxing clips"
+                                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none"
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setFolderModalOpen(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={savingFolder}
+                                icon={Check}
+                            >
+                                {editingFolder ? 'Save Changes' : 'Create Folder'}
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
         </div>
     );
 };
 export default MediaLibraryPage;
-

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\MediaController;
+use App\Http\Controllers\Api\MediaFolderController;
 use App\Http\Controllers\Api\MetaWebhookController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
@@ -140,8 +141,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Branding & Appearance Customization
     Route::post('/appearance', [AppearanceController::class, 'update']);
 
-    // WordPress-style Media Library
+    // WordPress-style Media Library & Product Folders
     Route::get('/media', [MediaController::class, 'index']);
     Route::post('/media/upload', [MediaController::class, 'upload']);
+    Route::post('/media/move-folder', [MediaController::class, 'moveToFolder']);
     Route::delete('/media/{media}', [MediaController::class, 'destroy']);
+    Route::get('/media/folders', [MediaFolderController::class, 'index']);
+    Route::post('/media/folders', [MediaFolderController::class, 'store']);
+    Route::put('/media/folders/{folder}', [MediaFolderController::class, 'update']);
+    Route::delete('/media/folders/{folder}', [MediaFolderController::class, 'destroy']);
 });

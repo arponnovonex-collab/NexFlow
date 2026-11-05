@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../../api/client';
-import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Modal } from '../../components/common/Modal';
 import {
     UploadCloud,
     Image as ImageIcon,
@@ -13,9 +13,13 @@ import {
     AlertCircle,
     X,
     FolderOpen,
+    Folder,
+    FolderPlus,
     ArrowLeft,
     Check,
 } from 'lucide-react';
+
+const FOLDER_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#8b5cf6', '#f43f5e', '#f59e0b'];
 
 export const MediaUploadPage = () => {
     const navigate = useNavigate();
@@ -25,6 +29,29 @@ export const MediaUploadPage = () => {
     const [uploadResults, setUploadResults] = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
     const inputRef = useRef(null);
+
+    // Folders
+    const [folders, setFolders] = useState([]);
+    const [selectedFolderId, setSelectedFolderId] = useState('');
+    const [quickFolderModal, setQuickFolderModal] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [newFolderColor, setNewFolderColor] = useState('#6366f1');
+    const [creatingFolder, setCreatingFolder] = useState(false);
+
+    const fetchFolders = async () => {
+        try {
+            const res = await api.get('/media/folders');
+            if (res.data?.status === 'success') {
+                setFolders(res.data.data.folders || []);
+            }
+        } catch (e) {
+            console.error('Failed to load folders on upload page', e);
+        }
+    };
+
+    useEffect(() => {
+        fetchFolders();
+    }, []);
 
     const getFileCategory = (file) => {
         const mime = file.type || '';
@@ -58,7 +85,7 @@ export const MediaUploadPage = () => {
             category: getFileCategory(file),
             sizeFormatted: formatBytes(file.size),
             preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-            status: 'pending', // pending, uploading, success, error
+            status: 'pending',
         }));
 
         setFilesToUpload((prev) => [...prev, ...newItems]);
@@ -107,6 +134,10 @@ export const MediaUploadPage = () => {
             formData.append('titles[]', item.title);
         });
 
+        if (selectedFolderId) {
+            formData.append('folder_id', selectedFolderId);
+        }
+
         try {
             const res = await api.post('/media/upload', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
@@ -120,6 +151,30 @@ export const MediaUploadPage = () => {
             setErrorMsg(err.response?.data?.message || 'Failed to upload files.');
         } finally {
             setUploading(false);
+        }
+    };
+
+    const handleCreateQuickFolder = async (e) => {
+        e.preventDefault();
+        if (!newFolderName.trim()) return;
+
+        setCreatingFolder(true);
+        try {
+            const res = await api.post('/media/folders', {
+                name: newFolderName.trim(),
+                color: newFolderColor,
+            });
+            if (res.data?.status === 'success') {
+                const created = res.data.data;
+                setFolders((prev) => [...prev, created]);
+                setSelectedFolderId(created.id);
+                setQuickFolderModal(false);
+                setNewFolderName('');
+            }
+        } catch (err) {
+            alert('Failed to create folder: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setCreatingFolder(false);
         }
     };
 
@@ -154,7 +209,7 @@ export const MediaUploadPage = () => {
                             Upload New Media
                         </h1>
                         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                            Upload photos, videos, audio/voice notes, or documents from your computer to NexFlow.
+                            Upload photos, videos, audio/voice notes, or documents and assign to Product Folders.
                         </p>
                     </div>
                 </div>
@@ -167,6 +222,49 @@ export const MediaUploadPage = () => {
                 </div>
             </div>
 
+            {/* Folder Selection Bar */}
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                        <Folder className="w-4 h-4" />
+                    </div>
+                    <div>
+                        <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                            Assign to Product Folder
+                        </h3>
+                        <p className="text-[11px] text-slate-400">
+                            Files will be neatly grouped under this product for instant chat sending
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <select
+                        value={selectedFolderId}
+                        onChange={(e) => setSelectedFolderId(e.target.value)}
+                        className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500 min-w-[200px]"
+                    >
+                        <option value="">No Folder (Uncategorized)</option>
+                        {folders.map((f) => (
+                            <option key={f.id} value={f.id}>
+                                📁 {f.name}
+                            </option>
+                        ))}
+                    </select>
+
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setQuickFolderModal(true)}
+                        icon={FolderPlus}
+                        className="text-indigo-400 border-indigo-500/30 shrink-0"
+                    >
+                        New Folder
+                    </Button>
+                </div>
+            </div>
+
             {/* Success message */}
             {uploadResults && (
                 <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
@@ -174,10 +272,10 @@ export const MediaUploadPage = () => {
                         <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400" />
                         <div>
                             <p className="text-sm font-semibold">
-                                {uploadResults.uploaded_count || 'Media'} files uploaded successfully!
+                                {uploadResults.uploaded_count || 'Media'} file(s) uploaded successfully!
                             </p>
                             <p className="text-xs text-emerald-400/80">
-                                Your media files are now available in the Library and can be sent to customers in Chat.
+                                Your media files are ready in the Media Library and available in customer chats.
                             </p>
                         </div>
                     </div>
@@ -285,6 +383,11 @@ export const MediaUploadPage = () => {
                             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                                 {filesToUpload.length}
                             </span>
+                            {selectedFolderId && (
+                                <span className="text-xs text-indigo-400 font-medium">
+                                    → Folder: {folders.find((f) => f.id === parseInt(selectedFolderId, 10))?.name}
+                                </span>
+                            )}
                         </h2>
                         <Button
                             type="button"
@@ -356,8 +459,71 @@ export const MediaUploadPage = () => {
                     </div>
                 </div>
             )}
+
+            {/* Quick Folder Creation Modal */}
+            {quickFolderModal && (
+                <Modal
+                    isOpen={quickFolderModal}
+                    onClose={() => setQuickFolderModal(false)}
+                    title="Create New Product Folder"
+                >
+                    <form onSubmit={handleCreateQuickFolder} className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                                Product / Folder Name *
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={newFolderName}
+                                onChange={(e) => setNewFolderName(e.target.value)}
+                                placeholder="e.g. Smart Watch Series 8"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                                Color Badge
+                            </label>
+                            <div className="flex items-center gap-2">
+                                {FOLDER_COLORS.map((c) => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => setNewFolderColor(c)}
+                                        className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                                            newFolderColor === c ? 'scale-110 border-white' : 'border-transparent'
+                                        }`}
+                                        style={{ backgroundColor: c }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => setQuickFolderModal(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={creatingFolder}
+                                icon={Check}
+                            >
+                                Create & Select Folder
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
         </div>
     );
 };
 export default MediaUploadPage;
-

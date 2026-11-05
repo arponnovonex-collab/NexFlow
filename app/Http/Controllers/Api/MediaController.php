@@ -16,17 +16,29 @@ class MediaController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = MediaFile::with('user:id,name')->orderByDesc('created_at');
+        $query = MediaFile::with(['user:id,name', 'folder:id,name,color'])->orderByDesc('created_at');
 
         if ($request->filled('type') && $request->type !== 'all') {
             $query->where('file_type', $request->type);
+        }
+
+        // Folder filtering
+        if ($request->filled('folder_id') && $request->folder_id !== 'all') {
+            if ($request->folder_id === 'uncategorized' || $request->folder_id === 'null' || $request->folder_id === '0') {
+                $query->whereNull('folder_id');
+            } else {
+                $query->where('folder_id', (int) $request->folder_id);
+            }
         }
 
         if ($request->filled('search')) {
             $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->where('file_name', 'like', "%{$search}%")
-                  ->orWhere('title', 'like', "%{$search}%");
+                  ->orWhere('title', 'like', "%{$search}%")
+                  ->orWhereHas('folder', function ($fq) use ($search) {
+                      $fq->where('name', 'like', "%{$search}%");
+                  });
             });
         }
 
@@ -78,6 +90,7 @@ class MediaController extends Controller
         }
 
         $userId = $request->user()?->id;
+        $folderId = $request->filled('folder_id') && is_numeric($request->folder_id) ? (int) $request->folder_id : null;
         $createdRecords = [];
 
         foreach ($uploadedFiles as $file) {
@@ -122,6 +135,7 @@ class MediaController extends Controller
 
             $media = MediaFile::create([
                 'user_id' => $userId,
+                'folder_id' => $folderId,
                 'title' => $baseName,
                 'file_name' => $originalName,
                 'file_path' => $storedRelativePath,
@@ -133,6 +147,7 @@ class MediaController extends Controller
                 'height' => $height,
             ]);
 
+            $media->load('folder:id,name,color');
             $createdRecords[] = $media;
         }
 
@@ -143,6 +158,33 @@ class MediaController extends Controller
             'files' => $createdRecords,
             'data' => count($createdRecords) === 1 ? $createdRecords[0] : $createdRecords,
         ]);
+    }
+
+    /**
+     * Move one or multiple media files into a folder (or remove from folder).
+     */
+    public function moveToFolder(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'media_ids' => 'required|array',
+            'media_ids.*' => 'integer|exists:media_files,id',
+            'folder_id' => 'nullable', // null or integer
+        ]);
+
+        $targetFolderId = null;
+        if (! empty($validated['folder_id']) && is_numeric($validated['folder_id'])) {
+            $targetFolderId = (int) $validated['folder_id'];
+        }
+
+        $updatedCount = MediaFile::whereIn('id', $validated['media_ids'])
+            ->update(['folder_id' => $targetFolderId]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "{$updatedCount} item(s) moved successfully.",
+            'updated_count' => $updatedCount,
+        ]);
+    }
     }
 
     /**
