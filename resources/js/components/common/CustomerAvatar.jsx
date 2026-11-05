@@ -57,7 +57,10 @@ export const CustomerAvatar = ({
             <img
                 src={avatarUrl}
                 alt={name || 'Customer'}
-                onError={() => setImgFailed(true)}
+                referrerPolicy="no-referrer"
+                onError={() => {
+                    setImgFailed(true);
+                }}
                 className={`${sizeClasses} rounded-full object-cover shrink-0 ring-1 ring-slate-800 ${className}`}
             />
         );
@@ -75,3 +78,4 @@ export const CustomerAvatar = ({
         </div>
     );
 };
+

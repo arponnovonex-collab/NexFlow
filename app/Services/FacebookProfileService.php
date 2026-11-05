@@ -201,7 +201,8 @@ class FacebookProfileService
                 $updates['name'] = $name;
             }
             if ($avatar && ! str_contains($avatar, 'unsplash.com')) {
-                $updates['avatar_url'] = $avatar;
+                $localAvatar = self::downloadAndSaveAvatar($customer->id, $avatar);
+                $updates['avatar_url'] = $localAvatar ?: $avatar;
             }
             if (! empty($updates)) {
                 $customer->update($updates);
@@ -211,6 +212,30 @@ class FacebookProfileService
         CustomerChannelIdentity::where('platform_customer_id', $senderPsid)
             ->update(['profile_name' => $name]);
     }
+
+    public static function downloadAndSaveAvatar(int $customerId, string $url): ?string
+    {
+        if (str_starts_with($url, '/uploads/avatars/')) {
+            return $url;
+        }
+
+        try {
+            $destDir = public_path('uploads/avatars');
+            if (! file_exists($destDir)) {
+                @mkdir($destDir, 0755, true);
+            }
+
+            $res = Http::timeout(8)->get($url);
+            if ($res->successful() && strlen($res->body()) > 500) {
+                $filename = "cust_{$customerId}_" . time() . ".jpg";
+                file_put_contents($destDir . DIRECTORY_SEPARATOR . $filename, $res->body());
+                return "/uploads/avatars/{$filename}";
+            }
+        } catch (\Throwable $e) {
+            Log::warning("downloadAndSaveAvatar failed for customer {$customerId}: " . $e->getMessage());
+        }
+
+        return null;
     }
 }
 
