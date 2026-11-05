@@ -1811,9 +1811,6 @@ export const UnifiedInboxPage = () => {
                                             <span>Note</span>
                                         </label>
                                     </div>
-                                    <span className="text-[10px] text-slate-400 hidden sm:inline">
-                                        Press Enter to send
-                                    </span>
                                 </div>
 
                                 {/* Active Voice Recording Status Bar */}
