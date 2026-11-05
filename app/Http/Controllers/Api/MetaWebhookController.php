@@ -75,7 +75,7 @@ class MetaWebhookController extends Controller
             $entries = $payload['entry'] ?? [];
             foreach ($entries as $entry) {
                 $pageId = $entry['id'] ?? null;
-                $account = SocialAccount::where('platform', 'facebook_page')
+                $account = SocialAccount::whereIn('platform', ['facebook_page', 'instagram_business'])
                     ->where('account_id', (string) $pageId)
                     ->first();
 
@@ -318,7 +318,8 @@ class MetaWebhookController extends Controller
 
         // 6. Resilient Customer & Channel Identity creation (concurrent-safe)
         $accountId = $account?->id ?? 12;
-        $identity = CustomerChannelIdentity::where('platform', 'facebook_page')
+        $platform = $account?->platform ?? 'facebook_page';
+        $identity = CustomerChannelIdentity::where('platform', $platform)
             ->where('platform_customer_id', (string) $senderPsid)
             ->first();
 
@@ -333,7 +334,11 @@ class MetaWebhookController extends Controller
                 ->latest()
                 ->value('customer_name');
 
-            $initialName = $commentAuthor ?: ('Facebook Customer (' . substr($senderPsid, -4) . ')');
+            $initialName = $commentAuthor ?: (
+                $platform === 'instagram_business'
+                    ? ('Instagram User (' . substr($senderPsid, -4) . ')')
+                    : ('Facebook Customer (' . substr($senderPsid, -4) . ')')
+            );
 
             $customer = Customer::create([
                 'name' => $initialName,
@@ -343,14 +348,14 @@ class MetaWebhookController extends Controller
             try {
                 $identity = CustomerChannelIdentity::create([
                     'social_account_id' => $accountId,
-                    'platform' => 'facebook_page',
+                    'platform' => $platform,
                     'platform_customer_id' => (string) $senderPsid,
                     'customer_id' => $customer->id,
                     'profile_name' => $customer->name,
                 ]);
             } catch (\Throwable $e) {
                 // If created concurrently by duplicate webhook delivery, retrieve it
-                $identity = CustomerChannelIdentity::where('platform', 'facebook_page')
+                $identity = CustomerChannelIdentity::where('platform', $platform)
                     ->where('platform_customer_id', (string) $senderPsid)
                     ->first();
                 if ($identity && $identity->customer) {
@@ -368,7 +373,7 @@ class MetaWebhookController extends Controller
             [
                 'social_account_id' => $accountId,
                 'customer_id' => $customer->id,
-                'platform' => 'facebook_page',
+                'platform' => $platform,
             ],
             [
                 'channel_conversation_id' => 't_' . $senderPsid,

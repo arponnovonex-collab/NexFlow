@@ -163,7 +163,7 @@ class SocialAccountController extends Controller
         try {
             $probeTarget = $accountId ?: 'me';
             $probeRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$probeTarget}", [
-                'fields' => 'id,name',
+                'fields' => 'id,name,username',
                 'access_token' => $resolvedToken,
             ]);
 
@@ -175,7 +175,7 @@ class SocialAccountController extends Controller
                     'type' => 'PAGE',
                     'error' => null,
                     'resolved_token' => $resolvedToken,
-                    'resolved_name' => $probeRes->json('name') ?: $resolvedName,
+                    'resolved_name' => $probeRes->json('name') ?: $probeRes->json('username') ?: $resolvedName,
                 ];
             }
 

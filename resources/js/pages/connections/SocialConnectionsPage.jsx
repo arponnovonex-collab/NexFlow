@@ -451,12 +451,38 @@ export const SocialConnectionsPage = () => {
                         </select>
                     </div>
 
+                    {connectForm.platform === 'instagram_business' && (
+                        <div className="p-3 rounded-xl bg-pink-950/30 border border-pink-500/30 text-xs text-pink-200/90 space-y-1.5">
+                            <div className="font-semibold text-pink-300 flex items-center gap-1.5">
+                                <Instagram className="w-3.5 h-3.5" /> ইনস্টাগ্রাম কানেক্ট করার প্রয়োজনীয় শর্ত:
+                            </div>
+                            <ul className="list-disc list-inside space-y-1 text-[11px] text-pink-100/80">
+                                <li>অ্যাকাউন্টটি <strong>Professional (Business বা Creator)</strong> হতে হবে।</li>
+                                <li>ইনস্টাগ্রামটি আপনার ফেসবুক পেইজের সাথে লিঙ্কড থাকতে হবে (Page Settings &rarr; Linked Accounts)।</li>
+                                <li>Instagram অ্যাপে: <strong>Settings &rarr; Messages &rarr; Message controls &rarr; "Allow access to messages"</strong> অন রাখুন।</li>
+                                <li>নিচে আপনার <strong>Instagram Business Account ID</strong> এবং পেইজের <strong>Access Token</strong> দিন।</li>
+                            </ul>
+                        </div>
+                    )}
+
                     <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Account / Page Name</label>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                            {connectForm.platform === 'instagram_business'
+                                ? 'Instagram Brand / Account Name'
+                                : connectForm.platform === 'whatsapp_cloud'
+                                ? 'WhatsApp Business Name'
+                                : 'Account / Page Name'}
+                        </label>
                         <input
                             type="text"
                             required
-                            placeholder="e.g. NexFlow Fashion Official"
+                            placeholder={
+                                connectForm.platform === 'instagram_business'
+                                    ? 'e.g. NexFlow Fashion Official'
+                                    : connectForm.platform === 'whatsapp_cloud'
+                                    ? 'e.g. NexFlow Support BD'
+                                    : 'e.g. NexFlow Fashion Official'
+                            }
                             value={connectForm.name}
                             onChange={(e) => setConnectForm({ ...connectForm, name: e.target.value })}
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
@@ -464,22 +490,46 @@ export const SocialConnectionsPage = () => {
                     </div>
 
                     <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">External ID (Page ID / Phone Number ID)</label>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                            {connectForm.platform === 'instagram_business'
+                                ? 'Instagram Business Account ID (IG ID)'
+                                : connectForm.platform === 'whatsapp_cloud'
+                                ? 'Phone Number ID'
+                                : 'Facebook Page ID'}
+                        </label>
                         <input
                             type="text"
                             required
-                            placeholder="e.g. 1092837482910"
+                            placeholder={
+                                connectForm.platform === 'instagram_business'
+                                    ? 'e.g. 178414002938192'
+                                    : connectForm.platform === 'whatsapp_cloud'
+                                    ? 'e.g. 1092837482910'
+                                    : 'e.g. 1092837482910'
+                            }
                             value={connectForm.account_id}
                             onChange={(e) => setConnectForm({ ...connectForm, account_id: e.target.value })}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono"
                         />
                     </div>
 
                     <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Username / Phone Handle</label>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                            {connectForm.platform === 'instagram_business'
+                                ? 'Instagram Handle (@username)'
+                                : connectForm.platform === 'whatsapp_cloud'
+                                ? 'WhatsApp Phone Number'
+                                : 'Page Username / Slug'}
+                        </label>
                         <input
                             type="text"
-                            placeholder="e.g. nexflow.fashion.bd or +88018..."
+                            placeholder={
+                                connectForm.platform === 'instagram_business'
+                                    ? 'e.g. @nexflow.official'
+                                    : connectForm.platform === 'whatsapp_cloud'
+                                    ? 'e.g. +8801812345678'
+                                    : 'e.g. nexflow.fashion.bd'
+                            }
                             value={connectForm.username}
                             onChange={(e) => setConnectForm({ ...connectForm, username: e.target.value })}
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200"
@@ -487,7 +537,11 @@ export const SocialConnectionsPage = () => {
                     </div>
 
                     <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Access Token (Stored Encrypted)</label>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                            {connectForm.platform === 'instagram_business'
+                                ? 'Page Access Token (with instagram_manage_messages)'
+                                : 'Access Token (Stored Encrypted)'}
+                        </label>
                         <textarea
                             rows={3}
                             required
