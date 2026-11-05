@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -14,6 +14,7 @@ import {
     Plus,
     RefreshCw,
     ExternalLink,
+    Loader2,
 } from 'lucide-react';
 
 export const PostProductMappingPage = () => {
@@ -24,31 +25,105 @@ export const PostProductMappingPage = () => {
     const [mappingModal, setMappingModal] = useState(null);
     const [selectedProductIds, setSelectedProductIds] = useState([]);
 
-    const fetchData = async () => {
+    // Infinite scroll pagination state & refs
+    const [postsPage, setPostsPage] = useState(1);
+    const [hasMorePosts, setHasMorePosts] = useState(true);
+    const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+    const [totalPostsCount, setTotalPostsCount] = useState(0);
+
+    const postsPageRef = useRef(1);
+    const hasMorePostsRef = useRef(true);
+    const loadingMorePostsRef = useRef(false);
+
+    const fetchData = async (reset = true) => {
         try {
-            setLoading(true);
+            if (reset) {
+                setLoading(true);
+                postsPageRef.current = 1;
+                setPostsPage(1);
+                hasMorePostsRef.current = true;
+                setHasMorePosts(true);
+            }
             const [postsRes, prodsRes] = await Promise.all([
-                api.get('/posts?per_page=50'),
+                api.get('/posts?page=1&per_page=20'),
                 api.get('/products'),
             ]);
-            setPosts(postsRes.data.data.data || []);
-            setProducts(prodsRes.data.data.data || []);
+            const paginated = postsRes.data?.data;
+            const items = paginated?.data || [];
+            setPosts(items);
+            setProducts(prodsRes.data?.data?.data || []);
+            setTotalPostsCount(paginated?.total || items.length);
+
+            const curPage = paginated?.current_page || 1;
+            const lastPage = paginated?.last_page || 1;
+            const more = curPage < lastPage;
+            hasMorePostsRef.current = more;
+            setHasMorePosts(more);
         } catch (err) {
             console.error(err);
         } finally {
-            setLoading(false);
+            if (reset) setLoading(false);
         }
     };
 
+    const loadMorePosts = async () => {
+        if (loadingMorePostsRef.current || !hasMorePostsRef.current) return;
+        loadingMorePostsRef.current = true;
+        setLoadingMorePosts(true);
+
+        try {
+            const nextPage = postsPageRef.current + 1;
+            const res = await api.get(`/posts?page=${nextPage}&per_page=20`);
+            const paginated = res.data?.data;
+            const newItems = paginated?.data || [];
+
+            if (newItems.length > 0) {
+                setPosts((prev) => {
+                    const existingIds = new Set(prev.map((p) => p.id));
+                    const unique = newItems.filter((p) => !existingIds.has(p.id));
+                    return [...prev, ...unique];
+                });
+                postsPageRef.current = nextPage;
+                setPostsPage(nextPage);
+            }
+
+            const curPage = paginated?.current_page || nextPage;
+            const lastPage = paginated?.last_page || 1;
+            const more = curPage < lastPage && newItems.length > 0;
+            hasMorePostsRef.current = more;
+            setHasMorePosts(more);
+            if (paginated?.total) setTotalPostsCount(paginated.total);
+        } catch (err) {
+            console.error('Failed to load more posts', err);
+        } finally {
+            loadingMorePostsRef.current = false;
+            setLoadingMorePosts(false);
+        }
+    };
+
+    // Auto-load more posts on scroll
     useEffect(() => {
-        fetchData();
+        const handleScroll = () => {
+            const scrollBottom = window.innerHeight + window.scrollY;
+            const docHeight = document.documentElement.scrollHeight;
+            if (docHeight - scrollBottom < 350 && hasMorePostsRef.current && !loadingMorePostsRef.current) {
+                loadMorePosts();
+            }
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    useEffect(() => {
+        fetchData(true);
     }, []);
 
     const handleSyncPosts = async () => {
         setSyncing(true);
         try {
             const res = await api.post('/posts/sync');
-            await fetchData();
+            await fetchData(true);
             alert(res.data?.message || 'Posts synchronized successfully from Facebook!');
         } catch (err) {
             alert(err.response?.data?.message || 'Failed to sync posts from Facebook');
@@ -68,8 +143,11 @@ export const PostProductMappingPage = () => {
             await api.put(`/posts/${mappingModal.id}`, {
                 product_ids: selectedProductIds,
             });
+            const mappedProducts = products.filter((p) => selectedProductIds.includes(p.id));
+            setPosts((prev) =>
+                prev.map((p) => (p.id === mappingModal.id ? { ...p, products: mappedProducts } : p))
+            );
             setMappingModal(null);
-            fetchData();
         } catch (err) {
             alert('Failed to update mapping');
         }
@@ -88,7 +166,7 @@ export const PostProductMappingPage = () => {
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
                         Post-to-Product Mapping Engine
                         <Badge variant="primary" size="xs">
-                            {posts.length} Posts
+                            {totalPostsCount > 0 ? `${posts.length} of ${totalPostsCount} Posts` : `${posts.length} Posts`}
                         </Badge>
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
@@ -128,7 +206,8 @@ export const PostProductMappingPage = () => {
                     </Button>
                 </Card>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {posts.map((post) => (
                         <Card key={post.id} className="relative flex flex-col justify-between">
                             <div>
@@ -206,6 +285,35 @@ export const PostProductMappingPage = () => {
                         </Card>
                     ))}
                 </div>
+
+                {/* Infinite scroll loading & status */}
+                {loadingMorePosts && (
+                    <div className="py-6 flex items-center justify-center gap-2 text-xs text-indigo-400 font-medium">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                        <span>Loading more posts...</span>
+                    </div>
+                )}
+
+                {hasMorePosts && !loadingMorePosts && posts.length > 0 && (
+                    <div className="py-4 text-center">
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={loadMorePosts}
+                            icon={Loader2}
+                        >
+                            Load More Posts ({posts.length} of {totalPostsCount || 'more'})
+                        </Button>
+                    </div>
+                )}
+
+                {!hasMorePosts && posts.length > 0 && (
+                    <div className="py-6 text-center text-xs text-slate-500 flex items-center justify-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <span>All {posts.length} posts loaded</span>
+                    </div>
+                )}
+            </>
             )}
 
             {/* Edit Mapping Modal */}

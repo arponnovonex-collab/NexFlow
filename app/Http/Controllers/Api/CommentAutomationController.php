@@ -65,11 +65,14 @@ class CommentAutomationController extends Controller
 
             try {
                 $token = $account->access_token;
-                $res = Http::timeout(10)->get("https://graph.facebook.com/{$version}/{$account->account_id}/published_posts", [
+                $endpointUrl = "https://graph.facebook.com/{$version}/{$account->account_id}/published_posts";
+                $queryParams = [
                     'fields' => 'id,message,created_time,full_picture,permalink_url',
                     'limit' => 50,
                     'access_token' => $token,
-                ]);
+                ];
+
+                $res = Http::timeout(12)->get($endpointUrl, $queryParams);
 
                 // Fallback if token was User token
                 if (! $res->successful() && ($res->status() === 400 || $res->status() === 403)) {
@@ -80,16 +83,26 @@ class CommentAutomationController extends Controller
                     if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
                         $token = $pageRes->json('access_token');
                         $account->update(['access_token' => $token]);
-                        $res = Http::timeout(10)->get("https://graph.facebook.com/{$version}/{$account->account_id}/published_posts", [
-                            'fields' => 'id,message,created_time,full_picture,permalink_url',
-                            'limit' => 50,
-                            'access_token' => $token,
-                        ]);
+                        $queryParams['access_token'] = $token;
+                        $res = Http::timeout(12)->get($endpointUrl, $queryParams);
                     }
                 }
 
-                if ($res->successful()) {
+                $pagesFetched = 0;
+                while ($endpointUrl && $pagesFetched < 10) {
+                    if ($pagesFetched > 0) {
+                        $res = Http::timeout(15)->get($endpointUrl, $queryParams);
+                    }
+
+                    if (! $res->successful()) {
+                        break;
+                    }
+
                     $items = $res->json('data') ?? [];
+                    if (empty($items)) {
+                        break;
+                    }
+
                     foreach ($items as $item) {
                         SocialPost::updateOrCreate(
                             ['platform_post_id' => (string) $item['id']],
@@ -104,6 +117,10 @@ class CommentAutomationController extends Controller
                         );
                         $syncedCount++;
                     }
+
+                    $endpointUrl = $res->json('paging.next') ?? null;
+                    $queryParams = []; // next URL already includes access token & pagination cursor
+                    $pagesFetched++;
                 }
             } catch (\Exception $e) {
                 Log::warning("Failed to sync posts for account {$account->id}: " . $e->getMessage());

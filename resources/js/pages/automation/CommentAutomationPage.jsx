@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -19,6 +19,7 @@ import {
     Save,
     Bot,
     FileText,
+    Loader2,
 } from 'lucide-react';
 
 export const CommentAutomationPage = () => {
@@ -32,31 +33,105 @@ export const CommentAutomationPage = () => {
     const [savingInstructions, setSavingInstructions] = useState(false);
     const [savedNotice, setSavedNotice] = useState(false);
 
-    const fetchData = async () => {
+    // Infinite scroll for posts
+    const [postsPage, setPostsPage] = useState(1);
+    const [hasMorePosts, setHasMorePosts] = useState(true);
+    const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+    const [totalPostsCount, setTotalPostsCount] = useState(0);
+
+    const postsPageRef = useRef(1);
+    const hasMorePostsRef = useRef(true);
+    const loadingMorePostsRef = useRef(false);
+
+    const fetchData = async (reset = true) => {
         try {
-            setLoading(true);
+            if (reset) {
+                setLoading(true);
+                postsPageRef.current = 1;
+                setPostsPage(1);
+                hasMorePostsRef.current = true;
+                setHasMorePosts(true);
+            }
             const [postsRes, commentsRes, instRes] = await Promise.all([
-                api.get('/posts?per_page=50'),
+                api.get('/posts?page=1&per_page=20'),
                 api.get('/comments'),
                 api.get('/automation/comment-instructions').catch(() => ({ data: { data: { instructions: '' } } })),
             ]);
-            setPosts(postsRes.data.data.data || []);
-            setComments(commentsRes.data.data.data || []);
+            const paginated = postsRes.data?.data;
+            const items = paginated?.data || [];
+            setPosts(items);
+            setTotalPostsCount(paginated?.total || items.length);
+            setComments(commentsRes.data?.data?.data || []);
             if (instRes.data?.data?.instructions !== undefined) {
                 setCommentInstructions(instRes.data.data.instructions || '');
             }
+
+            const curPage = paginated?.current_page || 1;
+            const lastPage = paginated?.last_page || 1;
+            const more = curPage < lastPage;
+            hasMorePostsRef.current = more;
+            setHasMorePosts(more);
         } catch (err) {
             console.error(err);
         } finally {
-            setLoading(false);
+            if (reset) setLoading(false);
         }
     };
+
+    const loadMorePosts = async () => {
+        if (loadingMorePostsRef.current || !hasMorePostsRef.current) return;
+        loadingMorePostsRef.current = true;
+        setLoadingMorePosts(true);
+
+        try {
+            const nextPage = postsPageRef.current + 1;
+            const res = await api.get(`/posts?page=${nextPage}&per_page=20`);
+            const paginated = res.data?.data;
+            const newItems = paginated?.data || [];
+
+            if (newItems.length > 0) {
+                setPosts((prev) => {
+                    const existingIds = new Set(prev.map((p) => p.id));
+                    const unique = newItems.filter((p) => !existingIds.has(p.id));
+                    return [...prev, ...unique];
+                });
+                postsPageRef.current = nextPage;
+                setPostsPage(nextPage);
+            }
+
+            const curPage = paginated?.current_page || nextPage;
+            const lastPage = paginated?.last_page || 1;
+            const more = curPage < lastPage && newItems.length > 0;
+            hasMorePostsRef.current = more;
+            setHasMorePosts(more);
+            if (paginated?.total) setTotalPostsCount(paginated.total);
+        } catch (err) {
+            console.error('Failed to load more posts', err);
+        } finally {
+            loadingMorePostsRef.current = false;
+            setLoadingMorePosts(false);
+        }
+    };
+
+    // Auto-load more posts on scroll
+    useEffect(() => {
+        const handleScroll = () => {
+            const scrollBottom = window.innerHeight + window.scrollY;
+            const docHeight = document.documentElement.scrollHeight;
+            if (docHeight - scrollBottom < 350 && hasMorePostsRef.current && !loadingMorePostsRef.current) {
+                loadMorePosts();
+            }
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
 
     const handleSyncPosts = async () => {
         setSyncing(true);
         try {
             await api.post('/posts/sync');
-            await fetchData();
+            await fetchData(true);
         } catch (err) {
             console.error(err);
         } finally {
@@ -209,43 +284,79 @@ export const CommentAutomationPage = () => {
             </Card>
 
             {/* Posts Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {posts.map((post) => (
-                    <Card key={post.id} className="relative">
-                        <div className="flex items-start gap-3">
-                            <img
-                                src={post.media_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200'}
-                                alt="Post thumbnail"
-                                className="w-20 h-20 rounded-xl object-cover shrink-0 ring-1 ring-slate-800"
-                            />
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
-                                        <Facebook className="w-3 h-3" /> {post.social_account?.name}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTogglePostAutoReply(post)}
-                                        title="Click to toggle auto-reply for this post"
-                                        className="focus:outline-none"
-                                    >
-                                        <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs" className="cursor-pointer hover:opacity-80">
-                                            {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
-                                        </Badge>
-                                    </button>
-                                </div>
-                                <p className="text-xs text-slate-200 line-clamp-2 mt-1">{post.message}</p>
-                                <div className="flex flex-wrap items-center gap-2 mt-2">
-                                    {post.products?.map((p) => (
-                                        <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
-                                            <ShoppingBag className="w-2.5 h-2.5 text-indigo-400" /> {p.name} ({p.selling_price} BDT)
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-slate-300">
+                        Synchronized Facebook Posts {totalPostsCount > 0 ? `(${posts.length} of ${totalPostsCount})` : `(${posts.length})`}
+                    </h2>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {posts.map((post) => (
+                        <Card key={post.id} className="relative">
+                            <div className="flex items-start gap-3">
+                                <img
+                                    src={post.media_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200'}
+                                    alt="Post thumbnail"
+                                    className="w-20 h-20 rounded-xl object-cover shrink-0 ring-1 ring-slate-800"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
+                                            <Facebook className="w-3 h-3" /> {post.social_account?.name}
                                         </span>
-                                    ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTogglePostAutoReply(post)}
+                                            title="Click to toggle auto-reply for this post"
+                                            className="focus:outline-none"
+                                        >
+                                            <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs" className="cursor-pointer hover:opacity-80">
+                                                {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
+                                            </Badge>
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-slate-200 line-clamp-2 mt-1">{post.message}</p>
+                                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                                        {post.products?.map((p) => (
+                                            <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
+                                                <ShoppingBag className="w-2.5 h-2.5 text-indigo-400" /> {p.name} ({p.selling_price} BDT)
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </Card>
-                ))}
+                        </Card>
+                    ))}
+                </div>
+
+                {/* Infinite scroll loading & status */}
+                {loadingMorePosts && (
+                    <div className="py-4 flex items-center justify-center gap-2 text-xs text-indigo-400 font-medium">
+                        <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                        <span>Loading more posts...</span>
+                    </div>
+                )}
+
+                {hasMorePosts && !loadingMorePosts && posts.length > 0 && (
+                    <div className="py-2 text-center">
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={loadMorePosts}
+                            icon={Loader2}
+                        >
+                            Load More Posts ({posts.length} of {totalPostsCount || 'more'})
+                        </Button>
+                    </div>
+                )}
+
+                {!hasMorePosts && posts.length > 0 && (
+                    <div className="py-4 text-center text-xs text-slate-500 flex items-center justify-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <span>All {posts.length} posts loaded</span>
+                    </div>
+                )}
             </div>
 
             {/* Real-time Comments Stream */}

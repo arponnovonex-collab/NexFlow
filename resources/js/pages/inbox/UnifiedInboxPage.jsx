@@ -53,6 +53,7 @@ import {
     File,
     Square,
     Maximize2,
+    Loader2,
     ChevronDown,
     ChevronUp,
 } from 'lucide-react';
@@ -148,6 +149,12 @@ export const UnifiedInboxPage = () => {
     const [activeConversation, setActiveConversation] = useState(null);
     const [loadingList, setLoadingList] = useState(true);
     const [loadingThread, setLoadingThread] = useState(false);
+    const [convPage, setConvPage] = useState(1);
+    const [hasMoreConversations, setHasMoreConversations] = useState(true);
+    const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+    const convPageRef = useRef(1);
+    const hasMoreConvRef = useRef(true);
+    const loadingMoreConvRef = useRef(false);
     const [replyText, setReplyText] = useState('');
     const [isInternalNote, setIsInternalNote] = useState(false);
     const [sending, setSending] = useState(false);
@@ -501,18 +508,43 @@ export const UnifiedInboxPage = () => {
         playIncomingMessageSound();
     };
 
-    // Fetch conversation list
-    const fetchConversations = async (silent = false) => {
+    // Fetch conversation list (initial or filter change)
+    const fetchConversations = async (silent = false, resetPage = true) => {
         try {
             if (!silent) setLoadingList(true);
-            const params = {};
+            if (resetPage) {
+                convPageRef.current = 1;
+                setConvPage(1);
+                hasMoreConvRef.current = true;
+                setHasMoreConversations(true);
+            }
+
+            const params = { page: 1, per_page: 30 };
             if (filterTab && filterTab !== 'all') params.filter = filterTab;
             if (platformFilter) params.platform = platformFilter;
             if (searchQuery) params.search = searchQuery;
 
             const res = await api.get('/conversations', { params });
-            const list = Array.isArray(res.data.data) ? res.data.data : (res.data.data?.data || []);
-            setConversations(list);
+            const paginated = res.data?.data;
+            const list = Array.isArray(paginated) ? paginated : (paginated?.data || []);
+
+            if (resetPage || !silent) {
+                setConversations(list);
+            } else {
+                // If silent poll, update existing or prepend new incoming
+                setConversations((prev) => {
+                    const listMap = new Map(list.map((c) => [c.id, c]));
+                    const updated = prev.map((c) => (listMap.has(c.id) ? listMap.get(c.id) : c));
+                    const newOnes = list.filter((c) => !prev.some((p) => p.id === c.id));
+                    return [...newOnes, ...updated];
+                });
+            }
+
+            const curPage = paginated?.current_page || 1;
+            const lastPage = paginated?.last_page || 1;
+            const moreAvail = curPage < lastPage;
+            hasMoreConvRef.current = moreAvail;
+            setHasMoreConversations(moreAvail);
 
             const totalUnread = list.reduce((sum, c) => sum + (c.unread_count || 0), 0);
             if (silent && totalUnread > prevUnreadTotalRef.current) {
@@ -527,7 +559,7 @@ export const UnifiedInboxPage = () => {
                 api.post('/conversations/sync-names')
                     .then((syncRes) => {
                         if (syncRes.data?.updated_count > 0) {
-                            fetchConversations(true);
+                            fetchConversations(true, false);
                             if (activeConvIdRef.current) {
                                 loadConversationDetails(activeConvIdRef.current);
                             }
@@ -536,7 +568,7 @@ export const UnifiedInboxPage = () => {
                     .catch(() => {});
             }
 
-            if (!silent) {
+            if (!silent && resetPage) {
                 // On desktop, auto-select conversation from query param or first item
                 // On mobile, DO NOT auto-select so user always starts on customer list view
                 if (!isMobile) {
@@ -557,6 +589,53 @@ export const UnifiedInboxPage = () => {
             console.error(err);
         } finally {
             if (!silent) setLoadingList(false);
+        }
+    };
+
+    // Infinite scroll: load next page of conversations when reaching bottom
+    const loadMoreConversations = async () => {
+        if (loadingMoreConvRef.current || !hasMoreConvRef.current) return;
+        loadingMoreConvRef.current = true;
+        setLoadingMoreConversations(true);
+
+        try {
+            const nextPage = convPageRef.current + 1;
+            const params = { page: nextPage, per_page: 30 };
+            if (filterTab && filterTab !== 'all') params.filter = filterTab;
+            if (platformFilter) params.platform = platformFilter;
+            if (searchQuery) params.search = searchQuery;
+
+            const res = await api.get('/conversations', { params });
+            const paginated = res.data?.data;
+            const newItems = Array.isArray(paginated) ? paginated : (paginated?.data || []);
+
+            if (newItems.length > 0) {
+                setConversations((prev) => {
+                    const existingIds = new Set(prev.map((c) => c.id));
+                    const uniqueNew = newItems.filter((c) => !existingIds.has(c.id));
+                    return [...prev, ...uniqueNew];
+                });
+                convPageRef.current = nextPage;
+                setConvPage(nextPage);
+            }
+
+            const curPage = paginated?.current_page || nextPage;
+            const lastPage = paginated?.last_page || 1;
+            const moreAvail = curPage < lastPage && newItems.length > 0;
+            hasMoreConvRef.current = moreAvail;
+            setHasMoreConversations(moreAvail);
+        } catch (err) {
+            console.error('Failed to load more conversations', err);
+        } finally {
+            loadingMoreConvRef.current = false;
+            setLoadingMoreConversations(false);
+        }
+    };
+
+    const handleConversationListScroll = (e) => {
+        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+        if (scrollHeight - scrollTop - clientHeight < 150 && hasMoreConvRef.current && !loadingMoreConvRef.current) {
+            loadMoreConversations();
         }
     };
 
@@ -637,7 +716,7 @@ export const UnifiedInboxPage = () => {
                     });
 
                     // Silently refresh conversation list so snippets & unread counts update
-                    fetchConversations(true);
+                    fetchConversations(true, false);
                 }
             } catch (err) {
                 // Ignore silent background poll errors
@@ -646,7 +725,7 @@ export const UnifiedInboxPage = () => {
 
         // Poller for conversation sidebar list updates (every 2.5 seconds)
         const listInterval = setInterval(() => {
-            fetchConversations(true);
+            fetchConversations(true, false);
         }, 2500);
 
         return () => {
@@ -656,7 +735,7 @@ export const UnifiedInboxPage = () => {
     }, []);
 
     useEffect(() => {
-        fetchConversations();
+        fetchConversations(false, true);
     }, [filterTab, platformFilter]);
 
     useEffect(() => {
@@ -1174,8 +1253,11 @@ export const UnifiedInboxPage = () => {
                     </div>
                 </div>
 
-                {/* Conversation Items List */}
-                <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 min-h-0 overscroll-contain scroll-smooth">
+                {/* Conversation Items List (Infinite Scroll) */}
+                <div
+                    onScroll={handleConversationListScroll}
+                    className="flex-1 overflow-y-auto divide-y divide-slate-800/40 min-h-0 overscroll-contain scroll-smooth"
+                >
                     {loadingList ? (
                         <div className="p-8 text-center text-xs text-slate-400">Loading inbox...</div>
                     ) : conversations.length === 0 ? (
@@ -1298,6 +1380,30 @@ export const UnifiedInboxPage = () => {
                                 </div>
                             );
                         })
+                    )}
+
+                    {/* Infinite Scroll Bottom Spinner & Status */}
+                    {loadingMoreConversations && (
+                        <div className="p-3 text-center text-xs text-indigo-400 flex items-center justify-center gap-2 bg-slate-950/40">
+                            <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                            <span>Loading more conversations...</span>
+                        </div>
+                    )}
+                    {hasMoreConversations && !loadingMoreConversations && conversations.length >= 30 && (
+                        <div className="p-2 text-center bg-slate-950/40">
+                            <button
+                                type="button"
+                                onClick={loadMoreConversations}
+                                className="text-[11px] text-indigo-400 hover:text-indigo-300 py-1 px-3 rounded hover:bg-slate-850 transition"
+                            >
+                                Load more conversations...
+                            </button>
+                        </div>
+                    )}
+                    {!hasMoreConversations && conversations.length > 20 && (
+                        <div className="p-3 text-center text-[11px] text-slate-500 bg-slate-950/40">
+                            ✓ All {conversations.length} conversations loaded
+                        </div>
                     )}
                 </div>
             </div>
