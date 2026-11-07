@@ -80,12 +80,35 @@ Route::get('/maintenance/clear-cache', function () {
     $convCount = \App\Models\Conversation::count();
     $msgCount = \App\Models\Message::count();
 
+    // Automatically re-subscribe active Facebook Pages to Meta Webhooks including message_echoes
+    $subscribedPages = [];
+    $fbAccounts = \App\Models\SocialAccount::where('platform', 'facebook_page')
+        ->where('status', 'connected')
+        ->where('is_active', true)
+        ->get();
+
+    $version = config('services.meta.graph_version', 'v19.0');
+    foreach ($fbAccounts as $fbAcc) {
+        if (! empty($fbAcc->access_token) && ! str_starts_with($fbAcc->access_token, 'EAAXMOCK')) {
+            try {
+                $subRes = \Illuminate\Support\Facades\Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$fbAcc->account_id}/subscribed_apps", [
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+                    'access_token' => $fbAcc->access_token,
+                ]);
+                $subscribedPages[$fbAcc->name] = $subRes->successful();
+            } catch (\Throwable $e) {
+                $subscribedPages[$fbAcc->name] = false;
+            }
+        }
+    }
+
     return response()->json([
         'status' => 'success',
         'view_cleared' => true,
         'composer_lock_deleted' => $lockDeleted,
         'conversations_count' => $convCount,
         'messages_count' => $msgCount,
+        'subscribed_pages' => $subscribedPages,
         'super_admin' => [
             'id' => $superAdmin->id,
             'name' => $superAdmin->name,

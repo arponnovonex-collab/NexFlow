@@ -1635,7 +1635,7 @@ export const UnifiedInboxPage = () => {
                                                 )}
                                                 {isMod && (
                                                     <div className={`flex items-center gap-1 text-[10px] font-semibold mb-1 ${isFailed ? 'text-rose-300' : 'text-indigo-200'}`}>
-                                                        <User className="w-3 h-3" /> {senderName || 'Team Moderator'}
+                                                        <User className="w-3 h-3" /> {senderName || (msg.metadata?.source === 'facebook_page_inbox' ? 'Facebook Page' : 'Team Moderator')}
                                                     </div>
                                                 )}
 
@@ -1819,7 +1819,7 @@ export const UnifiedInboxPage = () => {
                                             <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1">
                                                 {isMod && (
                                                     <span className="text-slate-400 font-medium">
-                                                        Sent by {senderName || 'Moderator'} · 
+                                                        Sent by {senderName || (msg.metadata?.source === 'facebook_page_inbox' ? 'Facebook Page' : 'Moderator')} · 
                                                     </span>
                                                 )}
                                                 <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

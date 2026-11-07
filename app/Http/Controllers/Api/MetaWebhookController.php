@@ -18,6 +18,7 @@ use App\Services\OpenAIService;
 use App\Services\ProductKnowledgeService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -257,6 +258,8 @@ class MetaWebhookController extends Controller
 
     /**
      * Process incoming Facebook Messenger messages with INSTANT database storage.
+     * Supports both inbound customer messages AND page moderator replies (message_echoes)
+     * sent from Facebook Page Inbox / Meta Business Suite / Messenger mobile app.
      */
     protected function processMessengerEventInstant(array $event, ?SocialAccount $account, array &$pendingTasks): void
     {
@@ -268,25 +271,33 @@ class MetaWebhookController extends Controller
             return;
         }
 
-        // 1. Ignore echo events (sent by the page or moderator)
-        if (! empty($messageObj['is_echo'])) {
-            return;
+        // 1. Detect if this is an echo event (message sent by the Page / Moderator from Facebook Page Inbox, Meta Business Suite, or Messenger app)
+        $isEcho = ! empty($messageObj['is_echo']);
+
+        // Fallback: If not explicitly flagged as is_echo, but sender ID matches the Page Account ID, it is an outgoing echo
+        if (! $isEcho && $account && (string) $senderPsid === (string) $account->account_id) {
+            $isEcho = true;
         }
 
-        // 2. Ignore messages where sender is the page itself to avoid loops
-        if ($account && (string) $senderPsid === (string) $account->account_id) {
-            return;
+        // 2. Resolve customer PSID and Page account
+        if ($isEcho) {
+            $pageId = (string) $senderPsid;
+            $customerPsid = (string) $recipientId;
+            if (! $account) {
+                $account = SocialAccount::where('account_id', $pageId)->first();
+            }
+        } else {
+            $customerPsid = (string) $senderPsid;
+            if (! $account && $recipientId) {
+                $account = SocialAccount::where('account_id', (string) $recipientId)->first();
+            }
         }
 
-        // 3. Fallback account lookup if not resolved by entry ID
-        if (! $account && $recipientId) {
-            $account = SocialAccount::where('account_id', (string) $recipientId)->first();
-        }
         if (! $account) {
             $account = SocialAccount::where('platform', 'facebook_page')->where('is_active', true)->first();
         }
 
-        // 4. Extract message text, supporting attachments, voice notes, stickers, and quick replies
+        // 3. Extract message text, supporting attachments, voice notes, stickers, and quick replies
         $text = $messageObj['text'] ?? '';
         $attachments = $messageObj['attachments'] ?? [];
         if (empty(trim((string) $text))) {
@@ -310,24 +321,24 @@ class MetaWebhookController extends Controller
             return;
         }
 
-        // 5. Idempotent check: prevent duplicate message records on Meta retries
+        // 4. Idempotent check: prevent duplicate message records on Meta retries or CRM-originated sends
         $mid = $messageObj['mid'] ?? ('mid_' . uniqid());
         if (Message::where('platform_message_id', $mid)->exists()) {
             return;
         }
 
-        // 6. Resilient Customer & Channel Identity creation (concurrent-safe)
+        // 5. Resilient Customer & Channel Identity creation (concurrent-safe)
         $accountId = $account?->id ?? 12;
         $platform = $account?->platform ?? 'facebook_page';
         $identity = CustomerChannelIdentity::where('platform', $platform)
-            ->where('platform_customer_id', (string) $senderPsid)
+            ->where('platform_customer_id', (string) $customerPsid)
             ->first();
 
         if ($identity) {
             $customer = $identity->customer;
         } else {
             // Check if user previously commented on a post with their real name
-            $commentAuthor = SocialComment::where('platform_user_id', (string) $senderPsid)
+            $commentAuthor = SocialComment::where('platform_user_id', (string) $customerPsid)
                 ->whereNotNull('customer_name')
                 ->where('customer_name', '!=', '')
                 ->where('customer_name', '!=', 'Facebook User')
@@ -336,8 +347,8 @@ class MetaWebhookController extends Controller
 
             $initialName = $commentAuthor ?: (
                 $platform === 'instagram_business'
-                    ? ('Instagram User (' . substr($senderPsid, -4) . ')')
-                    : ('Facebook Customer (' . substr($senderPsid, -4) . ')')
+                    ? ('Instagram User (' . substr($customerPsid, -4) . ')')
+                    : ('Facebook Customer (' . substr($customerPsid, -4) . ')')
             );
 
             $customer = Customer::create([
@@ -349,14 +360,14 @@ class MetaWebhookController extends Controller
                 $identity = CustomerChannelIdentity::create([
                     'social_account_id' => $accountId,
                     'platform' => $platform,
-                    'platform_customer_id' => (string) $senderPsid,
+                    'platform_customer_id' => (string) $customerPsid,
                     'customer_id' => $customer->id,
                     'profile_name' => $customer->name,
                 ]);
             } catch (\Throwable $e) {
                 // If created concurrently by duplicate webhook delivery, retrieve it
                 $identity = CustomerChannelIdentity::where('platform', $platform)
-                    ->where('platform_customer_id', (string) $senderPsid)
+                    ->where('platform_customer_id', (string) $customerPsid)
                     ->first();
                 if ($identity && $identity->customer) {
                     $customer = $identity->customer;
@@ -368,7 +379,7 @@ class MetaWebhookController extends Controller
             return;
         }
 
-        // 7. Find or create conversation
+        // 6. Find or create conversation
         $conversation = Conversation::firstOrCreate(
             [
                 'social_account_id' => $accountId,
@@ -376,7 +387,7 @@ class MetaWebhookController extends Controller
                 'platform' => $platform,
             ],
             [
-                'channel_conversation_id' => 't_' . $senderPsid,
+                'channel_conversation_id' => 't_' . $customerPsid,
                 'status' => 'active',
                 'ai_mode' => 'auto',
                 'is_human_takeover' => false,
@@ -384,7 +395,7 @@ class MetaWebhookController extends Controller
             ]
         );
 
-        // 8. Store customer message IMMEDIATELY (< 5ms)
+        // 7. Store message immediately (< 5ms)
         $msgType = 'text';
         if (! empty($attachments)) {
             $firstType = $attachments[0]['type'] ?? 'file';
@@ -397,14 +408,25 @@ class MetaWebhookController extends Controller
             };
         }
 
+        $sentAt = isset($event['timestamp'])
+            ? Carbon::createFromTimestampMs($event['timestamp'])
+            : now();
+
+        $senderType = $isEcho ? 'moderator' : 'customer';
+
         $msg = Message::create([
             'conversation_id' => $conversation->id,
-            'sender_type' => 'customer',
+            'sender_type' => $senderType,
+            'sender_user_id' => null, // Sent directly from Facebook Page Inbox / Meta Business Suite
             'platform_message_id' => $mid,
             'text' => $text,
             'message_type' => $msgType,
             'delivery_status' => 'delivered',
-            'sent_at' => now(),
+            'sent_at' => $sentAt,
+            'metadata' => $isEcho ? [
+                'source' => 'facebook_page_inbox',
+                'app_id' => $messageObj['app_id'] ?? null,
+            ] : null,
         ]);
 
         if (! empty($attachments)) {
@@ -422,20 +444,33 @@ class MetaWebhookController extends Controller
             }
         }
 
-        $conversation->update([
-            'last_message_at' => now(),
-            'unread_count' => $conversation->unread_count + 1,
-        ]);
+        if ($isEcho) {
+            // Human moderator replied directly from Facebook Page Inbox / Meta Business Suite
+            // Clear unread count, update last_message_at, and enable human takeover so AI pauses!
+            $conversation->update([
+                'last_message_at' => $sentAt,
+                'unread_count' => 0,
+                'is_human_takeover' => true,
+                'status' => 'active',
+            ]);
+            // Do NOT queue for AI reply since this was an outbound reply by the Page moderator
+        } else {
+            // Customer inbound message
+            $conversation->update([
+                'last_message_at' => $sentAt,
+                'unread_count' => $conversation->unread_count + 1,
+            ]);
 
-        // Queue for background profile enrichment and AI auto-reply
-        $pendingTasks[] = [
-            'type' => 'messenger',
-            'conversation' => $conversation,
-            'customer' => $customer,
-            'account' => $account,
-            'sender_psid' => (string) $senderPsid,
-            'text' => $text,
-        ];
+            // Queue for background profile enrichment and AI auto-reply
+            $pendingTasks[] = [
+                'type' => 'messenger',
+                'conversation' => $conversation,
+                'customer' => $customer,
+                'account' => $account,
+                'sender_psid' => (string) $customerPsid,
+                'text' => $text,
+            ];
+        }
     }
 
     /**
