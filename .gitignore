@@ -28,3 +28,5 @@ Thumbs.db
 /public/uploads/branding/*
 !/public/uploads/branding/.gitkeep
 
+composer.lock
+
