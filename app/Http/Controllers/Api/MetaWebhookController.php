@@ -89,9 +89,14 @@ class MetaWebhookController extends Controller
                     }
                 }
 
-                // Process Messenger Inbound Messages - Instant DB storage
-                if (! empty($entry['messaging'])) {
-                    foreach ($entry['messaging'] as $messagingEvent) {
+                // Process Messenger Inbound Messages & Standby Events (Handover Protocol / Page Inbox Echoes)
+                $messagingEvents = array_merge(
+                    $entry['messaging'] ?? [],
+                    $entry['standby'] ?? []
+                );
+
+                if (! empty($messagingEvents)) {
+                    foreach ($messagingEvents as $messagingEvent) {
                         $this->processMessengerEventInstant($messagingEvent, $account, $pendingMessengerTasks);
                     }
                 }
@@ -147,8 +152,18 @@ class MetaWebhookController extends Controller
         $fromId = $value['from']['id'] ?? null;
         $fromName = $value['from']['name'] ?? 'Facebook User';
 
-        // Check if comment is posted by the page itself to avoid loops
+        // Check if comment is posted by the page itself (moderator reply directly on Facebook post)
         if ($account && (string) $fromId === (string) $account->account_id) {
+            $parentId = $value['parent_id'] ?? null;
+            if ($parentId && (string) $parentId !== (string) $postId) {
+                $parentComment = SocialComment::where('platform_comment_id', (string) $parentId)->first();
+                if ($parentComment) {
+                    $parentComment->update([
+                        'reply_status' => 'replied',
+                        'reply_text' => $message,
+                    ]);
+                }
+            }
             return;
         }
 
@@ -274,9 +289,17 @@ class MetaWebhookController extends Controller
         // 1. Detect if this is an echo event (message sent by the Page / Moderator from Facebook Page Inbox, Meta Business Suite, or Messenger app)
         $isEcho = ! empty($messageObj['is_echo']);
 
-        // Fallback: If not explicitly flagged as is_echo, but sender ID matches the Page Account ID, it is an outgoing echo
-        if (! $isEcho && $account && (string) $senderPsid === (string) $account->account_id) {
-            $isEcho = true;
+        // Fallback: If not explicitly flagged as is_echo, check if sender matches this account or ANY connected page account
+        if (! $isEcho) {
+            if ($account && (string) $senderPsid === (string) $account->account_id) {
+                $isEcho = true;
+            } else {
+                $senderPage = SocialAccount::where('account_id', (string) $senderPsid)->first();
+                if ($senderPage) {
+                    $isEcho = true;
+                    $account = $senderPage;
+                }
+            }
         }
 
         // 2. Resolve customer PSID and Page account

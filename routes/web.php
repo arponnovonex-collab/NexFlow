@@ -92,7 +92,7 @@ Route::get('/maintenance/clear-cache', function () {
         if (! empty($fbAcc->access_token) && ! str_starts_with($fbAcc->access_token, 'EAAXMOCK')) {
             try {
                 $subRes = \Illuminate\Support\Facades\Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$fbAcc->account_id}/subscribed_apps", [
-                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
                     'access_token' => $fbAcc->access_token,
                 ]);
                 $subscribedPages[$fbAcc->name] = $subRes->successful();

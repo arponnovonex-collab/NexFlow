@@ -240,7 +240,7 @@ class SocialAccountController extends Controller
         if ($validated['platform'] === 'facebook_page' && ! str_starts_with($accessToken, 'EAAXMOCK')) {
             try {
                 Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$accountId}/subscribed_apps", [
-                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
                     'access_token' => $accessToken,
                 ]);
             } catch (\Exception $e) {
@@ -363,9 +363,9 @@ class SocialAccountController extends Controller
             }
         }
 
-        // Try subscribing feed, messages, messaging_postbacks, message_echoes
+        // Try subscribing feed, messages, messaging_postbacks, message_echoes, standby, messaging_handovers
         $res = Http::post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
-            'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+            'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
             'access_token' => $token,
         ]);
 
@@ -378,9 +378,9 @@ class SocialAccountController extends Controller
             ]);
         }
 
-        // If feed fails (e.g. missing pages_manage_metadata), fallback to messages and message_echoes
+        // If feed fails (e.g. missing pages_manage_metadata), fallback to messages, echoes, and standby
         $fallback = Http::post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
-            'subscribed_fields' => 'messages,messaging_postbacks,message_echoes',
+            'subscribed_fields' => 'messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
             'access_token' => $token,
         ]);
 
@@ -432,7 +432,7 @@ class SocialAccountController extends Controller
                 try {
                     $version = config('services.meta.graph_version', 'v19.0');
                     Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$socialAccount->account_id}/subscribed_apps", [
-                        'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+                        'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
                         'access_token' => $validated['access_token'],
                     ]);
                 } catch (\Exception $e) {
@@ -610,7 +610,7 @@ class SocialAccountController extends Controller
             try {
                 $version = config('services.meta.graph_version', 'v19.0');
                 Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$socialAccount->account_id}/subscribed_apps", [
-                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes',
+                    'subscribed_fields' => 'feed,messages,messaging_postbacks,message_echoes,standby,messaging_handovers',
                     'access_token' => $socialAccount->access_token,
                 ]);
             } catch (\Exception $e) {}

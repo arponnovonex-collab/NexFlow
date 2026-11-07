@@ -160,6 +160,7 @@ export const UnifiedInboxPage = () => {
     const [sending, setSending] = useState(false);
     const [suggesting, setSuggesting] = useState(false);
     const [suggestedData, setSuggestedData] = useState(null);
+    const [syncingConversation, setSyncingConversation] = useState(false);
 
     // File / Media attachment state (Images, Videos, PDFs, Documents, Audio)
     const [selectedFile, setSelectedFile] = useState(null);
@@ -888,6 +889,26 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    // Fast sync active conversation with Facebook Graph API
+    const handleSyncConversation = async () => {
+        if (!activeConversation || syncingConversation) return;
+        setSyncingConversation(true);
+        try {
+            fetchConversations(true);
+            const res = await api.post(`/conversations/${activeConversation.id}/sync`);
+            if (res.data?.data) {
+                setActiveConversation(res.data.data);
+            } else {
+                await loadConversationDetails(activeConversation.id);
+            }
+        } catch (e) {
+            console.error('Failed to sync conversation:', e);
+            await loadConversationDetails(activeConversation.id);
+        } finally {
+            setSyncingConversation(false);
+        }
+    };
+
     // Bulk sync real customer names from Facebook
     const handleSyncNames = async () => {
         try {
@@ -1498,14 +1519,12 @@ export const UnifiedInboxPage = () => {
                                 <div className="flex items-center gap-1.5 shrink-0">
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            fetchConversations(true);
-                                            if (activeConversation) loadConversationDetails(activeConversation.id);
-                                        }}
-                                        title="Manual Refresh"
-                                        className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                                        onClick={handleSyncConversation}
+                                        disabled={syncingConversation}
+                                        title="Sync with Facebook / Refresh"
+                                        className="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer disabled:opacity-50"
                                     >
-                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        <RefreshCw className={`w-3.5 h-3.5 ${syncingConversation ? 'animate-spin text-cyan-400' : ''}`} />
                                     </button>
 
                                     <button

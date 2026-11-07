@@ -17,6 +17,7 @@ use App\Services\OpenAIService;
 use App\Services\ProductKnowledgeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -102,6 +103,13 @@ class ConversationController extends Controller
      */
     public function show(Conversation $conversation): JsonResponse
     {
+        // Auto-sync any recent messages from Facebook/Instagram
+        try {
+            $this->syncRemoteMessages($conversation);
+        } catch (\Throwable $e) {
+            Log::warning('Active Sync on Conversation show failed: ' . $e->getMessage());
+        }
+
         $conversation->load([
             'customer.channelIdentities',
             'socialAccount',
@@ -177,6 +185,11 @@ class ConversationController extends Controller
      */
     public function latestMessages(Request $request, Conversation $conversation): JsonResponse
     {
+        // Quick active sync check for outbound Page replies or standby webhooks
+        try {
+            $this->syncRemoteMessages($conversation);
+        } catch (\Throwable $e) {}
+
         $afterId = $request->query('after_id');
         $query = $conversation->messages()
             ->with(['senderUser:id,name', 'attachments'])
@@ -705,6 +718,155 @@ class ConversationController extends Controller
             'status' => 'success',
             'message' => "Successfully synced {$updated} customer profile(s) (name & picture) from Facebook.",
             'updated_count' => $updated,
+        ]);
+    }
+
+    /**
+     * Active Synchronization of remote messages from Meta Graph API.
+     * Ensures any replies sent from Facebook Page Inbox / Meta Business Suite
+     * or messages that arrived while webhook was offline/standby are immediately imported.
+     */
+    public function syncRemoteMessages(Conversation $conversation): int
+    {
+        $account = $conversation->socialAccount;
+        if (! $account || empty($account->access_token) || str_starts_with($account->access_token, 'EAAXMOCK')) {
+            return 0;
+        }
+
+        if (! in_array($conversation->platform, ['facebook_page', 'instagram_business'])) {
+            return 0;
+        }
+
+        $version = config('services.meta.graph_version', 'v21.0');
+        $psid = preg_replace('/^t_(?:ig_|wa_)?/', '', $conversation->channel_conversation_id);
+
+        $messages = [];
+        $threadId = $conversation->channel_conversation_id;
+
+        // Try direct thread query if thread id is known
+        if (! empty($threadId) && str_starts_with($threadId, 't_') && strlen($threadId) > 8) {
+            try {
+                $httpRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$threadId}/messages", [
+                    'fields' => 'id,created_time,from,to,message,attachments',
+                    'limit' => 15,
+                    'access_token' => $account->access_token,
+                ]);
+                if ($httpRes->successful()) {
+                    $messages = $httpRes->json('data') ?? [];
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // Fallback: lookup conversation by user PSID
+        if (empty($messages)) {
+            try {
+                $userRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}/conversations", [
+                    'user_id' => $psid,
+                    'fields' => 'id,messages.limit(15){id,created_time,from,to,message,attachments}',
+                    'access_token' => $account->access_token,
+                ]);
+                if ($userRes->successful()) {
+                    $firstConv = $userRes->json('data.0');
+                    if (! empty($firstConv['id'])) {
+                        if ($conversation->channel_conversation_id !== $firstConv['id']) {
+                            $conversation->update(['channel_conversation_id' => $firstConv['id']]);
+                        }
+                        $messages = $firstConv['messages']['data'] ?? [];
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        if (empty($messages)) {
+            return 0;
+        }
+
+        $synced = 0;
+        foreach (array_reverse($messages) as $m) {
+            $mid = $m['id'] ?? null;
+            if (! $mid || Message::where('platform_message_id', $mid)->exists()) {
+                continue;
+            }
+
+            $fromId = (string) ($m['from']['id'] ?? '');
+            $isPage = ($fromId === (string) $account->account_id);
+            $senderType = $isPage ? 'moderator' : 'customer';
+            $text = $m['message'] ?? '';
+            $attachments = $m['attachments']['data'] ?? [];
+
+            $msgType = 'text';
+            if (empty(trim((string) $text)) && ! empty($attachments)) {
+                $msgType = 'image';
+                $text = '📷 [Photo]';
+            }
+
+            if (empty(trim((string) $text))) {
+                $text = '📎 [Message]';
+            }
+
+            $sentAt = isset($m['created_time'])
+                ? Carbon::parse($m['created_time'])
+                : now();
+
+            $msg = Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => $senderType,
+                'sender_user_id' => null,
+                'platform_message_id' => $mid,
+                'text' => $text,
+                'message_type' => $msgType,
+                'delivery_status' => 'delivered',
+                'sent_at' => $sentAt,
+                'metadata' => $isPage ? ['source' => 'facebook_page_inbox'] : null,
+            ]);
+
+            foreach ($attachments as $att) {
+                $url = $att['image_data']['url'] ?? ($att['file_url'] ?? null);
+                if ($url) {
+                    MessageAttachment::create([
+                        'message_id' => $msg->id,
+                        'file_url' => $url,
+                        'file_type' => 'image',
+                        'file_name' => 'img_' . substr(md5($url), 0, 8),
+                    ]);
+                }
+            }
+
+            if ($isPage) {
+                $conversation->update([
+                    'last_message_at' => $sentAt,
+                    'unread_count' => 0,
+                    'is_human_takeover' => true,
+                ]);
+            } else {
+                $conversation->update([
+                    'last_message_at' => $sentAt,
+                ]);
+            }
+
+            $synced++;
+        }
+
+        return $synced;
+    }
+
+    /**
+     * Force sync endpoint for a single conversation.
+     */
+    public function sync(Conversation $conversation): JsonResponse
+    {
+        $count = $this->syncRemoteMessages($conversation);
+        $conversation->load([
+            'messages' => function ($q) {
+                $q->orderBy('created_at', 'asc')->with(['senderUser:id,name', 'attachments']);
+            },
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'synced_count' => $count,
+            'message' => $count > 0 ? "Synced {$count} new messages from Meta." : "All messages are up to date.",
+            'data' => $conversation,
         ]);
     }
 }
