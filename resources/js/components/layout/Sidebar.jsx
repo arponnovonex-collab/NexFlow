@@ -34,6 +34,7 @@ import {
     Palette,
     FolderOpen,
     UploadCloud,
+    Bookmark,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -44,6 +45,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
     const [openSections, setOpenSections] = useState({
         connections: true,
         inbox: true,
+        shortcuts: true,
         media: true,
         automation: true,
         products: true,
@@ -170,6 +172,27 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                             </div>
                         )}
                     </NavLink>
+                </div>
+
+                {/* Shortcut Menu */}
+                <div>
+                    {!isCollapsed ? (
+                        <button
+                            onClick={() => toggleSection('shortcuts')}
+                            className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                        >
+                            <span>Shortcut</span>
+                            {openSections.shortcuts ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                    ) : null}
+                    {(openSections.shortcuts || isCollapsed) && (
+                        <div className="space-y-1">
+                            <NavLink to="/shortcuts/saved-sms" className={linkClasses}>
+                                <Bookmark className="w-4 h-4 shrink-0 text-cyan-400" />
+                                {!isCollapsed && <span>Saved SMS</span>}
+                            </NavLink>
+                        </div>
+                    )}
                 </div>
 
                 {/* Media Library (WordPress-style) */}

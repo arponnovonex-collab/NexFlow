@@ -30,6 +30,7 @@ import { DisplayAccessibilityPage } from './pages/system/DisplayAccessibilityPag
 import { AppearancePage } from './pages/system/AppearancePage';
 import { MediaLibraryPage } from './pages/media/MediaLibraryPage';
 import { MediaUploadPage } from './pages/media/MediaUploadPage';
+import { SavedMessagesPage } from './pages/shortcuts/SavedMessagesPage';
 import { NotificationSoundSettingsPage } from './pages/settings/NotificationSoundSettingsPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
 import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
@@ -76,6 +77,7 @@ export const App = () => {
                             <Route index element={<Navigate to="/dashboard" replace />} />
                             <Route path="dashboard" element={<DashboardPage />} />
                             <Route path="inbox" element={<UnifiedInboxPage />} />
+                            <Route path="shortcuts/saved-sms" element={<SavedMessagesPage />} />
                             <Route path="connections" element={<SocialConnectionsPage />} />
                             <Route path="connections/diagnostics" element={<SocialConnectionsPage />} />
 

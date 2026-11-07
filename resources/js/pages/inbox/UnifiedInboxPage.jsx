@@ -11,7 +11,9 @@ import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import { MediaPickerModal } from '../../components/media/MediaPickerModal';
 import { ImageLightboxModal } from '../../components/common/ImageLightboxModal';
+import { SavedMessagePickerModal } from '../../components/inbox/SavedMessagePickerModal';
 import {
+    Bookmark,
     Search,
     Send,
     Sparkles,
@@ -166,6 +168,7 @@ export const UnifiedInboxPage = () => {
     const [selectedFile, setSelectedFile] = useState(null);
     const [selectedMediaItem, setSelectedMediaItem] = useState(null);
     const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+    const [savedMsgModalOpen, setSavedMsgModalOpen] = useState(false);
     const [filePreviewUrl, setFilePreviewUrl] = useState('');
     const [fileTypeCategory, setFileTypeCategory] = useState(''); // 'image' | 'video' | 'audio' | 'pdf' | 'file'
     const fileInputRef = useRef(null);
@@ -274,6 +277,15 @@ export const UnifiedInboxPage = () => {
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
+    };
+
+    const handleSelectSavedMessage = (text) => {
+        setReplyText((prev) => {
+            if (!prev || !prev.trim()) {
+                return text;
+            }
+            return `${prev.trim()}\n${text}`;
+        });
     };
 
     const handleSelectMediaLibraryItem = (media) => {
@@ -1985,6 +1997,18 @@ export const UnifiedInboxPage = () => {
                                             </Button>
                                         ) : null}
 
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="xs"
+                                            onClick={() => setSavedMsgModalOpen(true)}
+                                            icon={Bookmark}
+                                            className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                            title="Choose from Saved SMS & Quick Replies"
+                                        >
+                                            Saved Msg
+                                        </Button>
+
                                         <label className="flex items-center gap-1 text-slate-400 text-[11px] cursor-pointer shrink-0">
                                             <input
                                                 type="checkbox"
@@ -2406,6 +2430,13 @@ export const UnifiedInboxPage = () => {
                     </form>
                 </Modal>
             )}
+
+            {/* Saved SMS & Quick Replies Picker Modal */}
+            <SavedMessagePickerModal
+                isOpen={savedMsgModalOpen}
+                onClose={() => setSavedMsgModalOpen(false)}
+                onSelectMessage={handleSelectSavedMessage}
+            />
 
             {/* WordPress-style Media Library Picker Modal */}
             <MediaPickerModal

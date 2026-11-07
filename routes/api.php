@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\MetaWebhookController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\SavedMessageController;
 use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\SteadfastController;
@@ -83,6 +84,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/conversations/{conversation}/takeover', [ConversationController::class, 'toggleTakeover']);
     Route::put('/conversations/{conversation}/status', [ConversationController::class, 'updateStatus']);
     Route::post('/conversations/{conversation}/assign', [ConversationController::class, 'assign']);
+
+    // Shortcuts & Saved SMS / Quick Replies
+    Route::get('/saved-messages', [SavedMessageController::class, 'index']);
+    Route::post('/saved-messages', [SavedMessageController::class, 'store']);
+    Route::get('/saved-messages/{savedMessage}', [SavedMessageController::class, 'show']);
+    Route::put('/saved-messages/{savedMessage}', [SavedMessageController::class, 'update']);
+    Route::delete('/saved-messages/{savedMessage}', [SavedMessageController::class, 'destroy']);
+    Route::post('/saved-messages/{savedMessage}/use', [SavedMessageController::class, 'incrementUsage']);
 
     // Lead CRM & Follow-ups
     Route::get('/leads', [LeadController::class, 'index']);
