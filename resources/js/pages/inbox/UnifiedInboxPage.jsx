@@ -445,6 +445,23 @@ export const UnifiedInboxPage = () => {
     const [platformFilter, setPlatformFilter] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
 
+    const searchQueryRef = useRef('');
+    const filterTabRef = useRef(filterTab);
+    const platformFilterRef = useRef(platformFilter);
+    const searchInputRef = useRef(null);
+
+    useEffect(() => {
+        searchQueryRef.current = searchQuery;
+    }, [searchQuery]);
+
+    useEffect(() => {
+        filterTabRef.current = filterTab;
+    }, [filterTab]);
+
+    useEffect(() => {
+        platformFilterRef.current = platformFilter;
+    }, [platformFilter]);
+
     // Modals
     const [followupModal, setFollowupModal] = useState(false);
     const [orderModal, setOrderModal] = useState(false);
@@ -521,8 +538,8 @@ export const UnifiedInboxPage = () => {
         playIncomingMessageSound();
     };
 
-    // Fetch conversation list (initial or filter change)
-    const fetchConversations = async (silent = false, resetPage = true) => {
+    // Fetch conversation list (initial, filter change, or live search)
+    const fetchConversations = async (silent = false, resetPage = true, customSearch = undefined) => {
         try {
             if (!silent) setLoadingList(true);
             if (resetPage) {
@@ -532,19 +549,24 @@ export const UnifiedInboxPage = () => {
                 setHasMoreConversations(true);
             }
 
+            const currentSearch = customSearch !== undefined ? customSearch : searchQueryRef.current;
+            const currentFilter = filterTabRef.current;
+            const currentPlatform = platformFilterRef.current;
+
             const params = { page: 1, per_page: 30 };
-            if (filterTab && filterTab !== 'all') params.filter = filterTab;
-            if (platformFilter) params.platform = platformFilter;
-            if (searchQuery) params.search = searchQuery;
+            if (currentFilter && currentFilter !== 'all') params.filter = currentFilter;
+            if (currentPlatform) params.platform = currentPlatform;
+            if (currentSearch && currentSearch.trim() !== '') params.search = currentSearch.trim();
 
             const res = await api.get('/conversations', { params });
             const paginated = res.data?.data;
             const list = Array.isArray(paginated) ? paginated : (paginated?.data || []);
 
-            if (resetPage || !silent) {
+            // If user is searching or explicit reset, always set the exact list
+            if (resetPage || !silent || (currentSearch && currentSearch.trim() !== '')) {
                 setConversations(list);
             } else {
-                // If silent poll, update existing or prepend new incoming
+                // If silent poll with no active search, update existing or prepend new incoming
                 setConversations((prev) => {
                     const listMap = new Map(list.map((c) => [c.id, c]));
                     const updated = prev.map((c) => (listMap.has(c.id) ? listMap.get(c.id) : c));
@@ -614,9 +636,13 @@ export const UnifiedInboxPage = () => {
         try {
             const nextPage = convPageRef.current + 1;
             const params = { page: nextPage, per_page: 30 };
-            if (filterTab && filterTab !== 'all') params.filter = filterTab;
-            if (platformFilter) params.platform = platformFilter;
-            if (searchQuery) params.search = searchQuery;
+            const currentSearch = searchQueryRef.current;
+            const currentFilter = filterTabRef.current;
+            const currentPlatform = platformFilterRef.current;
+
+            if (currentFilter && currentFilter !== 'all') params.filter = currentFilter;
+            if (currentPlatform) params.platform = currentPlatform;
+            if (currentSearch && currentSearch.trim() !== '') params.search = currentSearch.trim();
 
             const res = await api.get('/conversations', { params });
             const paginated = res.data?.data;
@@ -750,6 +776,15 @@ export const UnifiedInboxPage = () => {
     useEffect(() => {
         fetchConversations(false, true);
     }, [filterTab, platformFilter]);
+
+    // Live search as user types with smooth 250ms debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchConversations(false, true, searchQuery);
+        }, 250);
+
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
 
     useEffect(() => {
         if (!isMobile || mobileView === 'chat') {
@@ -1204,15 +1239,35 @@ export const UnifiedInboxPage = () => {
                 <div className="p-3 border-b border-slate-800 space-y-2">
                     <div className="flex items-center gap-1.5">
                         <div className="relative flex-1">
-                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
+                                ref={searchInputRef}
                                 type="text"
-                                placeholder="Search inbox..."
+                                placeholder="Search customers, phones, messages..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && fetchConversations()}
-                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        fetchConversations(false, true, searchQuery);
+                                    }
+                                }}
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-8 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-500 transition-colors"
                             />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        searchInputRef.current?.focus();
+                                        fetchConversations(false, true, '');
+                                    }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-md transition-colors cursor-pointer"
+                                    title="Clear search and show all inbox"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
                         </div>
                         <button
                             type="button"
@@ -1944,6 +1999,18 @@ export const UnifiedInboxPage = () => {
                                             type="button"
                                             variant="secondary"
                                             size="xs"
+                                            onClick={() => setSavedMsgModalOpen(true)}
+                                            icon={Bookmark}
+                                            className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                            title="Choose from Saved SMS & Quick Replies"
+                                        >
+                                            Saved Msg
+                                        </Button>
+
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="xs"
                                             onClick={() => setOrderModal(true)}
                                             icon={ShoppingBag}
                                             className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
@@ -1996,18 +2063,6 @@ export const UnifiedInboxPage = () => {
                                                 Voice
                                             </Button>
                                         ) : null}
-
-                                        <Button
-                                            type="button"
-                                            variant="secondary"
-                                            size="xs"
-                                            onClick={() => setSavedMsgModalOpen(true)}
-                                            icon={Bookmark}
-                                            className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
-                                            title="Choose from Saved SMS & Quick Replies"
-                                        >
-                                            Saved Msg
-                                        </Button>
 
                                         <label className="flex items-center gap-1 text-slate-400 text-[11px] cursor-pointer shrink-0">
                                             <input

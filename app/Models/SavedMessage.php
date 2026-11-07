@@ -48,3 +48,4 @@ class SavedMessage extends Model
         });
     }
 }
+

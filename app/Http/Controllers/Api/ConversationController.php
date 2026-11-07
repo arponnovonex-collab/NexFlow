@@ -77,13 +77,18 @@ class ConversationController extends Controller
             $query->where('unread_count', '>', 0);
         }
 
-        // Search customer name, phone, message text
+        // Search customer name, phone, channel profile name, or message text
         if ($request->filled('search')) {
-            $search = $request->search;
+            $search = trim($request->search);
             $query->where(function ($q) use ($search) {
                 $q->whereHas('customer', function ($cq) use ($search) {
                     $cq->where('name', 'like', "%{$search}%")
-                       ->orWhere('phone', 'like', "%{$search}%");
+                       ->orWhere('phone', 'like', "%{$search}%")
+                       ->orWhere('email', 'like', "%{$search}%")
+                       ->orWhereHas('channelIdentities', function ($ciq) use ($search) {
+                           $ciq->where('profile_name', 'like', "%{$search}%")
+                               ->orWhere('platform_customer_id', 'like', "%{$search}%");
+                       });
                 })->orWhereHas('messages', function ($mq) use ($search) {
                     $mq->where('text', 'like', "%{$search}%");
                 });
