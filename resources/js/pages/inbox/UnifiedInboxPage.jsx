@@ -12,7 +12,9 @@ import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import { MediaPickerModal } from '../../components/media/MediaPickerModal';
 import { ImageLightboxModal } from '../../components/common/ImageLightboxModal';
 import { SavedMessagePickerModal } from '../../components/inbox/SavedMessagePickerModal';
+import { SwipeableMessageRow } from '../../components/inbox/SwipeableMessageRow';
 import {
+    Reply,
     Bookmark,
     Search,
     Send,
@@ -163,6 +165,9 @@ export const UnifiedInboxPage = () => {
     const [suggesting, setSuggesting] = useState(false);
     const [suggestedData, setSuggestedData] = useState(null);
     const [syncingConversation, setSyncingConversation] = useState(false);
+    const [replyingToMessage, setReplyingToMessage] = useState(null);
+    const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+    const messageInputRef = useRef(null);
 
     // File / Media attachment state (Images, Videos, PDFs, Documents, Audio)
     const [selectedFile, setSelectedFile] = useState(null);
@@ -276,6 +281,42 @@ export const UnifiedInboxPage = () => {
         setFileTypeCategory('');
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
+        }
+    };
+
+    const handleStartReply = (msg) => {
+        if (!msg) return;
+        const senderName = msg.sender_type === 'customer'
+            ? (activeConversation?.customer?.name || 'Customer')
+            : (msg.sender_user?.name || msg.senderUser?.name || 'You');
+
+        let previewText = msg.text || '';
+        if (!previewText && msg.attachments && msg.attachments.length > 0) {
+            const attType = (msg.attachments[0].file_type || '').toLowerCase();
+            previewText = attType === 'image' ? '📷 Photo' : attType === 'audio' ? '🎤 Voice Note' : '📎 Attachment';
+        }
+
+        setReplyingToMessage({
+            id: msg.id,
+            text: previewText,
+            sender_type: msg.sender_type,
+            sender_name: senderName,
+        });
+
+        setTimeout(() => {
+            messageInputRef.current?.focus();
+        }, 60);
+    };
+
+    const handleScrollToMessage = (messageId) => {
+        if (!messageId) return;
+        const el = document.getElementById(`msg-item-${messageId}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setHighlightedMessageId(messageId);
+            setTimeout(() => {
+                setHighlightedMessageId((curr) => (curr === messageId ? null : curr));
+            }, 1800);
         }
     };
 
@@ -681,6 +722,7 @@ export const UnifiedInboxPage = () => {
     const loadConversationDetails = async (id, isExplicitUserClick = false) => {
         try {
             setLoadingThread(true);
+            setReplyingToMessage(null);
             const res = await api.get(`/conversations/${id}`);
             setActiveConversation(res.data.data);
             if (isExplicitUserClick && isMobile) {
@@ -801,6 +843,7 @@ export const UnifiedInboxPage = () => {
 
         if ((!textToSend && !fileToSend && !mediaToSend) || !activeConversation) return;
 
+        const currentReplyTo = replyingToMessage;
         setSending(true);
         try {
             let res;
@@ -811,6 +854,9 @@ export const UnifiedInboxPage = () => {
                 }
                 formData.append('is_internal_note', isInternalNote ? '1' : '0');
                 formData.append('file_type', catToSend || 'file');
+                if (currentReplyTo?.id) {
+                    formData.append('reply_to_message_id', currentReplyTo.id);
+                }
 
                 const fname = filenameOverride || fileToSend.name || `voice_${Date.now()}.webm`;
                 formData.append('file', fileToSend, fname);
@@ -823,13 +869,20 @@ export const UnifiedInboxPage = () => {
                 }
                 formData.append('is_internal_note', isInternalNote ? '1' : '0');
                 formData.append('media_id', mediaToSend.id);
+                if (currentReplyTo?.id) {
+                    formData.append('reply_to_message_id', currentReplyTo.id);
+                }
 
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
             } else {
-                res = await api.post(`/conversations/${activeConversation.id}/messages`, {
+                const payload = {
                     text: textToSend,
                     is_internal_note: isInternalNote,
-                });
+                };
+                if (currentReplyTo?.id) {
+                    payload.reply_to_message_id = currentReplyTo.id;
+                }
+                res = await api.post(`/conversations/${activeConversation.id}/messages`, payload);
             }
 
             // Append message locally
@@ -844,6 +897,7 @@ export const UnifiedInboxPage = () => {
             }));
             lastMsgIdRef.current = newMsg?.id || Date.now();
             setReplyText('');
+            setReplyingToMessage(null);
             handleRemoveFile();
             setIsInternalNote(false);
             setSuggestedData(null);
@@ -1699,230 +1753,20 @@ export const UnifiedInboxPage = () => {
                                     }
 
                                     return (
-                                        <div
+                                        <SwipeableMessageRow
                                             key={msg.id}
-                                            className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'}`}
-                                        >
-                                            <div
-                                                className={`max-w-md rounded-2xl px-4 py-2.5 text-xs ${
-                                                    isCustomer
-                                                        ? 'bg-slate-800 text-slate-200 rounded-bl-sm'
-                                                        : isAi
-                                                        ? 'bg-gradient-to-r from-violet-900/60 to-indigo-900/60 border border-indigo-500/30 text-indigo-100 rounded-br-sm'
-                                                        : isFailed
-                                                        ? 'bg-rose-950/80 border border-rose-500/40 text-rose-100 rounded-br-sm shadow-md'
-                                                        : 'bg-indigo-600 text-white rounded-br-sm shadow-md'
-                                                }`}
-                                            >
-                                                {isAi && (
-                                                    <div className="flex items-center gap-1 text-[10px] font-bold text-violet-300 mb-1">
-                                                        <Sparkles className="w-3 h-3" /> NexFlow AI Automated Reply
-                                                    </div>
-                                                )}
-                                                {isMod && (
-                                                    <div className={`flex items-center gap-1 text-[10px] font-semibold mb-1 ${isFailed ? 'text-rose-300' : 'text-indigo-200'}`}>
-                                                        <User className="w-3 h-3" /> {senderName || (msg.metadata?.source === 'facebook_page_inbox' ? 'Facebook Page' : 'Team Moderator')}
-                                                    </div>
-                                                )}
-
-                                                {/* Attachments rendering (Images, Videos, Voice/Audio, PDFs, Documents) */}
-                                                {msg.attachments && msg.attachments.length > 0 && (
-                                                    <div className="space-y-1.5 mb-1.5">
-                                                        {msg.attachments.map((att) => {
-                                                            const rawType = (att.file_type || '').toLowerCase();
-                                                            const name = (att.file_name || '').toLowerCase();
-                                                            const url = (att.file_url || '').toLowerCase();
-                                                            const ext = (name.split('.').pop() || url.split('.').pop() || '').split('?')[0];
-
-                                                            const isImage = rawType.startsWith('image') || rawType === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
-                                                            const isVideo = rawType.startsWith('video') || rawType === 'video' || ['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v'].includes(ext);
-                                                            const isAudio = rawType.startsWith('audio') || rawType === 'audio' || ['mp3', 'wav', 'ogg', 'm4a', 'aac'].includes(ext) || (ext === 'webm' && !isVideo);
-                                                            const isPdf = rawType.includes('pdf') || ext === 'pdf';
-
-                                                            if (isImage) {
-                                                                return (
-                                                                    <div key={att.id} className="relative group my-1">
-                                                                        <div
-                                                                            onClick={() => handleOpenImageLightbox(att)}
-                                                                            className="block rounded-xl overflow-hidden border border-slate-700/60 hover:border-indigo-400/60 transition-all max-w-[260px] md:max-w-xs shadow-md cursor-pointer group/img relative"
-                                                                            title="Click to view photo (Messenger style)"
-                                                                        >
-                                                                            <img
-                                                                                src={att.file_url}
-                                                                                alt={att.file_name || 'Photo'}
-                                                                                className="max-h-64 w-auto rounded-xl object-contain bg-slate-950/40 group-hover/img:scale-[1.02] transition-transform"
-                                                                                loading="lazy"
-                                                                            />
-                                                                            <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                                                                                <div className="px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-sm text-white text-[11px] font-medium flex items-center gap-1 shadow-lg border border-white/10">
-                                                                                    <Maximize2 className="w-3.5 h-3.5" />
-                                                                                    <span>View</span>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (isVideo) {
-                                                                return (
-                                                                    <div key={att.id} className="my-1.5 max-w-[280px] md:max-w-xs rounded-xl overflow-hidden border border-slate-700/70 bg-black/80 shadow-md">
-                                                                        <video
-                                                                            controls
-                                                                            preload="metadata"
-                                                                            className="w-full max-h-72 rounded-t-xl bg-black"
-                                                                        >
-                                                                            <source src={att.file_url} />
-                                                                            Your browser does not support playing this video.
-                                                                        </video>
-                                                                        {att.file_name && (
-                                                                            <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-900/90 text-[10px] text-slate-300">
-                                                                                <span className="flex items-center gap-1.5 truncate">
-                                                                                    <Video className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                                                                                    <span className="truncate">{att.file_name}</span>
-                                                                                </span>
-                                                                                <a
-                                                                                    href={att.file_url}
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
-                                                                                    download={att.file_name}
-                                                                                    className="text-cyan-400 hover:text-cyan-300 ml-2 shrink-0 p-1"
-                                                                                    title="Download video"
-                                                                                >
-                                                                                    <Download className="w-3.5 h-3.5" />
-                                                                                </a>
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (isAudio) {
-                                                                return (
-                                                                    <div key={att.id} className="my-1.5 p-2.5 rounded-xl bg-slate-900/95 border border-slate-700/70 max-w-[280px] md:max-w-xs shadow-md">
-                                                                        <div className="flex items-center justify-between mb-1.5 text-[11px] text-indigo-300">
-                                                                            <span className="flex items-center gap-1.5 font-medium">
-                                                                                <Mic className="w-3.5 h-3.5 text-indigo-400" />
-                                                                                <span>Voice Note / Audio</span>
-                                                                            </span>
-                                                                            {att.file_size ? (
-                                                                                <span className="text-[10px] text-slate-400">
-                                                                                    {(att.file_size / 1024).toFixed(0)} KB
-                                                                                </span>
-                                                                            ) : null}
-                                                                        </div>
-                                                                        <audio controls preload="metadata" className="w-full h-8 rounded">
-                                                                            <source src={att.file_url} />
-                                                                            Your browser does not support audio playback.
-                                                                        </audio>
-                                                                    </div>
-                                                                );
-                                                            }
-
-                                                            if (isPdf) {
-                                                                return (
-                                                                    <a
-                                                                        key={att.id}
-                                                                        href={att.file_url}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="flex items-center gap-3 p-2.5 my-1.5 rounded-xl bg-slate-900/95 border border-rose-500/30 hover:border-rose-400/60 text-slate-200 transition-all max-w-[280px] md:max-w-xs shadow-md group"
-                                                                        title="Open / Download PDF"
-                                                                    >
-                                                                        <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-400 group-hover:scale-105 transition-transform shrink-0">
-                                                                            <FileText className="w-5 h-5" />
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <p className="text-xs font-medium text-slate-100 truncate group-hover:text-rose-300 transition-colors">
-                                                                                {att.file_name || 'Document.pdf'}
-                                                                            </p>
-                                                                            <p className="text-[10px] text-rose-400/80">
-                                                                                PDF Document {att.file_size ? `· ${(att.file_size / 1024).toFixed(0)} KB` : ''}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div className="p-1.5 text-slate-400 group-hover:text-white shrink-0">
-                                                                            <Download className="w-4 h-4" />
-                                                                        </div>
-                                                                    </a>
-                                                                );
-                                                            }
-
-                                                            return (
-                                                                <a
-                                                                    key={att.id}
-                                                                    href={att.file_url}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="flex items-center gap-3 p-2.5 my-1.5 rounded-xl bg-slate-900/95 border border-cyan-500/30 hover:border-cyan-400/60 text-slate-200 transition-all max-w-[280px] md:max-w-xs shadow-md group"
-                                                                    title="Download file"
-                                                                >
-                                                                    <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 group-hover:scale-105 transition-transform shrink-0">
-                                                                        <File className="w-5 h-5" />
-                                                                    </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="text-xs font-medium text-slate-100 truncate group-hover:text-cyan-300 transition-colors">
-                                                                            {att.file_name || 'Attached File'}
-                                                                        </p>
-                                                                        <p className="text-[10px] text-cyan-400/80">
-                                                                            Attachment {att.file_size ? `· ${(att.file_size / 1024).toFixed(0)} KB` : ''}
-                                                                        </p>
-                                                                    </div>
-                                                                    <div className="p-1.5 text-slate-400 group-hover:text-white shrink-0">
-                                                                        <Download className="w-4 h-4" />
-                                                                    </div>
-                                                                </a>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-
-                                                {/* Message Text (Hide placeholder if attachment is already displayed) */}
-                                                {msg.text && (
-                                                    !msg.attachments ||
-                                                    msg.attachments.length === 0 ||
-                                                    ![
-                                                        '📷 [Photo]',
-                                                        '[Photo]',
-                                                        '🎥 [Video]',
-                                                        '[Video]',
-                                                        '🎤 [Voice Message]',
-                                                        '[Voice Message]',
-                                                        '📄 [Document]',
-                                                        '[Document]',
-                                                        '📎 [Attachment]',
-                                                        '[Attachment]',
-                                                    ].includes(msg.text.trim())
-                                                ) && (
-                                                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                                                )}
-                                                {isFailed && (
-                                                    <div className="mt-1.5 pt-1.5 border-t border-rose-400/25 text-[10px] text-rose-300 flex items-center gap-1">
-                                                        <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
-                                                        <span className="truncate">Facebook-এ সেন্ড হয়নি: {msg.metadata?.error || 'Page Token Expired'}</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1">
-                                                {isMod && (
-                                                    <span className="text-slate-400 font-medium">
-                                                        Sent by {senderName || (msg.metadata?.source === 'facebook_page_inbox' ? 'Facebook Page' : 'Moderator')} · 
-                                                    </span>
-                                                )}
-                                                <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                {!isCustomer && (
-                                                    isFailed ? (
-                                                        <span
-                                                            className="inline-flex items-center gap-1 text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/25 ml-1"
-                                                            title={msg.metadata?.error || 'Message delivery failed'}
-                                                        >
-                                                            <AlertCircle className="w-3 h-3 text-rose-400" /> Delivery failed
-                                                        </span>
-                                                    ) : (
-                                                        <CheckCheck className="w-3 h-3 text-indigo-400" />
-                                                    )
-                                                )}
-                                            </div>
-                                        </div>
+                                            msg={msg}
+                                            isCustomer={isCustomer}
+                                            isAi={isAi}
+                                            isMod={isMod}
+                                            isFailed={isFailed}
+                                            senderName={senderName}
+                                            isHighlighted={highlightedMessageId === msg.id}
+                                            onReply={handleStartReply}
+                                            onScrollToMessage={handleScrollToMessage}
+                                            onOpenImageLightbox={handleOpenImageLightbox}
+                                            activeConversation={activeConversation}
+                                        />
                                     );
                                 })
                             )}
@@ -2252,13 +2096,46 @@ export const UnifiedInboxPage = () => {
                                     </div>
                                 )}
 
+                                {/* Messenger-style Reply Preview Bar */}
+                                {replyingToMessage && (
+                                    <div className="flex items-center justify-between p-2 px-3 bg-slate-900/95 border-l-4 border-indigo-500 border-t border-r border-b border-slate-800 rounded-xl mb-1.5 animate-fade-in shadow-lg text-xs">
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                            <div className="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+                                                <Reply className="w-3.5 h-3.5" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-[11px] font-bold text-indigo-300">
+                                                        Replying to {replyingToMessage.sender_name}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-300 truncate leading-tight">
+                                                    {replyingToMessage.text || 'Photo / Attachment'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReplyingToMessage(null)}
+                                            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors shrink-0 ml-2 cursor-pointer"
+                                            title="Cancel reply (Esc)"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+
                                 <div className="relative">
                                     <textarea
+                                        ref={messageInputRef}
                                         rows={2}
                                         value={replyText}
                                         onChange={(e) => setReplyText(e.target.value)}
                                         onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                            if (e.key === 'Escape' && replyingToMessage) {
+                                                e.preventDefault();
+                                                setReplyingToMessage(null);
+                                            } else if (e.key === 'Enter' && !e.shiftKey) {
                                                 e.preventDefault();
                                                 handleSendMessage(e);
                                             }

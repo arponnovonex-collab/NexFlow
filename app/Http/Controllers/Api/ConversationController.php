@@ -123,7 +123,12 @@ class ConversationController extends Controller
             'tags',
             'notes.user:id,name',
             'messages' => function ($q) {
-                $q->orderBy('created_at', 'asc')->with(['senderUser:id,name', 'attachments']);
+                $q->orderBy('created_at', 'asc')->with([
+                    'senderUser:id,name',
+                    'attachments',
+                    'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
+                    'replyTo.senderUser:id,name',
+                ]);
             },
         ]);
 
@@ -197,7 +202,12 @@ class ConversationController extends Controller
 
         $afterId = $request->query('after_id');
         $query = $conversation->messages()
-            ->with(['senderUser:id,name', 'attachments'])
+            ->with([
+                'senderUser:id,name',
+                'attachments',
+                'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
+                'replyTo.senderUser:id,name',
+            ])
             ->orderBy('created_at', 'asc');
 
         if ($afterId) {
@@ -230,6 +240,7 @@ class ConversationController extends Controller
             'image' => 'nullable|file|max:25600',
             'audio' => 'nullable|file|max:25600',
             'media_id' => 'nullable|integer|exists:media_files,id',
+            'reply_to_message_id' => 'nullable|integer|exists:messages,id',
         ]);
 
         $user = $request->user();
@@ -237,6 +248,8 @@ class ConversationController extends Controller
         $text = $request->input('text');
         $uploadedFile = $request->file('file') ?? $request->file('image') ?? $request->file('audio');
         $mediaId = $request->input('media_id');
+        $replyToId = $request->input('reply_to_message_id');
+        $replyToMessage = $replyToId ? Message::with('senderUser:id,name')->find($replyToId) : null;
 
         if (empty(trim((string) $text)) && ! $uploadedFile && ! $mediaId) {
             return response()->json([
@@ -328,14 +341,31 @@ class ConversationController extends Controller
 
         $deliveryError = null;
 
-        $message = DB::transaction(function () use ($conversation, $text, $user, $isNote, $attachmentData, &$deliveryError) {
+        $message = DB::transaction(function () use ($conversation, $text, $user, $isNote, $attachmentData, $replyToMessage, &$deliveryError) {
             $displayText = $text;
             if (empty(trim((string) $displayText)) && $attachmentData) {
                 $displayText = $attachmentData['placeholder'] ?? '📎 [Attachment]';
             }
 
+            $initialMetadata = [];
+            if ($replyToMessage) {
+                $senderName = $replyToMessage->sender_type === 'customer'
+                    ? ($conversation->customer?->name ?: 'Customer')
+                    : ($replyToMessage->senderUser?->name ?: 'Moderator');
+
+                $initialMetadata['reply_to'] = [
+                    'id' => $replyToMessage->id,
+                    'text' => $replyToMessage->text,
+                    'sender_type' => $replyToMessage->sender_type,
+                    'sender_name' => $senderName,
+                    'message_type' => $replyToMessage->message_type,
+                    'created_at' => $replyToMessage->created_at?->toISOString(),
+                ];
+            }
+
             $msg = Message::create([
                 'conversation_id' => $conversation->id,
+                'reply_to_message_id' => $replyToMessage?->id,
                 'sender_type' => $isNote ? 'system' : 'moderator',
                 'sender_user_id' => $user->id,
                 'text' => $displayText,
@@ -344,6 +374,7 @@ class ConversationController extends Controller
                 'is_internal_note' => $isNote,
                 'sent_at' => now(),
                 'platform_message_id' => 'out_' . uniqid(),
+                'metadata' => ! empty($initialMetadata) ? $initialMetadata : null,
             ]);
 
             if ($attachmentData) {
@@ -467,12 +498,25 @@ class ConversationController extends Controller
 
                             // 2. If text was also provided, send the text message to Meta
                             if (! empty(trim((string) $text))) {
+                                $msgPayload = [
+                                    'recipient' => ['id' => $psid],
+                                    'messaging_type' => 'RESPONSE',
+                                    'message' => ['text' => $text],
+                                ];
+
+                                if ($replyToMessage && $replyToMessage->platform_message_id && ! str_starts_with($replyToMessage->platform_message_id, 'out_')) {
+                                    $msgPayload['message']['reply_to'] = ['mid' => $replyToMessage->platform_message_id];
+                                }
+
                                 $textRes = Http::timeout(8)->withToken($pageToken)
-                                    ->post("https://graph.facebook.com/{$version}/me/messages", [
-                                        'recipient' => ['id' => $psid],
-                                        'messaging_type' => 'RESPONSE',
-                                        'message' => ['text' => $text],
-                                    ]);
+                                    ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
+
+                                // Fallback without reply_to if rejected with 400
+                                if (! $textRes->successful() && isset($msgPayload['message']['reply_to'])) {
+                                    unset($msgPayload['message']['reply_to']);
+                                    $textRes = Http::timeout(8)->withToken($pageToken)
+                                        ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
+                                }
 
                                 if (! $textRes->successful() && in_array($textRes->status(), [400, 403])) {
                                     $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
@@ -483,11 +527,7 @@ class ConversationController extends Controller
                                         $pageToken = $pageRes->json('access_token');
                                         $account->update(['access_token' => $pageToken]);
                                         $textRes = Http::timeout(8)->withToken($pageToken)
-                                            ->post("https://graph.facebook.com/{$version}/me/messages", [
-                                                'recipient' => ['id' => $psid],
-                                                'messaging_type' => 'RESPONSE',
-                                                'message' => ['text' => $text],
-                                            ]);
+                                            ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
                                     }
                                 }
 
@@ -582,6 +622,13 @@ class ConversationController extends Controller
             return $msg;
         });
 
+        $loadRelations = [
+            'senderUser:id,name',
+            'attachments',
+            'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
+            'replyTo.senderUser:id,name',
+        ];
+
         if ($deliveryError && $message->delivery_status === 'failed') {
             $isExpired = str_contains($deliveryError, 'expired') || str_contains($deliveryError, 'access token');
             $userFacingMsg = $isExpired
@@ -592,14 +639,14 @@ class ConversationController extends Controller
                 'status' => 'failed',
                 'message' => $userFacingMsg,
                 'delivery_error' => $deliveryError,
-                'data' => $message->load(['senderUser:id,name', 'attachments']),
+                'data' => $message->load($loadRelations),
             ], 422);
         }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Message sent successfully',
-            'data' => $message->load(['senderUser:id,name', 'attachments']),
+            'data' => $message->load($loadRelations),
         ]);
     }
 
@@ -863,7 +910,12 @@ class ConversationController extends Controller
         $count = $this->syncRemoteMessages($conversation);
         $conversation->load([
             'messages' => function ($q) {
-                $q->orderBy('created_at', 'asc')->with(['senderUser:id,name', 'attachments']);
+                $q->orderBy('created_at', 'asc')->with([
+                    'senderUser:id,name',
+                    'attachments',
+                    'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
+                    'replyTo.senderUser:id,name',
+                ]);
             },
         ]);
 

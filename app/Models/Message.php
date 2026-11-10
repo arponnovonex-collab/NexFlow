@@ -10,6 +10,7 @@ class Message extends Model
 {
     protected $fillable = [
         'conversation_id',
+        'reply_to_message_id',
         'sender_type',
         'sender_user_id',
         'platform_message_id',
@@ -35,6 +36,11 @@ class Message extends Model
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(Conversation::class);
+    }
+
+    public function replyTo(): BelongsTo
+    {
+        return $this->belongsTo(Message::class, 'reply_to_message_id');
     }
 
     public function senderUser(): BelongsTo
