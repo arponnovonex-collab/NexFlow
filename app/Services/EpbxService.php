@@ -82,37 +82,52 @@ class EpbxService
         $baseUrl = rtrim($settings->api_base_url, '/');
 
         try {
-            // First try GET /balance or /account endpoint
-            $response = Http::timeout(8)
+            // ePBX.bd official endpoints: /ping, /balance/global, /balance/ip
+            $pingRes = Http::timeout(8)
                 ->withToken($settings->api_token)
                 ->acceptJson()
-                ->get("{$baseUrl}/balance");
+                ->get("{$baseUrl}/ping");
 
-            if (! $response->successful()) {
-                $response = Http::timeout(8)
-                    ->withToken($settings->api_token)
-                    ->acceptJson()
-                    ->get("{$baseUrl}/account");
-            }
+            $globalBalanceRes = Http::timeout(8)
+                ->withToken($settings->api_token)
+                ->acceptJson()
+                ->get("{$baseUrl}/balance/global");
 
-            if ($response->successful()) {
-                $data = $response->json();
-                $balance = $data['balance'] ?? $data['data']['balance'] ?? $data['credit'] ?? null;
+            $ipBalanceRes = Http::timeout(8)
+                ->withToken($settings->api_token)
+                ->acceptJson()
+                ->get("{$baseUrl}/balance/ip");
 
-                $settings->update([
+            if ($globalBalanceRes->successful() || $ipBalanceRes->successful() || $pingRes->successful()) {
+                $globalData = $globalBalanceRes->successful() ? $globalBalanceRes->json() : [];
+                $ipData = $ipBalanceRes->successful() ? $ipBalanceRes->json() : [];
+                
+                $balance = $globalData['balance'] ?? $ipData['balance'] ?? $settings->last_balance;
+                $trunkFromApi = $ipData['trunk_username'] ?? null;
+
+                $updateData = [
                     'last_balance' => $balance !== null ? (float) $balance : $settings->last_balance,
                     'last_checked_at' => now(),
-                ]);
+                ];
+
+                if (! empty($trunkFromApi) && empty($settings->trunk_number)) {
+                    $updateData['trunk_number'] = $trunkFromApi;
+                }
+
+                $settings->update($updateData);
 
                 return [
                     'success' => true,
                     'message' => 'Successfully connected to ePBX.bd server!',
                     'balance' => $settings->last_balance,
-                    'data' => $data,
+                    'data' => [
+                        'global' => $globalData,
+                        'ip_trunk' => $ipData,
+                    ],
                 ];
             }
 
-            $errMsg = $response->json('message') ?? $response->json('error') ?? 'HTTP ' . $response->status();
+            $errMsg = $globalBalanceRes->json('message') ?? $pingRes->json('message') ?? 'HTTP ' . $globalBalanceRes->status();
 
             return [
                 'success' => false,
@@ -183,11 +198,13 @@ class EpbxService
         $baseUrl = rtrim($settings->api_base_url, '/');
 
         try {
-            // ePBX.bd originate endpoint: POST /calls/originate or /click-to-call
+            // ePBX.bd originate endpoint: POST /calls/originate
             $payload = [
                 'extension' => (string) $extension,
+                'phone_number' => $formattedPhone,
                 'destination' => $formattedPhone,
                 'caller_id' => $trunk,
+                'webhook_url' => url('/api/webhooks/epbx'),
                 'custom_id' => (string) $callLog->id,
             ];
 
@@ -308,4 +325,71 @@ class EpbxService
 
         return false;
     }
+
+    /**
+     * Fetch and sync call history directly from ePBX.bd server.
+     */
+    public function syncCallHistory(int $perPage = 25): array
+    {
+        $settings = $this->getSettings();
+        if (empty($settings->api_token)) {
+            return ['success' => false, 'message' => 'API token missing'];
+        }
+
+        $baseUrl = rtrim($settings->api_base_url, '/');
+        try {
+            $response = Http::timeout(12)
+                ->withToken($settings->api_token)
+                ->acceptJson()
+                ->get("{$baseUrl}/calls/history", [
+                    'per_page' => $perPage,
+                ]);
+
+            if ($response->successful()) {
+                $items = $response->json('data') ?? [];
+                $imported = 0;
+                foreach ($items as $item) {
+                    $uniqueId = $item['uniqueid'] ?? $item['id'] ?? null;
+                    if (! $uniqueId) {
+                        continue;
+                    }
+
+                    $dest = $item['destination'] ?? $item['phone_number'] ?? '';
+                    $cleanPhone = $this->formatPhoneNumber($dest);
+                    $customer = Customer::where('phone', $cleanPhone)->first();
+                    $disp = strtoupper($item['disposition'] ?? 'ANSWERED');
+                    $status = match ($disp) {
+                        'ANSWERED' => 'answered',
+                        'BUSY' => 'busy',
+                        'NO ANSWER' => 'no_answer',
+                        'FAILED' => 'failed',
+                        default => 'answered',
+                    };
+
+                    CallLog::updateOrCreate(
+                        ['call_session_id' => (string) $uniqueId],
+                        [
+                            'direction' => 'outbound',
+                            'customer_phone' => $cleanPhone ?: $dest,
+                            'customer_id' => $customer?->id,
+                            'agent_extension' => (string) ($item['source'] ?? $settings->default_extension ?: '101'),
+                            'trunk_number' => $settings->trunk_number,
+                            'status' => $status,
+                            'duration_seconds' => (int) ($item['duration'] ?? $item['billsec'] ?? 0),
+                            'recording_url' => $item['recording_url'] ?? null,
+                            'started_at' => ! empty($item['call_date']) ? $item['call_date'] : now(),
+                        ]
+                    );
+                    $imported++;
+                }
+
+                return ['success' => true, 'message' => "Successfully synced {$imported} calls from ePBX.bd."];
+            }
+
+            return ['success' => false, 'message' => 'ePBX History sync failed: ' . $response->body()];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
 }
+

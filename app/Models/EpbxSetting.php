@@ -29,3 +29,4 @@ class EpbxSetting extends Model
         'last_checked_at' => 'datetime',
     ];
 }
+

@@ -45,6 +45,7 @@ export const IpCallPage = () => {
     // CDR Logs state
     const [callLogs, setCallLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(true);
+    const [syncingLogs, setSyncingLogs] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
 
@@ -100,6 +101,19 @@ export const IpCallPage = () => {
             console.error('Failed to load call logs:', err);
         } finally {
             setLogsLoading(false);
+        }
+    };
+
+    const handleSyncEpbxHistory = async () => {
+        setSyncingLogs(true);
+        try {
+            const res = await api.post('/call-center/sync-logs');
+            alert(res.data.message || 'Call history synced with ePBX!');
+            fetchCallLogs();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to sync call history with ePBX. Please verify API Token.');
+        } finally {
+            setSyncingLogs(false);
         }
     };
 
@@ -474,6 +488,16 @@ export const IpCallPage = () => {
                                     size="xs"
                                     variant="secondary"
                                     icon={RefreshCw}
+                                    loading={syncingLogs}
+                                    onClick={handleSyncEpbxHistory}
+                                    title="ePBX.bd সার্ভার থেকে অতীত কলের হিস্ট্রি সরাসরি সিঙ্ক করুন"
+                                >
+                                    Sync ePBX
+                                </Button>
+                                <Button
+                                    size="xs"
+                                    variant="secondary"
+                                    icon={RefreshCw}
                                     loading={logsLoading}
                                     onClick={fetchCallLogs}
                                     title="Reload call logs"
@@ -604,3 +628,4 @@ export const IpCallPage = () => {
         </div>
     );
 };
+

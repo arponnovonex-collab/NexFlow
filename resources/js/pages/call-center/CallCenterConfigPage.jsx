@@ -32,7 +32,7 @@ export const CallCenterConfigPage = () => {
     const [copiedWebhook, setCopiedWebhook] = useState(false);
 
     // Form state
-    const [apiBaseUrl, setApiBaseUrl] = useState('https://epbx.bd/api/v1');
+    const [apiBaseUrl, setApiBaseUrl] = useState('https://auliro010.epbx.bd/api/v1');
     const [apiToken, setApiToken] = useState('');
     const [trunkNumber, setTrunkNumber] = useState('');
     const [defaultExtension, setDefaultExtension] = useState('101');
@@ -227,10 +227,10 @@ export const CallCenterConfigPage = () => {
                                 required
                                 value={apiBaseUrl}
                                 onChange={(e) => setApiBaseUrl(e.target.value)}
-                                placeholder="https://epbx.bd/api/v1"
+                                placeholder="https://auliro010.epbx.bd/api/v1"
                                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
                             />
-                            <p className="text-[10px] text-slate-400 mt-1">Default ePBX.bd REST endpoint: <code>https://epbx.bd/api/v1</code></p>
+                            <p className="text-[10px] text-slate-400 mt-1">Tenant ePBX endpoint: <code>https://auliro010.epbx.bd/api/v1</code></p>
                         </div>
 
                         {/* Outbound Trunk Caller ID */}
@@ -335,16 +335,24 @@ export const CallCenterConfigPage = () => {
             <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/20 space-y-2 text-xs text-indigo-200/90">
                 <div className="font-semibold text-indigo-300 flex items-center gap-2">
                     <HelpCircle className="w-4 h-4 text-indigo-400" />
-                    ePBX.bd কানেক্ট করার নির্দেশিকা:
+                    ePBX.bd (auliro010) কানেক্ট ও Webhook বসানোর নির্দেশিকা:
                 </div>
-                <ul className="list-disc list-inside space-y-1 text-[11px] text-indigo-200/80 leading-relaxed">
-                    <li><strong>epbx.bd</strong> পোর্টালে আপনার একাউন্টে লগইন করুন।</li>
-                    <li>ড্যাশবোর্ড থেকে <strong>Developer API / REST API Settings</strong> পেজে যান।</li>
-                    <li>সেখান থেকে একটি <strong>API Bearer Token</strong> জেনারেট করে উপরের ফিল্ডে পেস্ট করুন।</li>
-                    <li>আপনার আইপি টেলিফোনি ট্রাঙ্ক নম্বর (যেমন <code>096xxxxxxxx</code>) এবং আপনার সফটফোন/আইপি ফোনের এক্সটেনশন (যেমন <code>101</code>) দিন।</li>
-                    <li>উপরে থাকা <strong>Webhook URL</strong> টি কপি করে ePBX.bd-এর Webhook সেকশনে দিয়ে সেভ করুন যাতে প্রতিটি কলের অডিও রেকর্ডিং ও ডিউরেশন CRM-এ চলে আসে।</li>
+                <ul className="list-disc list-inside space-y-1.5 text-[11px] text-indigo-200/80 leading-relaxed">
+                    <li>আপনার ePBX পোর্টালে যান: <strong>auliro010.epbx.bd/portal/developer</strong></li>
+                    <li>পেজের উপরে <strong>Create New API Key</strong> থেকে টোকেনের নাম দিয়ে <strong>Generate API Token</strong> বাটনে ক্লিক করে Bearer Token-টি কপি করে এখানে দিন।</li>
+                    <li>আপনার আউটবাউন্ড ট্রাঙ্ক নম্বর দিন (যেমন: <code>09639666896</code>) এবং এজেন্টের এক্সটেনশন দিন (ডিফল্ট: <code>101</code>)।</li>
+                    <li>
+                        <strong>Webhook বসানোর জায়গা:</strong> 
+                        <span className="block pl-4 mt-0.5 text-slate-300">
+                            ১. <strong>auliro010.epbx.bd/portal/developer</strong> পেজের নিচে থাকা <strong>"Webhook Callback Tester (ওয়েবহুক টেস্ট টুল)"</strong>-এর <strong>Target Webhook URL</strong> বক্সে এই লিংকটি দিয়ে <strong>"Send Test Ping"</strong> বাটনে ক্লিক করে কানেকশন যাচাই করুন।
+                        </span>
+                        <span className="block pl-4 mt-0.5 text-slate-300">
+                            ২. এছাড়া <strong>Campaigns</strong> বা ভয়েস ক্যাম্পেইনে <strong>webhook_url</strong> ফিল্ডে এই লিংকটি দিয়ে দিলে কাস্টমারের কলের প্রতিটি ফলাফল ও অডিও রেকর্ডিং সাথে সাথে NexFlow-তে চলে আসবে।
+                        </span>
+                    </li>
                 </ul>
             </div>
         </div>
     );
 };
+

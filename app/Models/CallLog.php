@@ -49,3 +49,4 @@ class CallLog extends Model
         return $this->belongsTo(User::class, 'agent_user_id');
     }
 }
+

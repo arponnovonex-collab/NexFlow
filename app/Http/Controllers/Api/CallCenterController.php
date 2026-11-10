@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Services\EpbxService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 
 class CallCenterController extends Controller
 {
@@ -212,4 +213,46 @@ class CallCenterController extends Controller
             ] : null,
         ]);
     }
+
+    /**
+     * Pull and sync call history directly from ePBX.bd server.
+     */
+    public function syncLogs(): JsonResponse
+    {
+        $result = $this->epbxService->syncCallHistory();
+
+        return response()->json([
+            'status' => $result['success'] ? 'success' : 'error',
+            'message' => $result['message'],
+        ], $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Stream authenticated audio recording from ePBX.bd.
+     */
+    public function streamRecording(string $uniqueid)
+    {
+        $settings = $this->epbxService->getSettings();
+        $baseUrl = rtrim($settings->api_base_url, '/');
+
+        if (empty($settings->api_token)) {
+            abort(401, 'ePBX API Token is not configured.');
+        }
+
+        try {
+            $response = Http::timeout(15)
+                ->withToken($settings->api_token)
+                ->get("{$baseUrl}/calls/recordings/{$uniqueid}");
+
+            if ($response->successful()) {
+                return response($response->body(), 200)
+                    ->header('Content-Type', $response->header('Content-Type') ?: 'audio/wav');
+            }
+
+            return response('Recording unavailable or expired.', $response->status());
+        } catch (\Throwable $e) {
+            return response('Error fetching recording: ' . $e->getMessage(), 500);
+        }
+    }
 }
+
