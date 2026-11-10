@@ -162,20 +162,25 @@ class SocialAccountController extends Controller
         // Fallback probe endpoint with the resolved token
         try {
             $probeTarget = $accountId ?: 'me';
+            $fields = ($platform === 'whatsapp_cloud') ? 'id,verified_name,display_phone_number' : 'id,name,username';
             $probeRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$probeTarget}", [
-                'fields' => 'id,name,username',
+                'fields' => $fields,
                 'access_token' => $resolvedToken,
             ]);
 
             if ($probeRes->successful()) {
+                $resolvedName = ($platform === 'whatsapp_cloud')
+                    ? ($probeRes->json('verified_name') ?: $probeRes->json('display_phone_number') ?: $resolvedName)
+                    : ($probeRes->json('name') ?: $probeRes->json('username') ?: $resolvedName);
+
                 return [
                     'is_valid' => true,
                     'is_permanent' => true,
                     'expires_at' => null,
-                    'type' => 'PAGE',
+                    'type' => ($platform === 'whatsapp_cloud') ? 'WHATSAPP' : 'PAGE',
                     'error' => null,
                     'resolved_token' => $resolvedToken,
-                    'resolved_name' => $probeRes->json('name') ?: $probeRes->json('username') ?: $resolvedName,
+                    'resolved_name' => $resolvedName,
                 ];
             }
 

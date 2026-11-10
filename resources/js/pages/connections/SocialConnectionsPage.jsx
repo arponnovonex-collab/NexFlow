@@ -4,7 +4,7 @@ import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
-import { Facebook, Instagram } from '../../components/common/SocialIcons';
+import { Facebook, Instagram, WhatsApp } from '../../components/common/SocialIcons';
 import {
     Share2,
     CheckCircle2,
@@ -231,7 +231,7 @@ export const SocialConnectionsPage = () => {
                                                         isFB ? 'bg-blue-600' : isIG ? 'bg-pink-600' : 'bg-emerald-600'
                                                     }`}
                                                 >
-                                                    {isFB ? <Facebook className="w-2.5 h-2.5" /> : isIG ? <Instagram className="w-2.5 h-2.5" /> : <PhoneCall className="w-2.5 h-2.5" />}
+                                                    {isFB ? <Facebook className="w-2.5 h-2.5" /> : isIG ? <Instagram className="w-2.5 h-2.5" /> : <WhatsApp className="w-2.5 h-2.5" />}
                                                 </span>
                                             </div>
                                             <div className="min-w-0">
@@ -465,6 +465,21 @@ export const SocialConnectionsPage = () => {
                         </div>
                     )}
 
+                    {connectForm.platform === 'whatsapp_cloud' && (
+                        <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200/90 space-y-1.5">
+                            <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                                <WhatsApp className="w-3.5 h-3.5" /> হোয়াটসঅ্যাপ কানেক্ট করার প্রয়োজনীয় গাইড:
+                            </div>
+                            <ul className="list-disc list-inside space-y-1 text-[11px] text-emerald-100/80">
+                                <li><strong>developers.facebook.com</strong>-এ গিয়ে আপনার মেটা অ্যাপে <strong>WhatsApp</strong> প্রোডাক্ট সেটআপ করুন।</li>
+                                <li>WhatsApp &rarr; API Setup পেজ থেকে <strong>Phone Number ID</strong> (প্রায় ১৫ ডিজিটের সংখ্যা) কপি করে নিচে দিন।</li>
+                                <li>আপনার হোয়াটসঅ্যাপ বিজনেস ফোন নম্বরটি দিন (যেমন: <code>+88018xxxxxxxx</code>)।</li>
+                                <li>একটি <strong>Permanent System User Access Token</strong> তৈরি করে নিচে দিন (পারমিশন: <code>whatsapp_business_messaging</code> ও <code>whatsapp_business_management</code>)।</li>
+                                <li>মেটা পোর্টালে Webhook URL দিন: <code>https://nexflow.auliro.xyz/api/webhooks/whatsapp</code> (Verify Token: <code>nexflow_secure_webhook_token_2026</code>) এবং <strong>messages</strong> সাবস্ক্রাইব করুন।</li>
+                            </ul>
+                        </div>
+                    )}
+
                     <div>
                         <label className="block text-xs font-medium text-slate-300 mb-1">
                             {connectForm.platform === 'instagram_business'
@@ -553,7 +568,7 @@ export const SocialConnectionsPage = () => {
                     </div>
 
                     <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-300">
-                        💡 <strong>টিপস:</strong> সাময়িক ইউজার টোকেন ১-২ ঘণ্টা পর মেয়াদ শেষ হয়ে যায়। পেইজের জন্য <strong>Lifetime / Permanent Page Access Token</strong> ব্যবহার করলে এই চ্যানেলের টোকেন আর কখনো এক্সপায়ার হবে না।
+                        💡 <strong>টিপস:</strong> সাময়িক ইউজার টোকেন ১-২ ঘণ্টা পর মেয়াদ শেষ হয়ে যায়। ফেসবুক/ইনস্টাগ্রামের জন্য <strong>Permanent Page Access Token</strong> এবং হোয়াটসঅ্যাপের জন্য <strong>System User Permanent Token</strong> ব্যবহার করলে চ্যানেলের টোকেন আর কখনো এক্সপায়ার হবে না।
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">

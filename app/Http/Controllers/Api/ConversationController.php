@@ -561,6 +561,7 @@ class ConversationController extends Controller
                             }
                         } elseif ($account->platform === 'whatsapp_cloud') {
                             $phoneId = $account->account_id;
+                            $targetRecipient = preg_replace('/[^0-9]/', '', (string) $psid);
                             $publicUrl = $attachmentData ? url($attachmentData['file_url']) : null;
                             if ($publicUrl) {
                                 $waType = match ($attachmentData['file_type']) {
@@ -571,7 +572,7 @@ class ConversationController extends Controller
                                 };
                                 $waPayload = [
                                     'messaging_product' => 'whatsapp',
-                                    'to' => $psid,
+                                    'to' => $targetRecipient,
                                     'type' => $waType,
                                     $waType => array_filter([
                                         'link' => $publicUrl,
@@ -582,7 +583,7 @@ class ConversationController extends Controller
                             } else {
                                 $waPayload = [
                                     'messaging_product' => 'whatsapp',
-                                    'to' => $psid,
+                                    'to' => $targetRecipient,
                                     'type' => 'text',
                                     'text' => ['body' => $text],
                                 ];

@@ -85,6 +85,8 @@ class MetaWebhookController extends Controller
                     foreach ($entry['changes'] as $change) {
                         if (($change['field'] ?? '') === 'feed') {
                             $this->processFeedCommentInstant($change['value'] ?? [], $account, $pendingCommentTasks);
+                        } elseif (($change['field'] ?? '') === 'messages') {
+                            $this->processWhatsAppChangeInstant($change['value'] ?? [], $pendingMessengerTasks);
                         }
                     }
                 }
@@ -592,6 +594,141 @@ class MetaWebhookController extends Controller
                     ]);
                 }
             }
+        }
+    }
+
+    /**
+     * Process incoming WhatsApp Cloud API messages and status updates.
+     */
+    protected function processWhatsAppChangeInstant(array $value, array &$pendingTasks): void
+    {
+        $phoneId = $value['metadata']['phone_number_id'] ?? null;
+        if (! $phoneId) {
+            return;
+        }
+
+        $account = SocialAccount::where('platform', 'whatsapp_cloud')
+            ->where('account_id', (string) $phoneId)
+            ->first();
+
+        if (! $account) {
+            $displayPhone = $value['metadata']['display_phone_number'] ?? null;
+            if ($displayPhone) {
+                $account = SocialAccount::where('platform', 'whatsapp_cloud')
+                    ->where('username', 'like', "%{$displayPhone}%")
+                    ->first();
+            }
+        }
+
+        $contacts = $value['contacts'] ?? [];
+        $contactMap = [];
+        foreach ($contacts as $c) {
+            $contactMap[$c['wa_id']] = $c['profile']['name'] ?? null;
+        }
+
+        $messages = $value['messages'] ?? [];
+        foreach ($messages as $msg) {
+            $fromWaId = $msg['from'] ?? null; // e.g. 88017xxxxxxxx
+            $msgId = $msg['id'] ?? null;
+            $msgType = $msg['type'] ?? 'text';
+            $msgText = '';
+
+            if ($msgType === 'text') {
+                $msgText = $msg['text']['body'] ?? '';
+            } elseif ($msgType === 'image') {
+                $msgText = $msg['image']['caption'] ?? '📷 [Photo]';
+            } elseif ($msgType === 'audio' || $msgType === 'voice') {
+                $msgText = '🎤 [Voice Note]';
+            } elseif ($msgType === 'video') {
+                $msgText = $msg['video']['caption'] ?? '🎥 [Video]';
+            } elseif ($msgType === 'document') {
+                $msgText = $msg['document']['filename'] ?? '📄 [Document]';
+            } else {
+                $msgText = "📎 [{$msgType}]";
+            }
+
+            if (! $fromWaId || ! $msgId) {
+                continue;
+            }
+
+            // Deduplicate if already saved
+            if (Message::where('platform_message_id', $msgId)->exists()) {
+                continue;
+            }
+
+            $customerName = $contactMap[$fromWaId] ?? "WhatsApp Customer (+{$fromWaId})";
+            $cleanPhone = '+' . ltrim($fromWaId, '+');
+
+            // Find or create Customer
+            $customer = Customer::where('phone', $cleanPhone)
+                ->orWhere('phone', $fromWaId)
+                ->first();
+
+            if (! $customer) {
+                $customer = Customer::create([
+                    'name' => $customerName,
+                    'phone' => $cleanPhone,
+                ]);
+            } elseif (str_starts_with($customer->name, 'WhatsApp Customer') && ! empty($contactMap[$fromWaId])) {
+                $customer->update(['name' => $contactMap[$fromWaId]]);
+            }
+
+            // Find or create Channel Identity
+            if ($account) {
+                CustomerChannelIdentity::firstOrCreate(
+                    [
+                        'customer_id' => $customer->id,
+                        'social_account_id' => $account->id,
+                        'platform' => 'whatsapp_cloud',
+                        'platform_customer_id' => $fromWaId,
+                    ],
+                    [
+                        'profile_name' => $customerName,
+                    ]
+                );
+            }
+
+            // Find or create Conversation
+            $channelConvId = 't_wa_' . $fromWaId;
+            $conversation = Conversation::where('channel_conversation_id', $channelConvId)
+                ->orWhere(function ($q) use ($account, $customer) {
+                    if ($account) {
+                        $q->where('social_account_id', $account->id)->where('customer_id', $customer->id);
+                    }
+                })
+                ->first();
+
+            if (! $conversation) {
+                $conversation = Conversation::create([
+                    'social_account_id' => $account ? $account->id : 1,
+                    'customer_id' => $customer->id,
+                    'platform' => 'whatsapp_cloud',
+                    'channel_conversation_id' => $channelConvId,
+                    'status' => 'pending',
+                    'ai_mode' => 'auto',
+                    'is_human_takeover' => false,
+                    'last_message_at' => now(),
+                    'unread_count' => 1,
+                ]);
+            } else {
+                $conversation->increment('unread_count');
+                $conversation->update(['last_message_at' => now()]);
+            }
+
+            // Store Message
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'customer',
+                'platform_message_id' => $msgId,
+                'text' => $msgText,
+                'message_type' => $msgType === 'text' ? 'text' : 'attachment',
+                'delivery_status' => 'delivered',
+                'sent_at' => now(),
+                'metadata' => [
+                    'source' => 'whatsapp_cloud',
+                    'wa_id' => $fromWaId,
+                ],
+            ]);
         }
     }
 }
