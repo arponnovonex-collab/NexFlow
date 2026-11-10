@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../../api/client';
+import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -31,27 +32,37 @@ import {
     Check,
     Headphones,
     Mic,
+    MicOff,
     Sparkles,
-    LayoutPanelLeft,
-    X,
     Info,
+    Radio,
 } from 'lucide-react';
 
 export const IpCallPage = () => {
-    // Dialer state
+    // WebRTC SIP Phone from Context
+    const {
+        sipStatus,
+        statusMessage,
+        credentials,
+        callState: sipCallState,
+        callDirection: sipCallDirection,
+        callNumber: sipCallNumber,
+        callDuration: sipCallDuration,
+        isMuted,
+        makeCall,
+        hangupCall,
+        toggleMute,
+        sendDTMF,
+        reconnect,
+    } = useSipPhone();
+
+    // Local dialer input
     const [phoneNumber, setPhoneNumber] = useState('');
-    const [agentExtension, setAgentExtension] = useState('101');
-    const [extensionPassword, setExtensionPassword] = useState('MJt#27766');
-    const [webDialerUrl, setWebDialerUrl] = useState('https://auliro010.epbx.bd/dialer');
     const [customerMatch, setCustomerMatch] = useState(null);
     const [lookupLoading, setLookupLoading] = useState(false);
-    const [showDockedDialer, setShowDockedDialer] = useState(false);
     const [copiedPass, setCopiedPass] = useState(false);
 
-    // Call execution state
-    const [callState, setCallState] = useState('idle'); // 'idle' | 'calling' | 'ringing' | 'connected' | 'ended'
-    const [activeCallLog, setActiveCallLog] = useState(null);
-    const [callDuration, setCallDuration] = useState(0);
+    // Call notes and disposition
     const [callNotes, setCallNotes] = useState('');
     const [callDisposition, setCallDisposition] = useState('');
     const [savingNotes, setSavingNotes] = useState(false);
@@ -66,7 +77,6 @@ export const IpCallPage = () => {
     // Audio player state
     const [playingRecordingId, setPlayingRecordingId] = useState(null);
     const audioRef = useRef(null);
-    const timerRef = useRef(null);
 
     // Keypad numbers
     const keypadKeys = [
@@ -84,12 +94,10 @@ export const IpCallPage = () => {
         { digit: '#', sub: '' },
     ];
 
-    // Load initial settings and logs
+    // Load initial logs and check URL phone parameter
     useEffect(() => {
-        loadSettings();
         fetchCallLogs();
 
-        // Check if phone number was passed via URL query param (e.g. from Orders/Customers page)
         try {
             const params = new URLSearchParams(window.location.search);
             const targetPhone = params.get('phone');
@@ -101,33 +109,12 @@ export const IpCallPage = () => {
         }
     }, []);
 
-    const loadSettings = async () => {
-        try {
-            const res = await api.get('/call-center/settings');
-            const data = res.data.data;
-            if (data?.default_extension) {
-                setAgentExtension(data.default_extension);
-            }
-            if (data?.extension_password) {
-                setExtensionPassword(data.extension_password);
-            }
-            if (data?.web_dialer_url) {
-                setWebDialerUrl(data.web_dialer_url);
-            }
-        } catch (err) {
-            console.error('Failed to load extension settings:', err);
+    // When SIP call number changes, update local state
+    useEffect(() => {
+        if (sipCallNumber && sipCallState !== 'idle') {
+            setPhoneNumber(sipCallNumber);
         }
-    };
-
-    const handleLaunchWebPhone = () => {
-        window.open(webDialerUrl, 'ePBX_WebPhone', 'width=420,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
-    };
-
-    const handleCopyPassword = () => {
-        navigator.clipboard.writeText(extensionPassword);
-        setCopiedPass(true);
-        setTimeout(() => setCopiedPass(false), 2000);
-    };
+    }, [sipCallNumber, sipCallState]);
 
     const fetchCallLogs = async () => {
         try {
@@ -184,85 +171,64 @@ export const IpCallPage = () => {
         return () => clearTimeout(timer);
     }, [phoneNumber]);
 
-    // Active Call Timer
-    useEffect(() => {
-        if (callState === 'connected') {
-            timerRef.current = setInterval(() => {
-                setCallDuration((prev) => prev + 1);
-            }, 1000);
-        } else if (callState === 'idle' || callState === 'ended') {
-            if (timerRef.current) clearInterval(timerRef.current);
-        }
-        return () => {
-            if (timerRef.current) clearInterval(timerRef.current);
-        };
-    }, [callState]);
-
     const handleDigitClick = (digit) => {
-        if (callState !== 'idle') return;
-        setPhoneNumber((prev) => prev + digit);
+        sendDTMF(digit);
+        if (sipCallState === 'idle') {
+            setPhoneNumber((prev) => prev + digit);
+        }
     };
 
     const handleBackspace = () => {
-        if (callState !== 'idle') return;
+        if (sipCallState !== 'idle') return;
         setPhoneNumber((prev) => prev.slice(0, -1));
     };
 
     const handleClear = () => {
-        if (callState !== 'idle') return;
+        if (sipCallState !== 'idle') return;
         setPhoneNumber('');
         setCustomerMatch(null);
     };
 
-    // Trigger Outbound Call
-    const handleStartCall = async (targetPhone = null) => {
+    // Trigger Direct Outbound WebRTC Call
+    const handleStartCall = (targetPhone = null) => {
         const numberToCall = targetPhone || phoneNumber;
         const clean = numberToCall.replace(/[^0-9]/g, '');
-        if (clean.length < 6) {
+        if (clean.length < 5) {
             alert('Please enter a valid phone number.');
             return;
         }
 
-        setCallState('calling');
-        setCallDuration(0);
         setCallNotes('');
         setCallDisposition('');
-
-        try {
-            const res = await api.post('/call-center/originate', {
-                phone: clean,
-                extension: agentExtension,
-            });
-
-            const log = res.data.call_log;
-            setActiveCallLog(log);
-            setCallState('ringing');
-        } catch (err) {
-            alert(err.response?.data?.message || 'Failed to initiate call via ePBX.');
-            setCallState('idle');
-            setActiveCallLog(null);
-        }
+        makeCall(clean);
     };
 
     const handleEndCall = () => {
-        setCallState('ended');
-        fetchCallLogs();
+        hangupCall();
+        setTimeout(fetchCallLogs, 1500);
     };
 
     const handleSaveCallNotes = async () => {
-        if (!activeCallLog?.id) return;
+        const phone = sipCallNumber || phoneNumber;
+        if (!phone) return;
+
         setSavingNotes(true);
         try {
-            await api.put(`/call-center/logs/${activeCallLog.id}`, {
+            await api.post('/call-center/logs', {
+                direction: sipCallDirection || 'outbound',
+                customer_phone: phone,
+                status: sipCallState === 'connected' ? 'answered' : 'completed',
+                duration_seconds: sipCallDuration,
                 disposition: callDisposition,
                 notes: callNotes,
             });
-            alert('Call notes & disposition saved.');
+
+            alert('Call notes & disposition saved to CRM.');
+            setCallNotes('');
+            setCallDisposition('');
             fetchCallLogs();
-            setCallState('idle');
-            setActiveCallLog(null);
         } catch (err) {
-            alert('Failed to save notes.');
+            alert('Failed to save call notes.');
         } finally {
             setSavingNotes(false);
         }
@@ -290,9 +256,11 @@ export const IpCallPage = () => {
         }
     };
 
+    const isOnline = sipStatus === 'registered';
+
     return (
         <div className="space-y-6">
-            {/* Audio player element */}
+            {/* Audio player element for CDR recordings */}
             <audio
                 ref={audioRef}
                 onEnded={() => setPlayingRecordingId(null)}
@@ -304,74 +272,96 @@ export const IpCallPage = () => {
                 <div>
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
                         <Phone className="w-6 h-6 text-emerald-400" />
-                        IP Call & Web Dialer
+                        ইন-ব্রাউজার ওয়েব ডায়লার ও আইপি কল (ePBX.bd)
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        Conduct outbound phone calls via ePBX.bd with live customer lookup, call recording, and instant order disposition.
+                        সরাসরি ব্রাউজার থেকেই কাস্টমারকে কল দিন এবং ইনকামিং কল রিসিভ করুন — কোনো আলাদা সফটওয়্যার বা অ্যাপ লাগবে না।
                     </p>
                 </div>
+
                 <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300">
-                        <span className="text-slate-400">Agent Ext:</span>
-                        <input
-                            type="text"
-                            value={agentExtension}
-                            onChange={(e) => setAgentExtension(e.target.value)}
-                            placeholder="101"
-                            className="w-12 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-center font-mono text-emerald-400 font-bold focus:outline-none"
-                            title="Current SIP extension"
-                        />
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                        <span className="text-slate-400">Extension:</span>
+                        <span className="font-mono text-emerald-400 font-bold">{credentials.extension}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Softphone & MicroSIP Connection Bar */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+            {/* Real-time WebRTC SIP Phone Status Bar */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-emerald-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
                 <div className="flex items-start sm:items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
-                        <Headphones className="w-5 h-5 text-indigo-300" />
+                    <div
+                        className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
+                            isOnline
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-emerald-950/50'
+                                : sipStatus === 'connecting'
+                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                                : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                        }`}
+                    >
+                        <Radio className={`w-5 h-5 ${isOnline ? 'animate-pulse' : ''}`} />
                     </div>
                     <div>
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-slate-100">
-                                আউটবাউন্ড কলিং সিস্টেম (ePBX.bd)
+                                সরাসরি ব্রাউজার ফোন (WebRTC Engine)
                             </span>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                Ext: {agentExtension}
+                            <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1.5 ${
+                                    isOnline
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : sipStatus === 'connecting'
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                }`}
+                            >
+                                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`}></span>
+                                {isOnline ? 'Active & Ready' : sipStatus === 'connecting' ? 'Connecting...' : 'Offline'}
                             </span>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                                Trunk: 09639444516
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">
+                                Ext: {credentials.extension}
                             </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-1">
-                            এখানে কল বাটনে চাপ দিলে প্রথমে আপনার <strong>MicroSIP</strong> বা <strong>ওয়েব ফোনে</strong> রিং হবে, রিসিভ করার পর কাস্টমার যুক্ত হবে।
+                            {isOnline ? (
+                                <span className="text-emerald-300">
+                                    ✅ ব্রাউজার সরাসরি Asterisk PBX-এর সাথে সংযুক্ত। হেডফোন/মাইক্রোফোন দিয়ে কথা বলতে পারবেন।
+                                </span>
+                            ) : (
+                                <span>{statusMessage}</span>
+                            )}
                         </p>
                     </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {!isOnline && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={RefreshCw}
+                            onClick={reconnect}
+                            className="text-xs border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10"
+                        >
+                            Reconnect SIP
+                        </Button>
+                    )}
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs">
                         <span className="text-[11px] text-slate-400">Pass:</span>
-                        <code className="text-emerald-300 font-mono font-bold">{extensionPassword}</code>
+                        <code className="text-emerald-300 font-mono font-bold">{credentials.password}</code>
                         <button
                             type="button"
-                            onClick={handleCopyPassword}
+                            onClick={() => {
+                                navigator.clipboard.writeText(credentials.password);
+                                setCopiedPass(true);
+                                setTimeout(() => setCopiedPass(false), 2000);
+                            }}
                             className="ml-1 p-1 text-slate-400 hover:text-white rounded"
                             title="পাসওয়ার্ড কপি করুন"
                         >
                             {copiedPass ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                     </div>
-
-                    <Button
-                        variant="primary"
-                        size="sm"
-                        icon={ExternalLink}
-                        onClick={handleLaunchWebPhone}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-xs font-bold"
-                    >
-                        🌐 ওপেন ওয়েব ডায়লার
-                    </Button>
                 </div>
             </div>
 
@@ -381,70 +371,54 @@ export const IpCallPage = () => {
                 <div className="lg:col-span-5 space-y-4">
                     <Card className="p-6 border-slate-800 bg-slate-900/60 shadow-xl relative overflow-hidden">
                         {/* Dialing State Header Banner */}
-                        {callState !== 'idle' && (
-                            <div className="mb-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                        {sipCallState !== 'idle' && (
+                            <div className="mb-4 p-4 rounded-xl bg-slate-950/90 border border-slate-800 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span
                                             className={`w-3 h-3 rounded-full ${
-                                                callState === 'connected'
+                                                sipCallState === 'connected'
                                                     ? 'bg-emerald-400 animate-pulse'
-                                                    : callState === 'ringing'
+                                                    : sipCallState === 'ringing'
                                                     ? 'bg-amber-400 animate-ping'
                                                     : 'bg-indigo-400 animate-pulse'
                                             }`}
                                         ></span>
                                         <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                                            {callState === 'calling'
-                                                ? 'Initiating...'
-                                                : callState === 'ringing'
-                                                ? 'Ringing Ext 101...'
-                                                : callState === 'connected'
+                                            {sipCallState === 'calling'
+                                                ? 'Calling Customer...'
+                                                : sipCallState === 'ringing'
+                                                ? 'Ringing...'
+                                                : sipCallState === 'connected'
                                                 ? 'Call In Progress'
                                                 : 'Call Ended'}
                                         </span>
                                     </div>
                                     <span className="text-sm font-mono font-bold text-emerald-400">
-                                        {formatTimer(callDuration)}
+                                        {formatTimer(sipCallDuration)}
                                     </span>
                                 </div>
 
-                                {callState === 'ringing' && (
-                                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-2">
-                                        <div className="flex items-center gap-2 font-bold text-amber-300">
-                                            <Headphones className="w-4 h-4 text-amber-400 animate-bounce" />
-                                            <span>আপনার এক্সটেনশন ১০১-এ রিং হচ্ছে...</span>
+                                {sipCallState === 'connected' && (
+                                    <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+                                        <div className="flex items-center gap-2">
+                                            <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
+                                            <span>কথা বলা চলছে (Headphone Active)</span>
                                         </div>
-                                        <p className="text-[11px] text-slate-300 leading-relaxed">
-                                            আপনার <strong>MicroSIP</strong> বা <strong>ePBX Web Dialer</strong>-এ কলটি Answer/Receive করুন। আপনি রিসিভ করার সাথে সাথে কাস্টমারের ফোনে রিং বাজবে।
-                                        </p>
-                                        <div className="flex items-center gap-2 pt-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => setCallState('connected')}
-                                                className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors shadow"
-                                            >
-                                                ✓ আমি রিসিভ করেছি (Start Talking)
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={handleEndCall}
-                                                className="px-2.5 py-1 rounded bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-[11px] transition-colors"
-                                            >
-                                                বাতিল করুন
-                                            </button>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={toggleMute}
+                                            className={`p-1.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition-colors ${
+                                                isMuted ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                                            }`}
+                                        >
+                                            {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                                            <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+                                        </button>
                                     </div>
                                 )}
 
-                                {callState === 'connected' && (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
-                                        <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
-                                        <span>কথা বলা চলছে (Headphone / Mic Active)</span>
-                                    </div>
-                                )}
-
-                                {callState === 'ended' && (
+                                {sipCallState === 'ended' && (
                                     <div className="space-y-2 pt-2 border-t border-slate-800">
                                         <label className="block text-[11px] font-medium text-slate-300">
                                             Call Outcome / Disposition
@@ -492,10 +466,10 @@ export const IpCallPage = () => {
                                 value={phoneNumber}
                                 onChange={(e) => setPhoneNumber(e.target.value)}
                                 placeholder="Enter phone number..."
-                                disabled={callState !== 'idle'}
+                                disabled={sipCallState !== 'idle'}
                                 className="w-full bg-transparent text-center text-xl sm:text-2xl font-bold font-mono text-slate-100 placeholder:text-slate-600 focus:outline-none tracking-wider"
                             />
-                            {phoneNumber && callState === 'idle' && (
+                            {phoneNumber && sipCallState === 'idle' && (
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <button
                                         type="button"
@@ -538,8 +512,7 @@ export const IpCallPage = () => {
                                     key={digit}
                                     type="button"
                                     onClick={() => handleDigitClick(digit)}
-                                    disabled={callState !== 'idle'}
-                                    className="h-14 rounded-xl bg-slate-950/70 hover:bg-slate-800/80 active:bg-slate-800 border border-slate-800/80 flex flex-col items-center justify-center transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed group shadow-sm hover:border-slate-700"
+                                    className="h-14 rounded-xl bg-slate-950/70 hover:bg-slate-800/80 active:bg-slate-800 border border-slate-800/80 flex flex-col items-center justify-center transition-all duration-150 cursor-pointer group shadow-sm hover:border-slate-700"
                                 >
                                     <span className="text-lg font-bold text-slate-100 group-hover:text-emerald-400 transition-colors">
                                         {digit}
@@ -555,15 +528,15 @@ export const IpCallPage = () => {
 
                         {/* Call Action Button */}
                         <div className="flex items-center justify-center gap-3">
-                            {callState === 'idle' ? (
+                            {sipCallState === 'idle' ? (
                                 <button
                                     type="button"
                                     onClick={() => handleStartCall()}
-                                    disabled={!phoneNumber.trim()}
+                                    disabled={!phoneNumber.trim() || !isOnline}
                                     className="w-full h-12 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
                                 >
                                     <PhoneCall className="w-5 h-5" />
-                                    <span>Dial with ePBX</span>
+                                    <span>{isOnline ? 'কল দিন (Direct In-Browser Call)' : 'Connecting SIP...'}</span>
                                 </button>
                             ) : (
                                 <button
@@ -578,27 +551,17 @@ export const IpCallPage = () => {
                         </div>
                     </Card>
 
-                    {/* Guidance Card: How Calling Works & MicroSIP Setup */}
-                    <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-indigo-200/90 space-y-2.5">
+                    {/* How It Works Guidance Card */}
+                    <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-indigo-200/90 space-y-2">
                         <div className="font-bold text-indigo-300 flex items-center gap-2">
                             <Info className="w-4 h-4 text-indigo-400" />
-                            কল দেওয়ার নিয়ম ও প্রয়োজনীয় তথ্য:
+                            সরাসরি ব্রাউজার কলিং সুবিধা:
                         </div>
-                        <p className="text-[11px] text-slate-300 leading-relaxed">
-                            ePBX ক্লাউড পিবিএক্স সিস্টেমে আপনি যখন <strong>"Dial with ePBX"</strong> চাপেন, তখন পিবিএক্স <strong>প্রথমে আপনার এক্সটেনশন ১০১-এ কল পাঠায়</strong>। আপনি রিসিভ করলেই কাস্টমারের নম্বরে কল যায়।
-                        </p>
-                        <div className="pt-2 border-t border-indigo-500/20 space-y-1.5 text-[11px]">
-                            <div className="font-semibold text-emerald-400">✅ সেরা উপায় (MicroSIP - ১ মিনিটের সেটআপ):</div>
-                            <p className="text-slate-400 leading-relaxed">
-                                কম্পিউটারে <strong>MicroSIP</strong> ওপেন করে Extension: <code className="text-emerald-300 font-mono">101</code>, Domain: <code className="text-emerald-300 font-mono">auliro010.epbx.bd</code>, Password: <code className="text-emerald-300 font-mono">{extensionPassword}</code> দিয়ে লগইন করুন এবং MicroSIP-এ <strong>"Auto Answer"</strong> চালু রাখুন। তাহলে ক্লিক করামাত্রই অটো রিসিভ হয়ে সরাসরি কাস্টমারের কাছে রিং চলে যাবে!
-                            </p>
-                        </div>
-                        <div className="pt-1.5 border-t border-indigo-500/20 space-y-1 text-[11px]">
-                            <div className="font-semibold text-indigo-300">🌐 বিকল্প উপায় (ব্রাউজার ডায়লার):</div>
-                            <p className="text-slate-400 leading-relaxed">
-                                উপরের <strong>"ওপেন ওয়েব ডায়লার"</strong> বাটনে ক্লিক করে ePBX ওয়েব ডায়লারে Extension 101 দিয়ে লগইন করে সেই ট্যাবটি ওপেন রাখুন।
-                            </p>
-                        </div>
+                        <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-300 leading-relaxed">
+                            <li>আপনার এক্সটেনশন <strong>102</strong> সরাসরি এই ব্রাউজারেই সক্রিয় করা হয়েছে।</li>
+                            <li>ডায়প্যাডে নম্বর লিখে <strong>"কল দিন"</strong> চাপলেই সরাসরি হেডফোন দিয়ে কথা শুরু হবে।</li>
+                            <li>কাস্টমার আপনার ট্রাঙ্ক নম্বরে কল দিলে স্ক্রিনের উপরে <strong>Answer</strong> বাটন ভেসে উঠবে।</li>
+                        </ul>
                     </div>
                 </div>
 
@@ -624,139 +587,141 @@ export const IpCallPage = () => {
                                         type="text"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && fetchCallLogs()}
-                                        placeholder="Search number/name..."
-                                        className="w-40 sm:w-48 bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                                        placeholder="Search by phone..."
+                                        className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 w-40 sm:w-48 focus:outline-none focus:border-indigo-500"
                                     />
                                 </div>
+
                                 <Button
-                                    size="xs"
                                     variant="secondary"
+                                    size="xs"
                                     icon={RefreshCw}
                                     loading={syncingLogs}
                                     onClick={handleSyncEpbxHistory}
-                                    title="ePBX.bd সার্ভার থেকে অতীত কলের হিস্ট্রি সরাসরি সিঙ্ক করুন"
+                                    title="Sync history from ePBX server"
                                 >
                                     Sync ePBX
                                 </Button>
-                                <Button
-                                    size="xs"
-                                    variant="secondary"
-                                    icon={RefreshCw}
-                                    loading={logsLoading}
-                                    onClick={fetchCallLogs}
-                                    title="Reload call logs"
-                                />
                             </div>
                         </div>
 
+                        {/* Filter Tabs */}
+                        <div className="flex items-center gap-2 py-3 border-b border-slate-800/60 text-xs">
+                            <span className="text-slate-400 text-[11px]">Filter:</span>
+                            {['all', 'answered', 'no_answer', 'failed'].map((st) => (
+                                <button
+                                    key={st}
+                                    onClick={() => setStatusFilter(st)}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors capitalize ${
+                                        statusFilter === st
+                                            ? 'bg-indigo-600 text-white'
+                                            : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    {st.replace('_', ' ')}
+                                </button>
+                            ))}
+                        </div>
+
                         {/* CDR Table */}
-                        <div className="overflow-x-auto mt-3">
+                        <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs">
                                 <thead>
-                                    <tr className="border-b border-slate-800/80 text-[11px] text-slate-400 font-semibold uppercase">
-                                        <th className="py-2.5 px-3">Type</th>
-                                        <th className="py-2.5 px-3">Customer</th>
-                                        <th className="py-2.5 px-3">Ext</th>
-                                        <th className="py-2.5 px-3">Duration</th>
+                                    <tr className="border-b border-slate-800 text-slate-400 font-medium">
+                                        <th className="py-2.5 px-3">Direction</th>
+                                        <th className="py-2.5 px-3">Customer / Phone</th>
                                         <th className="py-2.5 px-3">Status</th>
+                                        <th className="py-2.5 px-3">Duration</th>
+                                        <th className="py-2.5 px-3">Time</th>
                                         <th className="py-2.5 px-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                                <tbody className="divide-y divide-slate-800/60">
                                     {logsLoading ? (
                                         <tr>
-                                            <td colSpan="6" className="py-12 text-center text-xs text-slate-400">
+                                            <td colSpan={6} className="text-center py-8 text-slate-400">
                                                 Loading call records...
                                             </td>
                                         </tr>
                                     ) : callLogs.length === 0 ? (
                                         <tr>
-                                            <td colSpan="6" className="py-12 text-center text-xs text-slate-400">
-                                                No calls recorded yet. Use the dialer on the left to make your first call.
+                                            <td colSpan={6} className="text-center py-8 text-slate-400">
+                                                No calls recorded yet. Enter a phone number on the left to dial!
                                             </td>
                                         </tr>
                                     ) : (
                                         callLogs.map((log) => {
-                                            const isAnswered = log.status === 'answered';
                                             const isOutbound = log.direction === 'outbound';
-
                                             return (
-                                                <tr key={log.id} className="hover:bg-slate-800/40 transition-colors">
-                                                    <td className="py-2.5 px-3 whitespace-nowrap">
-                                                        <span
-                                                            className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
-                                                                isOutbound ? 'text-indigo-400' : 'text-emerald-400'
-                                                            }`}
-                                                            title={isOutbound ? 'Outbound Call' : 'Inbound Call'}
-                                                        >
+                                                <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
+                                                    <td className="py-3 px-3">
+                                                        <div className="flex items-center gap-1.5">
                                                             {isOutbound ? (
-                                                                <PhoneOutgoing className="w-3 h-3" />
+                                                                <PhoneOutgoing className="w-3.5 h-3.5 text-indigo-400" />
                                                             ) : (
-                                                                <PhoneIncoming className="w-3 h-3" />
+                                                                <PhoneIncoming className="w-3.5 h-3.5 text-emerald-400" />
                                                             )}
-                                                            {isOutbound ? 'Out' : 'In'}
-                                                        </span>
+                                                            <span className="capitalize text-slate-300 text-[11px] font-medium">
+                                                                {log.direction}
+                                                            </span>
+                                                        </div>
                                                     </td>
-                                                    <td className="py-2.5 px-3">
-                                                        <div className="font-semibold text-slate-200 truncate max-w-[140px]">
-                                                            {log.customer?.name || log.customer_phone}
+                                                    <td className="py-3 px-3">
+                                                        <div className="font-mono text-slate-100 font-semibold">
+                                                            {log.customer_phone}
                                                         </div>
                                                         {log.customer?.name && (
-                                                            <div className="text-[10px] text-slate-400 font-mono">
-                                                                {log.customer_phone}
+                                                            <div className="text-[10px] text-slate-400">
+                                                                {log.customer.name}
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                                                        {log.agent_extension}
+                                                    <td className="py-3 px-3">
+                                                        <Badge
+                                                            variant={
+                                                                log.status === 'answered'
+                                                                    ? 'success'
+                                                                    : log.status === 'ringing'
+                                                                    ? 'warning'
+                                                                    : 'danger'
+                                                            }
+                                                            size="xs"
+                                                        >
+                                                            {log.status}
+                                                        </Badge>
                                                     </td>
-                                                    <td className="py-2.5 px-3 font-mono text-slate-300">
+                                                    <td className="py-3 px-3 font-mono text-slate-300">
                                                         {formatTimer(log.duration_seconds || 0)}
                                                     </td>
-                                                    <td className="py-2.5 px-3">
-                                                        <span
-                                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                                isAnswered
-                                                                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                                                                    : log.status === 'busy'
-                                                                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                                                                    : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                                                            }`}
-                                                        >
-                                                            {log.status.toUpperCase()}
-                                                        </span>
+                                                    <td className="py-3 px-3 text-slate-400 text-[11px]">
+                                                        {new Date(log.started_at || log.created_at).toLocaleTimeString([], {
+                                                            hour: '2-digit',
+                                                            minute: '2-digit',
+                                                        })}
                                                     </td>
-                                                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                                    <td className="py-3 px-3 text-right">
                                                         <div className="flex items-center justify-end gap-1.5">
                                                             {log.recording_url && (
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handlePlayRecording(log)}
-                                                                    className={`p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ${
-                                                                        playingRecordingId === log.id
-                                                                            ? 'text-emerald-400 bg-emerald-500/10'
-                                                                            : ''
-                                                                    }`}
-                                                                    title="Play recording"
+                                                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 transition-colors"
+                                                                    title="Play Recording"
                                                                 >
                                                                     {playingRecordingId === log.id ? (
-                                                                        <Pause className="w-3.5 h-3.5" />
+                                                                        <Pause className="w-3 h-3 text-emerald-400" />
                                                                     ) : (
-                                                                        <Play className="w-3.5 h-3.5" />
+                                                                        <Play className="w-3 h-3" />
                                                                     )}
                                                                 </button>
                                                             )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => {
-                                                                    setPhoneNumber(log.customer_phone);
-                                                                    handleStartCall(log.customer_phone);
-                                                                }}
-                                                                className="p-1 rounded-md text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                                                                title="Redial this number"
+                                                                onClick={() => handleStartCall(log.customer_phone)}
+                                                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
+                                                                title="Redial via WebRTC"
                                                             >
-                                                                <PhoneCall className="w-3.5 h-3.5" />
+                                                                <PhoneCall className="w-3 h-3" />
                                                             </button>
                                                         </div>
                                                     </td>
@@ -773,4 +738,3 @@ export const IpCallPage = () => {
         </div>
     );
 };
-

@@ -176,6 +176,52 @@ class CallCenterController extends Controller
     }
 
     /**
+     * Store a call log from the direct browser WebRTC dialer.
+     */
+    public function storeCallLog(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'direction' => 'required|in:inbound,outbound',
+            'customer_phone' => 'required|string|max:30',
+            'status' => 'required|string|max:50',
+            'duration_seconds' => 'nullable|integer',
+            'disposition' => 'nullable|string|max:50',
+            'notes' => 'nullable|string|max:1000',
+            'call_session_id' => 'nullable|string|max:100',
+        ]);
+
+        $settings = $this->epbxService->getSettings();
+        $user = $request->user();
+        $formattedPhone = $this->epbxService->formatPhoneNumber($validated['customer_phone']);
+
+        $customer = Customer::where('phone', $formattedPhone)
+            ->orWhere('phone', '+88' . $formattedPhone)
+            ->orWhere('phone', '88' . $formattedPhone)
+            ->first();
+
+        $log = CallLog::create([
+            'call_session_id' => $validated['call_session_id'] ?? ('webrtc_' . uniqid() . '_' . time()),
+            'direction' => $validated['direction'],
+            'customer_phone' => $formattedPhone,
+            'customer_id' => $customer?->id,
+            'agent_user_id' => $user?->id,
+            'agent_extension' => $settings->default_extension ?: '102',
+            'trunk_number' => $settings->trunk_number,
+            'status' => in_array($validated['status'], ['answered', 'completed', 'success']) ? 'answered' : ($validated['status'] === 'failed' ? 'failed' : 'no_answer'),
+            'duration_seconds' => $validated['duration_seconds'] ?? 0,
+            'disposition' => $validated['disposition'] ?? null,
+            'notes' => $validated['notes'] ?? null,
+            'started_at' => now()->subSeconds($validated['duration_seconds'] ?? 0),
+            'ended_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $log->fresh(['customer', 'agent']),
+        ]);
+    }
+
+    /**
      * Update call disposition and agent notes.
      */
     public function updateCallLog(Request $request, CallLog $callLog): JsonResponse

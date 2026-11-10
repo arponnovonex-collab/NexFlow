@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppearanceProvider } from './context/AppearanceContext';
+import { SipPhoneProvider } from './context/SipPhoneContext';
 import { AppLayout } from './components/layout/AppLayout';
 
 import { LoginPage } from './pages/auth/LoginPage';
@@ -64,8 +65,9 @@ export const App = () => {
         <ThemeProvider>
             <AppearanceProvider>
                 <AuthProvider>
-                    <BrowserRouter>
-                        <Routes>
+                    <SipPhoneProvider>
+                        <BrowserRouter>
+                            <Routes>
                         <Route path="/login" element={<LoginPage />} />
 
                         <Route
@@ -135,9 +137,10 @@ export const App = () => {
                         </Route>
                     </Routes>
                 </BrowserRouter>
-            </AuthProvider>
-        </AppearanceProvider>
-    </ThemeProvider>
+            </SipPhoneProvider>
+        </AuthProvider>
+    </AppearanceProvider>
+</ThemeProvider>
 );
 };
 
