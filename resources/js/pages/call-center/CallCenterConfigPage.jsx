@@ -22,6 +22,8 @@ import {
     Headphones,
     Hash,
     HelpCircle,
+    Lock,
+    Globe,
 } from 'lucide-react';
 
 export const CallCenterConfigPage = () => {
@@ -29,13 +31,19 @@ export const CallCenterConfigPage = () => {
     const [saving, setSaving] = useState(false);
     const [testingConnection, setTestingConnection] = useState(false);
     const [showApiToken, setShowApiToken] = useState(false);
+    const [showExtPassword, setShowExtPassword] = useState(false);
     const [copiedWebhook, setCopiedWebhook] = useState(false);
+    const [copiedExtPass, setCopiedExtPass] = useState(false);
 
     // Form state
     const [apiBaseUrl, setApiBaseUrl] = useState('https://auliro010.epbx.bd/api/v1');
     const [apiToken, setApiToken] = useState('');
     const [trunkNumber, setTrunkNumber] = useState('');
     const [defaultExtension, setDefaultExtension] = useState('101');
+    const [extensionPassword, setExtensionPassword] = useState('MJt#27766');
+    const [sipServer, setSipServer] = useState('103.15.140.151');
+    const [sipPort, setSipPort] = useState('5060');
+    const [webDialerUrl, setWebDialerUrl] = useState('https://auliro010.epbx.bd/dialer');
     const [isEnabled, setIsEnabled] = useState(false);
     const [lastBalance, setLastBalance] = useState(null);
     const [webhookUrl, setWebhookUrl] = useState('');
@@ -46,10 +54,14 @@ export const CallCenterConfigPage = () => {
             setLoading(true);
             const res = await api.get('/call-center/settings');
             const data = res.data.data;
-            setApiBaseUrl(data.api_base_url || 'https://epbx.bd/api/v1');
+            setApiBaseUrl(data.api_base_url || 'https://auliro010.epbx.bd/api/v1');
             setApiToken(data.api_token || '');
             setTrunkNumber(data.trunk_number || '');
             setDefaultExtension(data.default_extension || '101');
+            setExtensionPassword(data.extension_password || 'MJt#27766');
+            setSipServer(data.sip_server || '103.15.140.151');
+            setSipPort(data.sip_port || '5060');
+            setWebDialerUrl(data.web_dialer_url || 'https://auliro010.epbx.bd/dialer');
             setIsEnabled(Boolean(data.is_enabled));
             setLastBalance(data.last_balance);
             setWebhookUrl(data.webhook_url || `${window.location.origin}/api/webhooks/epbx`);
@@ -74,6 +86,10 @@ export const CallCenterConfigPage = () => {
                 api_token: apiToken.trim(),
                 trunk_number: trunkNumber.trim(),
                 default_extension: defaultExtension.trim(),
+                extension_password: extensionPassword.trim(),
+                sip_server: sipServer.trim(),
+                sip_port: sipPort.trim(),
+                web_dialer_url: webDialerUrl.trim(),
                 is_enabled: isEnabled,
             });
 
@@ -290,6 +306,130 @@ export const CallCenterConfigPage = () => {
                         </div>
                     </div>
 
+                    {/* Section: SIP Extension & In-Browser Web Softphone */}
+                    <div className="pt-4 border-t border-slate-800">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                            <div>
+                                <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                                    <Globe className="w-4 h-4 text-emerald-400" />
+                                    In-Browser Web Dialer & SIP Account
+                                </h3>
+                                <p className="text-xs text-slate-400">
+                                    কোনো MicroSIP অ্যাপ ছাড়াই সরাসরি ব্রাউজার দিয়ে কথা বলতে নিচের ক্রেডেনশিয়াল ব্যবহার করুন।
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={ExternalLink}
+                                onClick={() => window.open(webDialerUrl, 'ePBX_WebPhone', 'width=420,height=720,resizable=yes')}
+                                className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                            >
+                                Launch Web Phone
+                            </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Extension */}
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Agent Extension <span className="text-rose-400">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={defaultExtension}
+                                    onChange={(e) => setDefaultExtension(e.target.value)}
+                                    placeholder="101"
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">Primary agent extension (e.g. 101).</p>
+                            </div>
+
+                            {/* Extension Password */}
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    Extension Password / Secret <span className="text-rose-400">*</span>
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative flex-1">
+                                        <input
+                                            type={showExtPassword ? 'text' : 'password'}
+                                            required
+                                            value={extensionPassword}
+                                            onChange={(e) => setExtensionPassword(e.target.value)}
+                                            placeholder="Enter Extension Secret"
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-emerald-300 font-mono pr-10 focus:border-indigo-500 focus:outline-none"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowExtPassword(!showExtPassword)}
+                                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-200"
+                                        >
+                                            {showExtPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        icon={copiedExtPass ? Check : Copy}
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(extensionPassword);
+                                            setCopiedExtPass(true);
+                                            setTimeout(() => setCopiedExtPass(false), 2000);
+                                        }}
+                                        title="Copy Password"
+                                        className={copiedExtPass ? 'text-emerald-400 border-emerald-500/30' : ''}
+                                    >
+                                        {copiedExtPass ? 'Copied' : 'Copy'}
+                                    </Button>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">ePBX Extension password (যেমন: <code>MJt#27766</code>)।</p>
+                            </div>
+
+                            {/* Web Dialer URL */}
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    ePBX In-Browser Web Dialer URL
+                                </label>
+                                <input
+                                    type="url"
+                                    value={webDialerUrl}
+                                    onChange={(e) => setWebDialerUrl(e.target.value)}
+                                    placeholder="https://auliro010.epbx.bd/dialer"
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">Official eTalk Web Dialer: <code>https://auliro010.epbx.bd/dialer</code></p>
+                            </div>
+
+                            {/* SIP Server & Port */}
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    SIP Server IP & Port (Optional)
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <input
+                                        type="text"
+                                        value={sipServer}
+                                        onChange={(e) => setSipServer(e.target.value)}
+                                        placeholder="103.15.140.151"
+                                        className="col-span-2 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={sipPort}
+                                        onChange={(e) => setSipPort(e.target.value)}
+                                        placeholder="5060"
+                                        className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono text-center focus:border-indigo-500 focus:outline-none"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">Asterisk IP: <code>103.15.140.151:5060</code> (যদি IP ফোন কানেক্ট করতে চান)।</p>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Webhook Configuration */}
                     <div className="pt-3 border-t border-slate-800/80">
                         <label className="block text-xs font-medium text-slate-300 mb-1">
@@ -332,25 +472,47 @@ export const CallCenterConfigPage = () => {
             </Card>
 
             {/* Quick Setup Guide Card */}
-            <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/20 space-y-2 text-xs text-indigo-200/90">
-                <div className="font-semibold text-indigo-300 flex items-center gap-2">
-                    <HelpCircle className="w-4 h-4 text-indigo-400" />
-                    ePBX.bd (auliro010) কানেক্ট ও Webhook বসানোর নির্দেশিকা:
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* In-Browser Web Softphone Guide */}
+                <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20 space-y-2 text-xs text-emerald-200/90">
+                    <div className="font-semibold text-emerald-300 flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-emerald-400" />
+                        সরাসরি ব্রাউজারে কথা বলার গাইড (MicroSIP লাগবে না):
+                    </div>
+                    <ul className="list-disc list-inside space-y-1.5 text-[11px] text-emerald-200/80 leading-relaxed">
+                        <li>
+                            উপরের <strong>"Launch Web Phone"</strong> বাটনে ক্লিক করে ePBX-এর অফিশিয়াল ওয়েব ফোন ওপেন করুন।
+                        </li>
+                        <li>
+                            লগইন পেজে Extension: <strong>101</strong> এবং Password: <strong>MJt#27766</strong> দিয়ে <strong>Sign In</strong> করুন।
+                        </li>
+                        <li>
+                            ব্রাউজার মাইক্রোফোন পারমিশন চাইলে <strong>"Allow"</strong> করে দিন।
+                        </li>
+                        <li>
+                            এখন আর কোনো অ্যাপ লাগবে না! NexFlow থেকে যেকোনো কাস্টমারকে কল দিলে আপনার এই ব্রাউজার ডায়লারেই কল বাজবে এবং হেডফোন দিয়ে সরাসরি কথা বলতে পারবেন।
+                        </li>
+                    </ul>
                 </div>
-                <ul className="list-disc list-inside space-y-1.5 text-[11px] text-indigo-200/80 leading-relaxed">
-                    <li>আপনার ePBX পোর্টালে যান: <strong>auliro010.epbx.bd/portal/developer</strong></li>
-                    <li>পেজের উপরে <strong>Create New API Key</strong> থেকে টোকেনের নাম দিয়ে <strong>Generate API Token</strong> বাটনে ক্লিক করে Bearer Token-টি কপি করে এখানে দিন।</li>
-                    <li>আপনার আউটবাউন্ড ট্রাঙ্ক নম্বর দিন (যেমন: <code>09639666896</code>) এবং এজেন্টের এক্সটেনশন দিন (ডিফল্ট: <code>101</code>)।</li>
-                    <li>
-                        <strong>Webhook বসানোর জায়গা:</strong> 
-                        <span className="block pl-4 mt-0.5 text-slate-300">
-                            ১. <strong>auliro010.epbx.bd/portal/developer</strong> পেজের নিচে থাকা <strong>"Webhook Callback Tester (ওয়েবহুক টেস্ট টুল)"</strong>-এর <strong>Target Webhook URL</strong> বক্সে এই লিংকটি দিয়ে <strong>"Send Test Ping"</strong> বাটনে ক্লিক করে কানেকশন যাচাই করুন।
-                        </span>
-                        <span className="block pl-4 mt-0.5 text-slate-300">
-                            ২. এছাড়া <strong>Campaigns</strong> বা ভয়েস ক্যাম্পেইনে <strong>webhook_url</strong> ফিল্ডে এই লিংকটি দিয়ে দিলে কাস্টমারের কলের প্রতিটি ফলাফল ও অডিও রেকর্ডিং সাথে সাথে NexFlow-তে চলে আসবে।
-                        </span>
-                    </li>
-                </ul>
+
+                {/* API & Webhook Guide */}
+                <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/20 space-y-2 text-xs text-indigo-200/90">
+                    <div className="font-semibold text-indigo-300 flex items-center gap-2">
+                        <HelpCircle className="w-4 h-4 text-indigo-400" />
+                        ePBX.bd (auliro010) কানেক্ট ও Webhook বসানোর গাইড:
+                    </div>
+                    <ul className="list-disc list-inside space-y-1.5 text-[11px] text-indigo-200/80 leading-relaxed">
+                        <li>আপনার ePBX পোর্টালে যান: <strong>auliro010.epbx.bd/portal/developer</strong></li>
+                        <li>পেজের উপরে <strong>Create New API Key</strong> থেকে টোকেন কপি করে এখানে দিন।</li>
+                        <li>আপনার ট্রাঙ্ক নম্বর দিন: <code>09639444516</code> এবং এক্সটেনশন দিন: <code>101</code>।</li>
+                        <li>
+                            <strong>Webhook বসানোর নিয়ম:</strong> 
+                            <span className="block pl-4 mt-0.5 text-slate-300">
+                                ডেভেলপার পেজের নিচে <strong>"Webhook Callback Tester"</strong>-এ উপরের Webhook লিংকটি দিয়ে <strong>"Send Test Ping"</strong>-এ ক্লিক করে কানেকশন যাচাই করুন।
+                            </span>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
     );

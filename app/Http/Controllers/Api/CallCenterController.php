@@ -32,6 +32,10 @@ class CallCenterController extends Controller
                 'api_token' => $settings->api_token,
                 'trunk_number' => $settings->trunk_number,
                 'default_extension' => $settings->default_extension ?: '101',
+                'extension_password' => $settings->extension_password ?: 'MJt#27766',
+                'sip_server' => $settings->sip_server ?: '103.15.140.151',
+                'sip_port' => $settings->sip_port ?: '5060',
+                'web_dialer_url' => $settings->web_dialer_url ?: 'https://auliro010.epbx.bd/dialer',
                 'webhook_secret' => $settings->webhook_secret,
                 'webhook_url' => $webhookUrl,
                 'is_enabled' => (bool) $settings->is_enabled,
@@ -51,6 +55,10 @@ class CallCenterController extends Controller
             'api_token' => 'nullable|string',
             'trunk_number' => 'nullable|string|max:50',
             'default_extension' => 'nullable|string|max:20',
+            'extension_password' => 'nullable|string|max:255',
+            'sip_server' => 'nullable|string|max:100',
+            'sip_port' => 'nullable|string|max:10',
+            'web_dialer_url' => 'nullable|string|max:255',
             'is_enabled' => 'required|boolean',
         ]);
 
@@ -60,6 +68,10 @@ class CallCenterController extends Controller
             'api_token' => $validated['api_token'] !== null ? trim($validated['api_token']) : $settings->api_token,
             'trunk_number' => $validated['trunk_number'],
             'default_extension' => $validated['default_extension'] ?: '101',
+            'extension_password' => $validated['extension_password'] ?? $settings->extension_password,
+            'sip_server' => $validated['sip_server'] ?? $settings->sip_server,
+            'sip_port' => $validated['sip_port'] ?? $settings->sip_port,
+            'web_dialer_url' => $validated['web_dialer_url'] ?? $settings->web_dialer_url,
             'is_enabled' => $validated['is_enabled'],
         ]);
 

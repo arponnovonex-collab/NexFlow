@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -98,7 +99,16 @@ export const CustomersPage = () => {
                                         <td className="px-4 py-3.5 space-y-0.5">
                                             <div className="flex items-center gap-1.5 text-slate-300">
                                                 <Phone className="w-3 h-3 text-slate-500" />
-                                                {c.phone || '—'}
+                                                <span>{c.phone || '—'}</span>
+                                                {c.phone && (
+                                                    <Link
+                                                        to={`/call-center/ip-call?phone=${encodeURIComponent(c.phone)}`}
+                                                        className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors"
+                                                        title="IP Call দিন (ePBX)"
+                                                    >
+                                                        <PhoneCall className="w-3 h-3" />
+                                                    </Link>
+                                                )}
                                             </div>
                                             {c.email && (
                                                 <div className="flex items-center gap-1.5 text-slate-400 text-[11px]">

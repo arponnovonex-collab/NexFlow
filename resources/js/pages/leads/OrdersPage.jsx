@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -17,6 +18,7 @@ import {
     User,
     MapPin,
     Phone,
+    PhoneCall,
     Package,
     RefreshCw,
     Eye,
@@ -382,9 +384,20 @@ export const OrdersPage = () => {
                                             {/* Customer & Phone */}
                                             <td className="px-3 py-3.5">
                                                 <span className="font-semibold text-slate-200 block">{o.customer?.name}</span>
-                                                <span className="text-[11px] text-slate-400 font-mono block">
-                                                    {o.customer_phone || o.customer?.phone || 'No phone'}
-                                                </span>
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    <span className="text-[11px] text-slate-400 font-mono">
+                                                        {o.customer_phone || o.customer?.phone || 'No phone'}
+                                                    </span>
+                                                    {(o.customer_phone || o.customer?.phone) && (
+                                                        <Link
+                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(o.customer_phone || o.customer?.phone)}`}
+                                                            className="p-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-colors"
+                                                            title="IP Call দিন (ePBX)"
+                                                        >
+                                                            <PhoneCall className="w-3 h-3" />
+                                                        </Link>
+                                                    )}
+                                                </div>
                                             </td>
 
                                             {/* Address */}
