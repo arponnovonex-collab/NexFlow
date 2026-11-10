@@ -237,11 +237,6 @@ export const IpCallPage = () => {
             const log = res.data.call_log;
             setActiveCallLog(log);
             setCallState('ringing');
-
-            // Simulate call connection progression for UI responsiveness
-            setTimeout(() => {
-                setCallState('connected');
-            }, 2500);
         } catch (err) {
             alert(err.response?.data?.message || 'Failed to initiate call via ePBX.');
             setCallState('idle');
@@ -330,28 +325,31 @@ export const IpCallPage = () => {
                 </div>
             </div>
 
-            {/* In-Browser Web Softphone Control Bar */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border border-emerald-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
-                <div className="flex items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30 shadow-inner">
-                        <Globe className="w-5 h-5 animate-pulse" />
+            {/* Softphone & MicroSIP Connection Bar */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-start sm:items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        <Headphones className="w-5 h-5 text-indigo-300" />
                     </div>
                     <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-bold text-slate-100">
-                                ইন-ব্রাউজার ওয়েব ফোন (MicroSIP লাগবে না)
+                                আউটবাউন্ড কলিং সিস্টেম (ePBX.bd)
                             </span>
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                 Ext: {agentExtension}
                             </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                Trunk: 09639444516
+                            </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                            ব্রাউজার থেকেই সরাসরি কথা বলতে নিচের বাটনে ক্লিক করে Extension <strong className="text-emerald-400 font-mono">101</strong> ও Password <strong className="text-emerald-400 font-mono">{extensionPassword}</strong> দিয়ে একবার লগইন করে রাখুন।
+                        <p className="text-xs text-slate-400 mt-1">
+                            এখানে কল বাটনে চাপ দিলে প্রথমে আপনার <strong>MicroSIP</strong> বা <strong>ওয়েব ফোনে</strong> রিং হবে, রিসিভ করার পর কাস্টমার যুক্ত হবে।
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs">
                         <span className="text-[11px] text-slate-400">Pass:</span>
                         <code className="text-emerald-300 font-mono font-bold">{extensionPassword}</code>
@@ -370,61 +368,12 @@ export const IpCallPage = () => {
                         size="sm"
                         icon={ExternalLink}
                         onClick={handleLaunchWebPhone}
-                        className="bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-950/40 text-xs font-bold"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-xs font-bold"
                     >
-                        🌐 ওপেন ওয়েব ফোন
-                    </Button>
-
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        icon={showDockedDialer ? X : LayoutPanelLeft}
-                        onClick={() => setShowDockedDialer(!showDockedDialer)}
-                        title="NexFlow পেজের ভেতরেই ডায়লার দেখুন"
-                        className="text-xs border-slate-700"
-                    >
-                        {showDockedDialer ? 'Close Dock' : 'Dock View'}
+                        🌐 ওপেন ওয়েব ডায়লার
                     </Button>
                 </div>
             </div>
-
-            {/* Docked iframe View if toggled */}
-            {showDockedDialer && (
-                <div className="p-4 rounded-2xl bg-slate-900 border border-indigo-500/40 shadow-2xl space-y-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-indigo-400" />
-                            <span className="text-xs font-bold text-slate-200">
-                                ePBX.bd Docked Web Softphone (Extension 101)
-                            </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                size="xs"
-                                variant="secondary"
-                                icon={ExternalLink}
-                                onClick={handleLaunchWebPhone}
-                            >
-                                Open in Window
-                            </Button>
-                            <button
-                                onClick={() => setShowDockedDialer(false)}
-                                className="p-1 text-slate-400 hover:text-white"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                    <div className="w-full h-[580px] bg-slate-950 rounded-xl overflow-hidden border border-slate-800 relative">
-                        <iframe
-                            src={webDialerUrl}
-                            title="ePBX Web Dialer"
-                            className="w-full h-full border-0"
-                            allow="microphone; camera; autoplay; display-capture"
-                        />
-                    </div>
-                </div>
-            )}
 
             {/* Main Layout: Left Dialer + Right CDR History */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -447,9 +396,9 @@ export const IpCallPage = () => {
                                         ></span>
                                         <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
                                             {callState === 'calling'
-                                                ? 'Initiating via ePBX...'
+                                                ? 'Initiating...'
                                                 : callState === 'ringing'
-                                                ? 'Ringing Phone...'
+                                                ? 'Ringing Ext 101...'
                                                 : callState === 'connected'
                                                 ? 'Call In Progress'
                                                 : 'Call Ended'}
@@ -460,16 +409,38 @@ export const IpCallPage = () => {
                                     </span>
                                 </div>
 
-                                {callState === 'connected' && (
-                                    <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300">
-                                        <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                                        <span>ওয়েব সফটফোনে সরাসরি কথা বলুন (Microphone Active)</span>
+                                {callState === 'ringing' && (
+                                    <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 space-y-2">
+                                        <div className="flex items-center gap-2 font-bold text-amber-300">
+                                            <Headphones className="w-4 h-4 text-amber-400 animate-bounce" />
+                                            <span>আপনার এক্সটেনশন ১০১-এ রিং হচ্ছে...</span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                                            আপনার <strong>MicroSIP</strong> বা <strong>ePBX Web Dialer</strong>-এ কলটি Answer/Receive করুন। আপনি রিসিভ করার সাথে সাথে কাস্টমারের ফোনে রিং বাজবে।
+                                        </p>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setCallState('connected')}
+                                                className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors shadow"
+                                            >
+                                                ✓ আমি রিসিভ করেছি (Start Talking)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleEndCall}
+                                                className="px-2.5 py-1 rounded bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-[11px] transition-colors"
+                                            >
+                                                বাতিল করুন
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
-                                {callState === 'ringing' && (
-                                    <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
-                                        <Headphones className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
-                                        <span>ওয়েব সফটফোনে কল বাজছে... রিসিভ করলেই কাস্টমার যুক্ত হবে</span>
+
+                                {callState === 'connected' && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+                                        <Mic className="w-4 h-4 text-emerald-400 animate-pulse" />
+                                        <span>কথা বলা চলছে (Headphone / Mic Active)</span>
                                     </div>
                                 )}
 
@@ -606,6 +577,29 @@ export const IpCallPage = () => {
                             )}
                         </div>
                     </Card>
+
+                    {/* Guidance Card: How Calling Works & MicroSIP Setup */}
+                    <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/20 text-xs text-indigo-200/90 space-y-2.5">
+                        <div className="font-bold text-indigo-300 flex items-center gap-2">
+                            <Info className="w-4 h-4 text-indigo-400" />
+                            কল দেওয়ার নিয়ম ও প্রয়োজনীয় তথ্য:
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                            ePBX ক্লাউড পিবিএক্স সিস্টেমে আপনি যখন <strong>"Dial with ePBX"</strong> চাপেন, তখন পিবিএক্স <strong>প্রথমে আপনার এক্সটেনশন ১০১-এ কল পাঠায়</strong>। আপনি রিসিভ করলেই কাস্টমারের নম্বরে কল যায়।
+                        </p>
+                        <div className="pt-2 border-t border-indigo-500/20 space-y-1.5 text-[11px]">
+                            <div className="font-semibold text-emerald-400">✅ সেরা উপায় (MicroSIP - ১ মিনিটের সেটআপ):</div>
+                            <p className="text-slate-400 leading-relaxed">
+                                কম্পিউটারে <strong>MicroSIP</strong> ওপেন করে Extension: <code className="text-emerald-300 font-mono">101</code>, Domain: <code className="text-emerald-300 font-mono">auliro010.epbx.bd</code>, Password: <code className="text-emerald-300 font-mono">{extensionPassword}</code> দিয়ে লগইন করুন এবং MicroSIP-এ <strong>"Auto Answer"</strong> চালু রাখুন। তাহলে ক্লিক করামাত্রই অটো রিসিভ হয়ে সরাসরি কাস্টমারের কাছে রিং চলে যাবে!
+                            </p>
+                        </div>
+                        <div className="pt-1.5 border-t border-indigo-500/20 space-y-1 text-[11px]">
+                            <div className="font-semibold text-indigo-300">🌐 বিকল্প উপায় (ব্রাউজার ডায়লার):</div>
+                            <p className="text-slate-400 leading-relaxed">
+                                উপরের <strong>"ওপেন ওয়েব ডায়লার"</strong> বাটনে ক্লিক করে ePBX ওয়েব ডায়লারে Extension 101 দিয়ে লগইন করে সেই ট্যাবটি ওপেন রাখুন।
+                            </p>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Right 7 Cols: Call Detail Records (CDR) */}
