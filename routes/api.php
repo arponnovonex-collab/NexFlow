@@ -4,9 +4,11 @@ use App\Http\Controllers\Api\AiController;
 use App\Http\Controllers\Api\AnalyticsController;
 use App\Http\Controllers\Api\AppearanceController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CallCenterController;
 use App\Http\Controllers\Api\CommentAutomationController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\EpbxWebhookController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\Api\MediaFolderController;
@@ -36,6 +38,7 @@ Route::get('/webhooks/instagram', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/instagram', [MetaWebhookController::class, 'handleFacebook']);
 Route::get('/webhooks/whatsapp', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/whatsapp', [MetaWebhookController::class, 'handleFacebook']);
+Route::post('/webhooks/epbx', [EpbxWebhookController::class, 'handle']);
 
 /*
 |--------------------------------------------------------------------------
@@ -124,6 +127,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/courier/steadfast/balance', [SteadfastController::class, 'checkBalance']);
     Route::post('/courier/steadfast/send-order/{order}', [SteadfastController::class, 'sendOrder']);
     Route::post('/courier/steadfast/send-bulk', [SteadfastController::class, 'sendBulk']);
+
+    // Call Center & ePBX.bd Integration
+    Route::get('/call-center/settings', [CallCenterController::class, 'getSettings']);
+    Route::post('/call-center/settings', [CallCenterController::class, 'saveSettings']);
+    Route::post('/call-center/test-connection', [CallCenterController::class, 'testConnection']);
+    Route::post('/call-center/originate', [CallCenterController::class, 'originateCall']);
+    Route::get('/call-center/logs', [CallCenterController::class, 'getCallLogs']);
+    Route::put('/call-center/logs/{callLog}', [CallCenterController::class, 'updateCallLog']);
+    Route::get('/call-center/customer-lookup', [CallCenterController::class, 'lookupCustomer']);
 
     // AI Control Center, Rules & Playground
     Route::get('/ai/settings', [AiController::class, 'settings']);

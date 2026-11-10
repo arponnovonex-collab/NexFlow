@@ -35,6 +35,8 @@ import {
     FolderOpen,
     UploadCloud,
     Bookmark,
+    PhoneCall,
+    PhoneForwarded,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -52,6 +54,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
         leads: true,
         sms: true,
         steadfast: true,
+        callcenter: true,
         team: true,
         analytics: false,
         system: false,
@@ -404,6 +407,40 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                         )}
                     </div>
                 )}
+
+                {/* Call Center (ePBX.bd) */}
+                <div>
+                    {!isCollapsed ? (
+                        <button
+                            onClick={() => toggleSection('callcenter')}
+                            className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                        >
+                            <span>Call Center</span>
+                            {openSections.callcenter ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                    ) : null}
+                    {(openSections.callcenter || isCollapsed) && (
+                        <div className="space-y-1">
+                            {isAdmin && (
+                                <NavLink to="/call-center/configuration" className={linkClasses}>
+                                    <Settings className="w-4 h-4 shrink-0 text-emerald-400" />
+                                    {!isCollapsed && <span>Configuration</span>}
+                                </NavLink>
+                            )}
+                            <NavLink to="/call-center/ip-call" className={linkClasses}>
+                                <PhoneCall className="w-4 h-4 shrink-0 text-cyan-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>IP Call</span>
+                                        <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-bold px-1.5 py-0.2 rounded-full">
+                                            Dialer
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
+                        </div>
+                    )}
+                </div>
 
                 {/* Team Management (Admins) */}
                 {isAdmin && (

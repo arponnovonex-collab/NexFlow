@@ -37,6 +37,8 @@ import { SmsGatewayPage } from './pages/sms/SmsGatewayPage';
 import { SmsMarketingPage } from './pages/sms/SmsMarketingPage';
 import { AutoSmsPage } from './pages/sms/AutoSmsPage';
 import { SteadfastPage } from './pages/courier/SteadfastPage';
+import { CallCenterConfigPage } from './pages/call-center/CallCenterConfigPage';
+import { IpCallPage } from './pages/call-center/IpCallPage';
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -111,6 +113,10 @@ export const App = () => {
 
                             {/* Steadfast Courier */}
                             <Route path="courier/steadfast" element={<SteadfastPage />} />
+
+                            {/* Call Center (ePBX.bd) */}
+                            <Route path="call-center/configuration" element={<CallCenterConfigPage />} />
+                            <Route path="call-center/ip-call" element={<IpCallPage />} />
 
                             {/* Team */}
                             <Route path="team" element={<TeamManagementPage />} />
