@@ -343,10 +343,14 @@ class CallCenterController extends Controller
 
         // Format and ensure recording stream URLs
         $items = collect($recordings->items())->map(function ($log) {
-            $streamUrl = $log->recording_url;
-            if (empty($streamUrl) && ! empty($log->call_session_id) && ! str_starts_with($log->call_session_id, 'webrtc_')) {
-                $streamUrl = url("/api/call-center/recordings/{$log->call_session_id}");
+            $callId = $log->call_session_id;
+            if (! empty($log->recording_url) && preg_match('/recordings\/([a-zA-Z0-9_\.]+)/', $log->recording_url, $m)) {
+                $callId = $m[1];
             }
+            $streamUrl = ! empty($callId) && ! str_starts_with($callId, 'webrtc_')
+                ? url("/api/call-center/recordings/{$callId}")
+                : null;
+
             $data = $log->toArray();
             $data['stream_url'] = $streamUrl;
             return $data;
@@ -382,28 +386,18 @@ class CallCenterController extends Controller
     }
 
     /**
-     * Stream authenticated audio recording from ePBX.bd.
+     * Stream audio recording from ePBX.bd.
      */
     public function streamRecording(Request $request, string $uniqueid)
     {
-        // Support authentication via Sanctum header OR token query parameter
-        $user = $request->user('sanctum');
-        if (! $user) {
-            $token = $request->query('token');
-            if ($token) {
-                $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-                if ($pat) {
-                    $user = $pat->tokenable;
-                }
-            }
-        }
-
         $settings = $this->epbxService->getSettings();
         $baseUrl = rtrim($settings->api_base_url, '/');
 
         if (empty($settings->api_token)) {
             abort(401, 'ePBX API Token is not configured.');
         }
+
+        $uniqueid = basename($uniqueid);
 
         try {
             $response = Http::timeout(25)
@@ -419,7 +413,7 @@ class CallCenterController extends Controller
                     'Content-Length' => strlen($body),
                     'Accept-Ranges' => 'bytes',
                     'Content-Disposition' => 'inline; filename="call_' . $uniqueid . '.wav"',
-                    'Cache-Control' => 'no-cache, private',
+                    'Cache-Control' => 'public, max-age=86400',
                 ]);
             }
 

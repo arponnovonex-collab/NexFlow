@@ -62,7 +62,23 @@ export const CallRecordingsPage = () => {
 
     useEffect(() => {
         fetchRecordings(1);
+
+        // Immediate background sync on page open to fetch newly completed calls
+        api.post('/call-center/sync-logs').then(() => {
+            fetchRecordings(1);
+        }).catch(() => {});
     }, [dateRange, direction, minDuration]);
+
+    // Periodic 12-second background sync while on recordings page
+    useEffect(() => {
+        const interval = setInterval(() => {
+            api.post('/call-center/sync-logs').then(() => {
+                fetchRecordings(meta.current_page || 1);
+            }).catch(() => {});
+        }, 12000);
+
+        return () => clearInterval(interval);
+    }, [meta.current_page]);
 
     const fetchRecordings = async (page = 1) => {
         try {
@@ -121,7 +137,11 @@ export const CallRecordingsPage = () => {
         } else {
             // Switch to new recording
             setActivePlayingId(log.id);
-            const streamUrl = log.stream_url || log.recording_url;
+            const callId = log.call_session_id || log.id;
+            let streamUrl = `/api/call-center/recordings/${callId}`;
+            if (log.stream_url) {
+                streamUrl = log.stream_url;
+            }
             audioRef.current.src = streamUrl;
             audioRef.current.playbackRate = playbackRate;
             audioRef.current.volume = isMuted ? 0 : volume;

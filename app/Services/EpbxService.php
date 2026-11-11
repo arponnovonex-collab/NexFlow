@@ -338,7 +338,7 @@ class EpbxService
 
         $baseUrl = rtrim($settings->api_base_url, '/');
         try {
-            $response = Http::timeout(12)
+            $response = Http::timeout(15)
                 ->withToken($settings->api_token)
                 ->acceptJson()
                 ->get("{$baseUrl}/calls/history", [
@@ -349,7 +349,7 @@ class EpbxService
                 $items = $response->json('data') ?? [];
                 $imported = 0;
                 foreach ($items as $item) {
-                    $uniqueId = $item['uniqueid'] ?? $item['id'] ?? null;
+                    $uniqueId = $item['call_id'] ?? $item['uniqueid'] ?? $item['id'] ?? null;
                     if (! $uniqueId) {
                         continue;
                     }
@@ -369,14 +369,11 @@ class EpbxService
                         default => 'answered',
                     };
 
-                    $duration = (int) ($item['billsec'] ?? $item['duration'] ?? 0);
-                    $callDate = ! empty($item['call_date']) ? $item['call_date'] : now();
+                    $duration = (int) ($item['billable_seconds'] ?? $item['duration_seconds'] ?? $item['billsec'] ?? $item['duration'] ?? 0);
+                    $callDate = ! empty($item['date']) ? $item['date'] : (! empty($item['call_date']) ? $item['call_date'] : now());
 
-                    // Build recording stream URL if recording is available on ePBX
-                    $recordingUrl = $item['recording_url'] ?? null;
-                    if (empty($recordingUrl) && $status === 'answered' && $duration > 0) {
-                        $recordingUrl = url("/api/call-center/recordings/{$uniqueId}");
-                    }
+                    // Use our proxy streaming endpoint for seamless, authenticated in-browser playback
+                    $recordingUrl = url("/api/call-center/recordings/{$uniqueId}");
 
                     // 1. Check if record with this uniqueId already exists
                     $existingLog = CallLog::where('call_session_id', (string) $uniqueId)->first();
@@ -384,7 +381,10 @@ class EpbxService
                     // 2. If not, check if a WebRTC in-browser log was saved around the same time
                     if (! $existingLog && ! empty($cleanPhone)) {
                         $existingLog = CallLog::where('customer_phone', $cleanPhone)
-                            ->where('call_session_id', 'like', 'webrtc_%')
+                            ->where(function ($q) {
+                                $q->where('call_session_id', 'like', 'webrtc_%')
+                                  ->orWhereNull('recording_url');
+                            })
                             ->latest('id')
                             ->first();
                     }
@@ -394,7 +394,7 @@ class EpbxService
                             'call_session_id' => (string) $uniqueId,
                             'status' => $status,
                             'duration_seconds' => $duration > 0 ? $duration : $existingLog->duration_seconds,
-                            'recording_url' => $recordingUrl ?: $existingLog->recording_url,
+                            'recording_url' => $recordingUrl,
                             'started_at' => $callDate,
                         ]);
                     } else {
@@ -414,7 +414,7 @@ class EpbxService
                     $imported++;
                 }
 
-                return ['success' => true, 'message' => "Successfully synced {$imported} calls from ePBX.bd."];
+                return ['success' => true, 'message' => "Successfully synced {$imported} calls and recordings from ePBX.bd."];
             }
 
             return ['success' => false, 'message' => 'ePBX History sync failed: ' . $response->body()];

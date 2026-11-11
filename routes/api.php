@@ -39,6 +39,7 @@ Route::post('/webhooks/instagram', [MetaWebhookController::class, 'handleFaceboo
 Route::get('/webhooks/whatsapp', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/whatsapp', [MetaWebhookController::class, 'handleFacebook']);
 Route::post('/webhooks/epbx', [EpbxWebhookController::class, 'handle']);
+Route::get('/call-center/recordings/{uniqueid}', [CallCenterController::class, 'streamRecording']);
 
 /*
 |--------------------------------------------------------------------------
@@ -138,7 +139,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/call-center/logs', [CallCenterController::class, 'storeCallLog']);
     Route::post('/call-center/sync-logs', [CallCenterController::class, 'syncLogs']);
     Route::get('/call-center/recordings', [CallCenterController::class, 'getRecordings']);
-    Route::get('/call-center/recordings/{uniqueid}', [CallCenterController::class, 'streamRecording']);
     Route::put('/call-center/logs/{callLog}', [CallCenterController::class, 'updateCallLog']);
     Route::get('/call-center/customer-lookup', [CallCenterController::class, 'lookupCustomer']);
 

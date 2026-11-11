@@ -118,13 +118,33 @@ export const IpCallPage = () => {
         }
     }, [sipCallNumber, sipCallState]);
 
-    // Automatically reload CDR table when a call ends
+    // Automatically reload CDR table and auto-sync recordings from ePBX when a call ends
     useEffect(() => {
         if (sipCallState === 'ended') {
-            const timer = setTimeout(() => {
-                fetchCallLogs();
-            }, 1200);
-            return () => clearTimeout(timer);
+            fetchCallLogs();
+
+            // After 3.5s (when Asterisk MixMonitor writes the recording file), auto-sync with ePBX
+            const syncTimer1 = setTimeout(async () => {
+                try {
+                    await api.post('/call-center/sync-logs');
+                    fetchCallLogs();
+                } catch (e) {
+                    console.warn('Auto ePBX sync error:', e);
+                }
+            }, 3500);
+
+            // Follow-up sync after 8s for safety
+            const syncTimer2 = setTimeout(async () => {
+                try {
+                    await api.post('/call-center/sync-logs');
+                    fetchCallLogs();
+                } catch (e) {}
+            }, 8000);
+
+            return () => {
+                clearTimeout(syncTimer1);
+                clearTimeout(syncTimer2);
+            };
         }
     }, [sipCallState]);
 
@@ -255,15 +275,20 @@ export const IpCallPage = () => {
     };
 
     const handlePlayRecording = (log) => {
-        if (!log.recording_url) return;
+        if (!log.recording_url && !log.call_session_id) return;
         if (playingRecordingId === log.id) {
             audioRef.current?.pause();
             setPlayingRecordingId(null);
         } else {
             setPlayingRecordingId(log.id);
             if (audioRef.current) {
-                audioRef.current.src = log.recording_url;
-                audioRef.current.play();
+                const callId = log.call_session_id || log.id;
+                let streamUrl = `/api/call-center/recordings/${callId}`;
+                if (log.recording_url && log.recording_url.includes('/api/call-center/recordings/')) {
+                    streamUrl = log.recording_url;
+                }
+                audioRef.current.src = streamUrl;
+                audioRef.current.play().catch(e => console.warn('Audio play error:', e));
             }
         }
     };
