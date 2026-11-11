@@ -12,6 +12,7 @@ use App\Models\Lead;
 use App\Models\LeadStatusHistory;
 use App\Models\Message;
 use App\Models\MessageAttachment;
+use App\Models\SocialAccount;
 use App\Models\WebhookEvent;
 use App\Services\OpenAIService;
 use App\Services\ProductKnowledgeService;
