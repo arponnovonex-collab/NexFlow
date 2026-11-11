@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\SavedMessage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 class SavedMessageController extends Controller
 {
@@ -64,10 +66,26 @@ class SavedMessageController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:191',
             'content' => 'required|string',
+            'image_url' => 'nullable|string|max:500',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'shortcut' => 'nullable|string|max:50',
             'category' => 'nullable|string|max:50',
             'is_active' => 'nullable|boolean',
         ]);
+
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            if ($file->isValid()) {
+                $targetDir = public_path('uploads/saved_messages');
+                if (! File::isDirectory($targetDir)) {
+                    File::makeDirectory($targetDir, 0755, true, true);
+                }
+                $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+                $filename = 'saved_msg_' . time() . '_' . Str::random(8) . '.' . $ext;
+                $file->move($targetDir, $filename);
+                $validated['image_url'] = url("uploads/saved_messages/{$filename}");
+            }
+        }
 
         $validated['user_id'] = $request->user()?->id;
         $validated['category'] = $validated['category'] ?? 'general';
@@ -106,10 +124,29 @@ class SavedMessageController extends Controller
         $validated = $request->validate([
             'title' => 'sometimes|required|string|max:191',
             'content' => 'sometimes|required|string',
+            'image_url' => 'nullable|string|max:500',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+            'remove_image' => 'nullable|boolean',
             'shortcut' => 'nullable|string|max:50',
             'category' => 'nullable|string|max:50',
             'is_active' => 'nullable|boolean',
         ]);
+
+        if ($request->boolean('remove_image')) {
+            $validated['image_url'] = null;
+        } elseif ($request->hasFile('image')) {
+            $file = $request->file('image');
+            if ($file->isValid()) {
+                $targetDir = public_path('uploads/saved_messages');
+                if (! File::isDirectory($targetDir)) {
+                    File::makeDirectory($targetDir, 0755, true, true);
+                }
+                $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+                $filename = 'saved_msg_' . time() . '_' . Str::random(8) . '.' . $ext;
+                $file->move($targetDir, $filename);
+                $validated['image_url'] = url("uploads/saved_messages/{$filename}");
+            }
+        }
 
         if (isset($validated['shortcut']) && ! empty($validated['shortcut']) && ! str_starts_with($validated['shortcut'], '/')) {
             $validated['shortcut'] = '/' . ltrim($validated['shortcut'], '/');
@@ -121,6 +158,33 @@ class SavedMessageController extends Controller
             'success' => true,
             'message' => 'Saved message updated successfully.',
             'data' => $savedMessage,
+        ]);
+    }
+
+    /**
+     * Upload an image file for saved messages.
+     */
+    public function uploadImage(Request $request): JsonResponse
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+        ]);
+
+        $file = $request->file('image');
+        $targetDir = public_path('uploads/saved_messages');
+        if (! File::isDirectory($targetDir)) {
+            File::makeDirectory($targetDir, 0755, true, true);
+        }
+
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $filename = 'saved_msg_' . time() . '_' . Str::random(8) . '.' . $ext;
+        $file->move($targetDir, $filename);
+        $imageUrl = url("uploads/saved_messages/{$filename}");
+
+        return response()->json([
+            'success' => true,
+            'image_url' => $imageUrl,
+            'file_name' => $file->getClientOriginalName(),
         ]);
     }
 

@@ -192,7 +192,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                         <div className="space-y-1">
                             <NavLink to="/shortcuts/saved-sms" className={linkClasses}>
                                 <Bookmark className="w-4 h-4 shrink-0 text-cyan-400" />
-                                {!isCollapsed && <span>Saved SMS</span>}
+                                {!isCollapsed && <span>Saved Messages</span>}
                             </NavLink>
                         </div>
                     )}

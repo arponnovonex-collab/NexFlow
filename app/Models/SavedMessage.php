@@ -16,6 +16,7 @@ class SavedMessage extends Model
         'user_id',
         'title',
         'content',
+        'image_url',
         'shortcut',
         'category',
         'is_active',

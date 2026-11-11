@@ -675,3 +675,4 @@ export const CallRecordingsPage = () => {
         </div>
     );
 };
+

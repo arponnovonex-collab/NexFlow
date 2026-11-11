@@ -83,6 +83,7 @@ export const App = () => {
                             <Route path="dashboard" element={<DashboardPage />} />
                             <Route path="inbox" element={<UnifiedInboxPage />} />
                             <Route path="shortcuts/saved-sms" element={<SavedMessagesPage />} />
+                            <Route path="shortcuts/saved-messages" element={<SavedMessagesPage />} />
                             <Route path="connections" element={<SocialConnectionsPage />} />
                             <Route path="connections/diagnostics" element={<SocialConnectionsPage />} />
 

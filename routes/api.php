@@ -91,6 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Shortcuts & Saved SMS / Quick Replies
     Route::get('/saved-messages', [SavedMessageController::class, 'index']);
     Route::post('/saved-messages', [SavedMessageController::class, 'store']);
+    Route::post('/saved-messages/upload-image', [SavedMessageController::class, 'uploadImage']);
     Route::get('/saved-messages/{savedMessage}', [SavedMessageController::class, 'show']);
     Route::put('/saved-messages/{savedMessage}', [SavedMessageController::class, 'update']);
     Route::delete('/saved-messages/{savedMessage}', [SavedMessageController::class, 'destroy']);

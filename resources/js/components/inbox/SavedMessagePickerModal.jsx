@@ -10,6 +10,7 @@ import {
     MessageSquare,
     CornerDownLeft,
     Sparkles,
+    Image as ImageIcon,
 } from 'lucide-react';
 
 export const SavedMessagePickerModal = ({ isOpen, onClose, onSelectMessage }) => {
@@ -70,7 +71,7 @@ export const SavedMessagePickerModal = ({ isOpen, onClose, onSelectMessage }) =>
     const handleSelect = (msg) => {
         // Fire-and-forget usage increment
         api.post(`/saved-messages/${msg.id}/use`).catch(() => {});
-        onSelectMessage(msg.content);
+        onSelectMessage({ text: msg.content, imageUrl: msg.image_url });
         onClose();
     };
 
@@ -193,32 +194,51 @@ export const SavedMessagePickerModal = ({ isOpen, onClose, onSelectMessage }) =>
                                 onClick={() => handleSelect(item)}
                                 className="p-3 bg-slate-950/70 hover:bg-indigo-950/30 border border-slate-800/90 hover:border-indigo-500/50 rounded-xl cursor-pointer transition-all group flex flex-col gap-1.5"
                             >
-                                <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <span className="font-semibold text-xs text-white group-hover:text-indigo-300 transition-colors truncate">
-                                            {item.title}
-                                        </span>
-                                        {item.shortcut && (
-                                            <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">
-                                                {item.shortcut}
-                                            </span>
-                                        )}
-                                    </div>
+                                <div className="flex items-start gap-3">
+                                    {item.image_url && (
+                                        <div className="w-12 h-12 rounded-lg border border-slate-700 bg-slate-900 overflow-hidden shrink-0">
+                                            <img
+                                                src={item.image_url}
+                                                alt={item.title}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className="font-semibold text-xs text-white group-hover:text-indigo-300 transition-colors truncate">
+                                                    {item.title}
+                                                </span>
+                                                {item.shortcut && (
+                                                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">
+                                                        {item.shortcut}
+                                                    </span>
+                                                )}
+                                                {item.image_url && (
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0 flex items-center gap-1">
+                                                        <ImageIcon className="w-2.5 h-2.5" />
+                                                        <span>Photo</span>
+                                                    </span>
+                                                )}
+                                            </div>
 
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
-                                            {item.category || 'General'}
-                                        </span>
-                                        <span className="text-[11px] text-indigo-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-                                            <CornerDownLeft className="w-3 h-3" />
-                                            <span>Insert</span>
-                                        </span>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                                    {item.category || 'General'}
+                                                </span>
+                                                <span className="text-[11px] text-indigo-400 group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+                                                    <CornerDownLeft className="w-3 h-3" />
+                                                    <span>Insert</span>
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <p className="text-xs text-slate-400 group-hover:text-slate-300 line-clamp-2 leading-relaxed mt-1">
+                                            {item.content}
+                                        </p>
                                     </div>
                                 </div>
-
-                                <p className="text-xs text-slate-400 group-hover:text-slate-300 line-clamp-2 leading-relaxed">
-                                    {item.content}
-                                </p>
                             </div>
                         ))
                     )}

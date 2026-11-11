@@ -320,13 +320,29 @@ export const UnifiedInboxPage = () => {
         }
     };
 
-    const handleSelectSavedMessage = (text) => {
-        setReplyText((prev) => {
-            if (!prev || !prev.trim()) {
-                return text;
-            }
-            return `${prev.trim()}\n${text}`;
-        });
+    const handleSelectSavedMessage = (data) => {
+        const text = typeof data === 'string' ? data : data?.text;
+        const imageUrl = typeof data === 'object' ? data?.imageUrl : null;
+
+        if (text) {
+            setReplyText((prev) => {
+                if (!prev || !prev.trim()) {
+                    return text;
+                }
+                return `${prev.trim()}\n${text}`;
+            });
+        }
+
+        if (imageUrl) {
+            handleRemoveFile();
+            setSelectedMediaItem({
+                file_url: imageUrl,
+                file_type: 'image',
+                file_name: 'saved_image.jpg',
+            });
+            setFileTypeCategory('image');
+            setFilePreviewUrl(imageUrl);
+        }
     };
 
     const handleSelectMediaLibraryItem = (media) => {
