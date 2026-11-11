@@ -579,19 +579,47 @@ class MetaWebhookController extends Controller
                     'message' => ['text' => $replyText],
                 ]);
 
-            if (! $sendRes->successful() && in_array($sendRes->status(), [400, 403])) {
-                $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
-                    'fields' => 'access_token',
-                    'access_token' => $account->access_token,
-                ]);
-                if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
-                    $pageToken = $pageRes->json('access_token');
-                    $account->update(['access_token' => $pageToken]);
-                    Http::timeout(8)->withToken($pageToken)->post("https://graph.facebook.com/{$version}/me/messages", [
-                        'recipient' => ['id' => $senderPsid],
-                        'messaging_type' => 'RESPONSE',
-                        'message' => ['text' => $replyText],
+            if (! $sendRes->successful()) {
+                $err = $sendRes->json('error.message') ?? '';
+                $code = $sendRes->json('error.code');
+                $tokenToUse = $account->fresh()->access_token ?? $account->access_token;
+
+                // Fallback 1: Token refresh if 400 or 403
+                if (in_array($sendRes->status(), [400, 403]) && (str_contains($err, 'OAuthException') || str_contains($err, 'access token'))) {
+                    $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                        'fields' => 'access_token',
+                        'access_token' => $tokenToUse,
                     ]);
+                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                        $tokenToUse = $pageRes->json('access_token');
+                        $account->update(['access_token' => $tokenToUse]);
+                        $sendRes = Http::timeout(8)->withToken($tokenToUse)->post("https://graph.facebook.com/{$version}/me/messages", [
+                            'recipient' => ['id' => $senderPsid],
+                            'messaging_type' => 'RESPONSE',
+                            'message' => ['text' => $replyText],
+                        ]);
+                    }
+                }
+
+                // Fallback 2: Outside 24-hour window tag fallback
+                if (! $sendRes->successful()) {
+                    $err = $sendRes->json('error.message') ?? '';
+                    $code = $sendRes->json('error.code');
+                    if ($code === 10 || str_contains(strtolower($err), 'outside of allowed window') || str_contains(strtolower($err), 'allowed window')) {
+                        $fallbackTags = $account->platform === 'instagram_business' ? ['HUMAN_AGENT'] : ['POST_PURCHASE_UPDATE', 'HUMAN_AGENT', 'ACCOUNT_UPDATE'];
+                        foreach ($fallbackTags as $fbTag) {
+                            $tagRes = Http::timeout(8)->withToken($tokenToUse)->post("https://graph.facebook.com/{$version}/me/messages", [
+                                'recipient' => ['id' => $senderPsid],
+                                'messaging_type' => 'MESSAGE_TAG',
+                                'tag' => $fbTag,
+                                'message' => ['text' => $replyText],
+                            ]);
+                            if ($tagRes->successful()) {
+                                Log::info("Webhook AI auto-reply delivered using tag {$fbTag} for PSID {$senderPsid}");
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }

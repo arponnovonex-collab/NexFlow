@@ -408,10 +408,15 @@ export const SwipeableMessageRow = ({
                         )}
 
                     {isFailed && (
-                        <div className="mt-1.5 pt-1.5 border-t border-rose-400/25 text-[10px] text-rose-300 flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
-                            <span className="truncate">
-                                Facebook-এ সেন্ড হয়নি: {msg.metadata?.error || 'Page Token Expired'}
+                        <div className="mt-1.5 pt-1.5 border-t border-rose-400/25 text-[10px] text-rose-300 flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                                <span className="font-semibold text-rose-400">মেসেজ ডেলিভারি হয়নি (Meta Policy)</span>
+                            </div>
+                            <span className="text-[10px] text-rose-200/90 leading-tight">
+                                {msg.metadata?.error && (msg.metadata.error.includes('outside of allowed window') || msg.metadata.error_code === 10)
+                                    ? 'গ্রাহকের ২৪ ঘণ্টার উইন্ডো শেষ হয়ে গেছে। Message Tag দিয়ে পুনরায় চেষ্টা করুন অথবা গ্রাহককে নতুন মেসেজ দিতে বলুন।'
+                                    : (msg.metadata?.error || 'Page Token Expired')}
                             </span>
                         </div>
                     )}
@@ -438,6 +443,14 @@ export const SwipeableMessageRow = ({
                 <span>
                     {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
+                {msg.metadata?.tag_used && msg.metadata?.tag_used !== 'RESPONSE' && (
+                    <span
+                        className="inline-flex items-center gap-1 text-[9px] text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20"
+                        title={`Sent with Meta Message Tag: ${msg.metadata.tag_used}`}
+                    >
+                        🏷️ {msg.metadata.tag_used}
+                    </span>
+                )}
                 {!isCustomer &&
                     (isFailed ? (
                         <span

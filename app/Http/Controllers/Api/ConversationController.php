@@ -408,75 +408,45 @@ class ConversationController extends Controller
                         if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
                             $pageToken = $account->access_token;
 
-                            // 1. If attachment present, stream binary media to Facebook Messenger
+                            // Calculate hours since customer's last message to check 24-hour window
+                            $lastCustomerMsg = $conversation->messages()
+                                ->where('sender_type', 'customer')
+                                ->latest('created_at')
+                                ->first();
+                            $hoursSinceCustomer = $lastCustomerMsg && $lastCustomerMsg->created_at
+                                ? $lastCustomerMsg->created_at->diffInHours(now())
+                                : 999;
+
+                            $requestedTag = $request->input('message_tag');
+                            if (! in_array($requestedTag, ['POST_PURCHASE_UPDATE', 'HUMAN_AGENT', 'ACCOUNT_UPDATE', 'CONFIRMED_EVENT_UPDATE'])) {
+                                $requestedTag = null;
+                            }
+
+                            // 1. If attachment present, stream binary media to Meta Messenger with smart tag fallback
                             if ($attachmentData && ! empty($attachmentData['local_path']) && file_exists($attachmentData['local_path'])) {
-                                $handle = fopen($attachmentData['local_path'], 'r');
-                                $metaType = in_array($attachmentData['file_type'], ['image', 'video', 'audio', 'file'])
-                                    ? $attachmentData['file_type']
-                                    : 'file';
-                                $sendFileName = $attachmentData['file_name'];
-                                if ($metaType === 'audio' && str_ends_with(strtolower($sendFileName), '.webm')) {
-                                    $sendFileName = preg_replace('/\.webm$/i', '.ogg', $sendFileName);
-                                }
+                                $mediaResult = $this->sendMetaMediaMessage(
+                                    $version,
+                                    $pageToken,
+                                    $psid,
+                                    $attachmentData,
+                                    $account->platform,
+                                    $hoursSinceCustomer,
+                                    $requestedTag,
+                                    $account
+                                );
 
-                                $mediaRes = Http::timeout(45)->withToken($pageToken)
-                                    ->attach('filedata', $handle, $sendFileName)
-                                    ->post("https://graph.facebook.com/{$version}/me/messages", [
-                                        'recipient' => json_encode(['id' => $psid]),
-                                        'message' => json_encode([
-                                            'attachment' => [
-                                                'type' => $metaType,
-                                                'payload' => [
-                                                    'is_reusable' => true,
-                                                ],
-                                            ],
-                                        ]),
-                                    ]);
-
-                                if (is_resource($handle)) {
-                                    fclose($handle);
-                                }
-
-                                // Fallback: If 400 or 403, attempt to resolve Page token from Page ID
-                                if (! $mediaRes->successful() && in_array($mediaRes->status(), [400, 403])) {
-                                    $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
-                                        'fields' => 'access_token',
-                                        'access_token' => $pageToken,
-                                    ]);
-                                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
-                                        $pageToken = $pageRes->json('access_token');
-                                        $account->update(['access_token' => $pageToken]);
-
-                                        $retryHandle = fopen($attachmentData['local_path'], 'r');
-                                        $mediaRes = Http::timeout(45)->withToken($pageToken)
-                                            ->attach('filedata', $retryHandle, $sendFileName)
-                                            ->post("https://graph.facebook.com/{$version}/me/messages", [
-                                                'recipient' => json_encode(['id' => $psid]),
-                                                'message' => json_encode([
-                                                    'attachment' => [
-                                                        'type' => $metaType,
-                                                        'payload' => [
-                                                            'is_reusable' => true,
-                                                        ],
-                                                    ],
-                                                ]),
-                                            ]);
-                                        if (is_resource($retryHandle)) {
-                                            fclose($retryHandle);
-                                        }
-                                    }
-                                }
-
-                                if ($mediaRes->successful()) {
-                                    $data = $mediaRes->json();
+                                if ($mediaResult['success']) {
+                                    $data = $mediaResult['data'] ?? [];
+                                    $currentMeta = $msg->metadata ?? [];
+                                    $currentMeta['tag_used'] = $mediaResult['tag_used'] ?? 'RESPONSE';
                                     $msg->update([
                                         'delivery_status' => 'delivered',
                                         'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
+                                        'metadata' => $currentMeta,
                                     ]);
                                 } else {
-                                    $errData = $mediaRes->json('error');
-                                    $deliveryError = $errData['message'] ?? $mediaRes->body();
-                                    $errorCode = $errData['code'] ?? null;
+                                    $deliveryError = $mediaResult['error'] ?? 'Media upload failed';
+                                    $errorCode = $mediaResult['error_code'] ?? null;
                                     Log::error("Meta Send Attachment Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
 
                                     $msg->update([
@@ -496,51 +466,36 @@ class ConversationController extends Controller
                                 }
                             }
 
-                            // 2. If text was also provided, send the text message to Meta
+                            // 2. If text was also provided, send the text message to Meta with smart tag fallback
                             if (! empty(trim((string) $text))) {
-                                $msgPayload = [
-                                    'recipient' => ['id' => $psid],
-                                    'messaging_type' => 'RESPONSE',
-                                    'message' => ['text' => $text],
-                                ];
+                                $replyMid = ($replyToMessage && $replyToMessage->platform_message_id && ! str_starts_with($replyToMessage->platform_message_id, 'out_'))
+                                    ? $replyToMessage->platform_message_id
+                                    : null;
 
-                                if ($replyToMessage && $replyToMessage->platform_message_id && ! str_starts_with($replyToMessage->platform_message_id, 'out_')) {
-                                    $msgPayload['message']['reply_to'] = ['mid' => $replyToMessage->platform_message_id];
-                                }
+                                $textResult = $this->sendMetaTextMessage(
+                                    $version,
+                                    $pageToken,
+                                    $psid,
+                                    $text,
+                                    $replyMid,
+                                    $account->platform,
+                                    $hoursSinceCustomer,
+                                    $requestedTag,
+                                    $account
+                                );
 
-                                $textRes = Http::timeout(8)->withToken($pageToken)
-                                    ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
-
-                                // Fallback without reply_to if rejected with 400
-                                if (! $textRes->successful() && isset($msgPayload['message']['reply_to'])) {
-                                    unset($msgPayload['message']['reply_to']);
-                                    $textRes = Http::timeout(8)->withToken($pageToken)
-                                        ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
-                                }
-
-                                if (! $textRes->successful() && in_array($textRes->status(), [400, 403])) {
-                                    $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
-                                        'fields' => 'access_token',
-                                        'access_token' => $pageToken,
-                                    ]);
-                                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
-                                        $pageToken = $pageRes->json('access_token');
-                                        $account->update(['access_token' => $pageToken]);
-                                        $textRes = Http::timeout(8)->withToken($pageToken)
-                                            ->post("https://graph.facebook.com/{$version}/me/messages", $msgPayload);
-                                    }
-                                }
-
-                                if ($textRes->successful()) {
-                                    $data = $textRes->json();
+                                if ($textResult['success']) {
+                                    $data = $textResult['data'] ?? [];
+                                    $currentMeta = $msg->metadata ?? [];
+                                    $currentMeta['tag_used'] = $textResult['tag_used'] ?? 'RESPONSE';
                                     $msg->update([
                                         'delivery_status' => 'delivered',
                                         'platform_message_id' => $data['message_id'] ?? $msg->platform_message_id,
+                                        'metadata' => $currentMeta,
                                     ]);
                                 } else {
-                                    $errData = $textRes->json('error');
-                                    $deliveryError = $errData['message'] ?? $textRes->body();
-                                    $errorCode = $errData['code'] ?? null;
+                                    $deliveryError = $textResult['error'] ?? 'Text send failed';
+                                    $errorCode = $textResult['error_code'] ?? null;
                                     Log::error("Meta Send Text Error for Conv {$conversation->id} (PSID {$psid}): {$deliveryError}");
 
                                     $msg->update([
@@ -632,9 +587,15 @@ class ConversationController extends Controller
 
         if ($deliveryError && $message->delivery_status === 'failed') {
             $isExpired = str_contains($deliveryError, 'expired') || str_contains($deliveryError, 'access token');
-            $userFacingMsg = $isExpired
-                ? 'Facebook Page access token expired! Please update or reconnect your Facebook Page in Channel Connections.'
-                : "Message could not be delivered to Meta Facebook: {$deliveryError}";
+            $isWindowError = $this->isOutsideAllowedWindowError($errorCode, $deliveryError);
+
+            if ($isExpired) {
+                $userFacingMsg = 'Facebook Page access token expired! Please update or reconnect your Facebook Page in Channel Connections.';
+            } elseif ($isWindowError) {
+                $userFacingMsg = 'মেটা পলিসি (Facebook Messenger): গ্রাহকের শেষ মেসেজের পর ২৪ ঘণ্টার রেসপন্স উইন্ডো শেষ হয়ে গেছে। সিস্টেম স্বয়ংক্রিয়ভাবে মেসেজ ট্যাগ (POST_PURCHASE_UPDATE / HUMAN_AGENT) দিয়ে পাঠানোর চেষ্টা করেছে কিন্তু মেটা তা অনুমোদন করেনি। অনুগ্রহ করে গ্রাহককে পেজে নতুন কোনো বার্তা দিতে বলুন, অথবা এসএমএস/কলের মাধ্যমে যোগাযোগ করুন।';
+            } else {
+                $userFacingMsg = "Message could not be delivered to Meta Facebook: {$deliveryError}";
+            }
 
             return response()->json([
                 'status' => 'failed',
@@ -926,6 +887,285 @@ class ConversationController extends Controller
             'message' => $count > 0 ? "Synced {$count} new messages from Meta." : "All messages are up to date.",
             'data' => $conversation,
         ]);
+    }
+
+    /**
+     * Check if error from Meta Graph API is caused by the 24-hour messaging window policy.
+     */
+    protected function isOutsideAllowedWindowError(?int $code, ?string $message): bool
+    {
+        if ($code === 10) {
+            return true;
+        }
+
+        if ($message) {
+            $lower = strtolower($message);
+            if (
+                str_contains($lower, 'outside of allowed window') ||
+                str_contains($lower, 'allowed window') ||
+                str_contains($lower, 'policy-overview') ||
+                str_contains($lower, '2018278') ||
+                str_contains($lower, '24 hour') ||
+                str_contains($lower, '24-hour')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get candidate message tags in order of priority based on platform and time elapsed.
+     */
+    protected function getCandidateMessageTags(string $platform, int $hoursSinceCustomer, ?string $requestedTag = null): array
+    {
+        if ($platform === 'instagram_business') {
+            return ['HUMAN_AGENT'];
+        }
+
+        $validFacebookTags = ['POST_PURCHASE_UPDATE', 'HUMAN_AGENT', 'ACCOUNT_UPDATE', 'CONFIRMED_EVENT_UPDATE'];
+
+        if ($requestedTag && in_array($requestedTag, $validFacebookTags)) {
+            $remaining = array_values(array_diff($validFacebookTags, [$requestedTag]));
+            return array_merge([$requestedTag], $remaining);
+        }
+
+        // For NexFlow e-commerce CRM:
+        // Within 7 days (168 hours): HUMAN_AGENT is the premier human customer service tag.
+        // Over 7 days: POST_PURCHASE_UPDATE has no 7-day limit and is ideal for orders, invoices, and shipment info.
+        if ($hoursSinceCustomer <= 168) {
+            return ['HUMAN_AGENT', 'POST_PURCHASE_UPDATE', 'ACCOUNT_UPDATE'];
+        }
+
+        return ['POST_PURCHASE_UPDATE', 'ACCOUNT_UPDATE', 'HUMAN_AGENT'];
+    }
+
+    /**
+     * Send text message to Meta Graph API with automatic message tag fallback.
+     */
+    protected function sendMetaTextMessage(
+        string $version,
+        string $pageToken,
+        string $psid,
+        string $text,
+        ?string $replyToMid,
+        string $platform,
+        int $hoursSinceCustomer,
+        ?string $requestedTag = null,
+        ?SocialAccount $account = null
+    ): array {
+        $cleanReplyMid = ($replyToMid && ! str_starts_with($replyToMid, 'out_')) ? $replyToMid : null;
+
+        $attemptSend = function ($payload, $token) use ($version) {
+            return Http::timeout(10)->withToken($token)
+                ->post("https://graph.facebook.com/{$version}/me/messages", $payload);
+        };
+
+        $refreshTokenIfNeeded = function ($res, &$token) use ($account, $version) {
+            if ($account && ! $res->successful() && in_array($res->status(), [400, 401, 403])) {
+                $err = $res->json('error.message') ?? '';
+                if (str_contains($err, 'OAuthException') || str_contains($err, 'access token') || str_contains($err, 'expired')) {
+                    try {
+                        $pageRes = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                            'fields' => 'access_token',
+                            'access_token' => $token,
+                        ]);
+                        if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                            $token = $pageRes->json('access_token');
+                            $account->update(['access_token' => $token]);
+                            return true;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+            }
+            return false;
+        };
+
+        $lastError = null;
+        $lastErrorCode = null;
+
+        // Attempt 1: Standard RESPONSE (if within 24h and no specific tag requested)
+        if ($hoursSinceCustomer < 24 && empty($requestedTag)) {
+            $payload = [
+                'recipient' => ['id' => $psid],
+                'messaging_type' => 'RESPONSE',
+                'message' => ['text' => $text],
+            ];
+            if ($cleanReplyMid) {
+                $payload['message']['reply_to'] = ['mid' => $cleanReplyMid];
+            }
+
+            $res = $attemptSend($payload, $pageToken);
+
+            if (! $res->successful() && isset($payload['message']['reply_to'])) {
+                unset($payload['message']['reply_to']);
+                $res = $attemptSend($payload, $pageToken);
+            }
+
+            if ($refreshTokenIfNeeded($res, $pageToken)) {
+                $res = $attemptSend($payload, $pageToken);
+            }
+
+            if ($res->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $res->json(),
+                    'tag_used' => 'RESPONSE',
+                ];
+            }
+
+            $lastError = $res->json('error.message') ?? $res->body();
+            $lastErrorCode = $res->json('error.code');
+            Log::warning("Standard 24h Meta Send failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
+
+            if (! $this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+                return [
+                    'success' => false,
+                    'error' => $lastError,
+                    'error_code' => $lastErrorCode,
+                ];
+            }
+        }
+
+        // Attempt 2+: Candidate Tags (Outside 24h or Tag Requested)
+        $candidateTags = $this->getCandidateMessageTags($platform, $hoursSinceCustomer, $requestedTag);
+
+        foreach ($candidateTags as $tag) {
+            $taggedPayload = [
+                'recipient' => ['id' => $psid],
+                'messaging_type' => 'MESSAGE_TAG',
+                'tag' => $tag,
+                'message' => ['text' => $text],
+            ];
+            if ($cleanReplyMid) {
+                $taggedPayload['message']['reply_to'] = ['mid' => $cleanReplyMid];
+            }
+
+            $res = $attemptSend($taggedPayload, $pageToken);
+
+            if (! $res->successful() && isset($taggedPayload['message']['reply_to'])) {
+                unset($taggedPayload['message']['reply_to']);
+                $res = $attemptSend($taggedPayload, $pageToken);
+            }
+
+            if ($refreshTokenIfNeeded($res, $pageToken)) {
+                $res = $attemptSend($taggedPayload, $pageToken);
+            }
+
+            if ($res->successful()) {
+                Log::info("Meta Message delivered successfully using tag {$tag} for PSID {$psid}");
+                return [
+                    'success' => true,
+                    'data' => $res->json(),
+                    'tag_used' => $tag,
+                ];
+            }
+
+            $lastError = $res->json('error.message') ?? $res->body();
+            $lastErrorCode = $res->json('error.code');
+            Log::warning("Meta Send with tag {$tag} failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
+        }
+
+        return [
+            'success' => false,
+            'error' => $lastError,
+            'error_code' => $lastErrorCode,
+        ];
+    }
+
+    /**
+     * Stream binary media to Meta Graph API with automatic message tag fallback.
+     */
+    protected function sendMetaMediaMessage(
+        string $version,
+        string $pageToken,
+        string $psid,
+        array $attachmentData,
+        string $platform,
+        int $hoursSinceCustomer,
+        ?string $requestedTag = null,
+        ?SocialAccount $account = null
+    ): array {
+        if (empty($attachmentData['local_path']) || ! file_exists($attachmentData['local_path'])) {
+            return ['success' => false, 'error' => 'Local attachment file not found', 'error_code' => 404];
+        }
+
+        $metaType = in_array($attachmentData['file_type'], ['image', 'video', 'audio', 'file'])
+            ? $attachmentData['file_type']
+            : 'file';
+        $sendFileName = $attachmentData['file_name'];
+        if ($metaType === 'audio' && str_ends_with(strtolower($sendFileName), '.webm')) {
+            $sendFileName = preg_replace('/\.webm$/i', '.ogg', $sendFileName);
+        }
+
+        $attemptMediaSend = function (array $formFields, $token) use ($version, $attachmentData, $sendFileName) {
+            $handle = fopen($attachmentData['local_path'], 'r');
+            try {
+                $res = Http::timeout(50)->withToken($token)
+                    ->attach('filedata', $handle, $sendFileName)
+                    ->post("https://graph.facebook.com/{$version}/me/messages", $formFields);
+                return $res;
+            } finally {
+                if (is_resource($handle)) {
+                    fclose($handle);
+                }
+            }
+        };
+
+        $messagePayload = json_encode([
+            'attachment' => [
+                'type' => $metaType,
+                'payload' => ['is_reusable' => true],
+            ],
+        ]);
+
+        $lastError = null;
+        $lastErrorCode = null;
+
+        // Standard attempt if within 24h
+        if ($hoursSinceCustomer < 24 && empty($requestedTag)) {
+            $formFields = [
+                'recipient' => json_encode(['id' => $psid]),
+                'messaging_type' => 'RESPONSE',
+                'message' => $messagePayload,
+            ];
+
+            $res = $attemptMediaSend($formFields, $pageToken);
+            if ($res->successful()) {
+                return ['success' => true, 'data' => $res->json(), 'tag_used' => 'RESPONSE'];
+            }
+
+            $lastError = $res->json('error.message') ?? $res->body();
+            $lastErrorCode = $res->json('error.code');
+
+            if (! $this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+                return ['success' => false, 'error' => $lastError, 'error_code' => $lastErrorCode];
+            }
+        }
+
+        // Tagged attempts
+        $candidateTags = $this->getCandidateMessageTags($platform, $hoursSinceCustomer, $requestedTag);
+        foreach ($candidateTags as $tag) {
+            $formFields = [
+                'recipient' => json_encode(['id' => $psid]),
+                'messaging_type' => 'MESSAGE_TAG',
+                'tag' => $tag,
+                'message' => $messagePayload,
+            ];
+
+            $res = $attemptMediaSend($formFields, $pageToken);
+            if ($res->successful()) {
+                Log::info("Meta Attachment delivered successfully using tag {$tag} for PSID {$psid}");
+                return ['success' => true, 'data' => $res->json(), 'tag_used' => $tag];
+            }
+
+            $lastError = $res->json('error.message') ?? $res->body();
+            $lastErrorCode = $res->json('error.code');
+            Log::warning("Meta Attachment with tag {$tag} failed: {$lastError}");
+        }
+
+        return ['success' => false, 'error' => $lastError, 'error_code' => $lastErrorCode];
     }
 }
 
