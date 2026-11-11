@@ -356,7 +356,10 @@ class EpbxService
 
                     $dest = $item['destination'] ?? $item['phone_number'] ?? '';
                     $cleanPhone = $this->formatPhoneNumber($dest);
-                    $customer = Customer::where('phone', $cleanPhone)->first();
+                    $customer = Customer::where('phone', $cleanPhone)
+                        ->orWhere('phone', '+88' . $cleanPhone)
+                        ->orWhere('phone', '88' . $cleanPhone)
+                        ->first();
                     $disp = strtoupper($item['disposition'] ?? 'ANSWERED');
                     $status = match ($disp) {
                         'ANSWERED' => 'answered',
@@ -366,20 +369,48 @@ class EpbxService
                         default => 'answered',
                     };
 
-                    CallLog::updateOrCreate(
-                        ['call_session_id' => (string) $uniqueId],
-                        [
+                    $duration = (int) ($item['billsec'] ?? $item['duration'] ?? 0);
+                    $callDate = ! empty($item['call_date']) ? $item['call_date'] : now();
+
+                    // Build recording stream URL if recording is available on ePBX
+                    $recordingUrl = $item['recording_url'] ?? null;
+                    if (empty($recordingUrl) && $status === 'answered' && $duration > 0) {
+                        $recordingUrl = url("/api/call-center/recordings/{$uniqueId}");
+                    }
+
+                    // 1. Check if record with this uniqueId already exists
+                    $existingLog = CallLog::where('call_session_id', (string) $uniqueId)->first();
+
+                    // 2. If not, check if a WebRTC in-browser log was saved around the same time
+                    if (! $existingLog && ! empty($cleanPhone)) {
+                        $existingLog = CallLog::where('customer_phone', $cleanPhone)
+                            ->where('call_session_id', 'like', 'webrtc_%')
+                            ->latest('id')
+                            ->first();
+                    }
+
+                    if ($existingLog) {
+                        $existingLog->update([
+                            'call_session_id' => (string) $uniqueId,
+                            'status' => $status,
+                            'duration_seconds' => $duration > 0 ? $duration : $existingLog->duration_seconds,
+                            'recording_url' => $recordingUrl ?: $existingLog->recording_url,
+                            'started_at' => $callDate,
+                        ]);
+                    } else {
+                        CallLog::create([
+                            'call_session_id' => (string) $uniqueId,
                             'direction' => 'outbound',
                             'customer_phone' => $cleanPhone ?: $dest,
                             'customer_id' => $customer?->id,
-                            'agent_extension' => (string) ($item['source'] ?? $settings->default_extension ?: '101'),
+                            'agent_extension' => (string) ($item['source'] ?? $settings->default_extension ?: '102'),
                             'trunk_number' => $settings->trunk_number,
                             'status' => $status,
-                            'duration_seconds' => (int) ($item['duration'] ?? $item['billsec'] ?? 0),
-                            'recording_url' => $item['recording_url'] ?? null,
-                            'started_at' => ! empty($item['call_date']) ? $item['call_date'] : now(),
-                        ]
-                    );
+                            'duration_seconds' => $duration,
+                            'recording_url' => $recordingUrl,
+                            'started_at' => $callDate,
+                        ]);
+                    }
                     $imported++;
                 }
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { NavLink } from 'react-router-dom';
 import api from '../../api/client';
 import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
@@ -54,6 +55,7 @@ export const IpCallPage = () => {
         toggleMute,
         sendDTMF,
         reconnect,
+        testSpeakerSound,
     } = useSipPhone();
 
     // Local dialer input
@@ -115,6 +117,16 @@ export const IpCallPage = () => {
             setPhoneNumber(sipCallNumber);
         }
     }, [sipCallNumber, sipCallState]);
+
+    // Automatically reload CDR table when a call ends
+    useEffect(() => {
+        if (sipCallState === 'ended') {
+            const timer = setTimeout(() => {
+                fetchCallLogs();
+            }, 1200);
+            return () => clearTimeout(timer);
+        }
+    }, [sipCallState]);
 
     const fetchCallLogs = async () => {
         try {
@@ -325,7 +337,7 @@ export const IpCallPage = () => {
                         <p className="text-xs text-slate-400 mt-1">
                             {isOnline ? (
                                 <span className="text-emerald-300">
-                                    ✅ ব্রাউজার সরাসরি Asterisk PBX-এর সাথে সংযুক্ত। হেডফোন/মাইক্রোফোন দিয়ে কথা বলতে পারবেন।
+                                    ✅ ব্রাউজার সরাসরি Asterisk PBX-এর সাথে সংযুক্ত। হেডফোন ছাড়াও সরাসরি ল্যাপটপ/পিসি স্পিকার ও মাইক দিয়ে কথা বলা যাবে।
                                 </span>
                             ) : (
                                 <span>{statusMessage}</span>
@@ -335,6 +347,15 @@ export const IpCallPage = () => {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                        type="button"
+                        onClick={testSpeakerSound}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold transition-colors"
+                        title="ল্যাপটপ বা পিসি স্পিকার টেস্ট করুন"
+                    >
+                        <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>স্পিকার টেস্ট</span>
+                    </button>
                     {!isOnline && (
                         <Button
                             variant="secondary"
@@ -591,6 +612,15 @@ export const IpCallPage = () => {
                                         className="bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 w-40 sm:w-48 focus:outline-none focus:border-indigo-500"
                                     />
                                 </div>
+
+                                <NavLink
+                                    to="/call-center/recordings"
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                                    title="View Full Call Recordings Page"
+                                >
+                                    <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span>রেকর্ডিংস</span>
+                                </NavLink>
 
                                 <Button
                                     variant="secondary"

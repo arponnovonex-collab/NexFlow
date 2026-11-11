@@ -30,7 +30,10 @@ export const SipPhoneProvider = ({ children }) => {
     // Audio & Timer references
     const remoteAudioRef = useRef(null);
     const durationTimerRef = useRef(null);
+    const sessionStartTimeRef = useRef(null);
     const audioContextRef = useRef(null);
+    const webAudioNodesRef = useRef({ source: null, gain: null });
+    const speakerGainRef = useRef(2.0); // 2x gain boost for clear laptop speaker output
     const ringOscillatorRef = useRef(null);
     const ringIntervalRef = useRef(null);
     const pendingOriginateRef = useRef(null); // { targetNumber, timestamp }
@@ -129,17 +132,112 @@ export const SipPhoneProvider = ({ children }) => {
         }
     };
 
+    // Test speaker output with pleasant 3-tone chime
+    const testSpeakerSound = () => {
+        try {
+            const ctx = initAudioContext();
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+            notes.forEach((freq, index) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                const startTime = now + (index * 0.15);
+                gain.gain.setValueAtTime(0.2, startTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.35);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(startTime);
+                osc.stop(startTime + 0.35);
+            });
+            console.log('[SIP Audio] Speaker test chime played successfully');
+        } catch (e) {
+            console.warn('[SIP Audio] testSpeakerSound error:', e);
+        }
+    };
+
+    // Route remote incoming audio stream to both HTML5 audio and Web Audio Destination (for loud & clear PC/laptop speakers)
+    const routeRemoteAudio = (stream) => {
+        if (!stream) return;
+        console.log('[SIP Audio] Routing remote audio stream to laptop/PC speakers:', stream);
+
+        // 1. Direct HTML5 Audio Element with explicit volume and unmuted
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = stream;
+            remoteAudioRef.current.volume = 1.0;
+            remoteAudioRef.current.muted = false;
+            remoteAudioRef.current.autoplay = true;
+            if (typeof remoteAudioRef.current.setSinkId === 'function') {
+                remoteAudioRef.current.setSinkId('').catch(e => console.warn('[SIP Audio] setSinkId error:', e));
+            }
+            const p = remoteAudioRef.current.play();
+            if (p && typeof p.catch === 'function') {
+                p.catch(err => console.warn('[SIP Audio] HTML5 audio play error:', err));
+            }
+        }
+
+        // 2. Web Audio API Destination (Forces output directly through default hardware soundcard / speakers)
+        try {
+            const ctx = initAudioContext();
+            if (ctx) {
+                // Disconnect existing nodes if any
+                if (webAudioNodesRef.current.source) {
+                    try { webAudioNodesRef.current.source.disconnect(); } catch (e) {}
+                }
+                if (webAudioNodesRef.current.gain) {
+                    try { webAudioNodesRef.current.gain.disconnect(); } catch (e) {}
+                }
+
+                const source = ctx.createMediaStreamSource(stream);
+                const gainNode = ctx.createGain();
+                gainNode.gain.value = speakerGainRef.current || 2.0; // 2x gain for loud speech on laptop speakers
+                source.connect(gainNode);
+                gainNode.connect(ctx.destination);
+
+                webAudioNodesRef.current = { source, gain: gainNode };
+                console.log('[SIP Audio] Connected to Web Audio destination with gain:', gainNode.gain.value);
+            }
+        } catch (err) {
+            console.warn('[SIP Audio] Web Audio connection error:', err);
+        }
+    };
+
+    const cleanupAudioRouting = () => {
+        if (webAudioNodesRef.current.source) {
+            try { webAudioNodesRef.current.source.disconnect(); } catch (e) {}
+            webAudioNodesRef.current.source = null;
+        }
+        if (webAudioNodesRef.current.gain) {
+            try { webAudioNodesRef.current.gain.disconnect(); } catch (e) {}
+            webAudioNodesRef.current.gain = null;
+        }
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null;
+        }
+    };
+
     // ----------------------------------------------------
     // Duration Timer
     // ----------------------------------------------------
     useEffect(() => {
         if (callState === 'connected') {
+            if (!sessionStartTimeRef.current) {
+                sessionStartTimeRef.current = Date.now();
+            }
             durationTimerRef.current = setInterval(() => {
-                setCallDuration(prev => prev + 1);
+                if (sessionStartTimeRef.current) {
+                    const elapsed = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
+                    setCallDuration(elapsed);
+                }
             }, 1000);
         } else {
             if (durationTimerRef.current) clearInterval(durationTimerRef.current);
-            if (callState === 'idle') setCallDuration(0);
+            if (callState === 'idle') {
+                sessionStartTimeRef.current = null;
+                setCallDuration(0);
+            }
         }
         return () => {
             if (durationTimerRef.current) clearInterval(durationTimerRef.current);
@@ -303,13 +401,11 @@ export const SipPhoneProvider = ({ children }) => {
             if (pc) {
                 const attachTrack = (event) => {
                     console.log('[SIP] Remote audio track received:', event);
-                    if (remoteAudioRef.current) {
-                        if (event.streams && event.streams[0]) {
-                            remoteAudioRef.current.srcObject = event.streams[0];
-                        } else if (event.track) {
-                            remoteAudioRef.current.srcObject = new MediaStream([event.track]);
-                        }
-                        remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
+                    const stream = (event.streams && event.streams[0])
+                        ? event.streams[0]
+                        : (event.track ? new MediaStream([event.track]) : null);
+                    if (stream) {
+                        routeRemoteAudio(stream);
                     }
                 };
 
@@ -328,8 +424,14 @@ export const SipPhoneProvider = ({ children }) => {
             setIncomingCall(null);
             setCallState('connected');
             setStatusMessage('Connected');
-            if (remoteAudioRef.current) {
-                remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
+            if (!sessionStartTimeRef.current) {
+                sessionStartTimeRef.current = Date.now();
+            }
+            if (session.connection && session.connection.getReceivers) {
+                const tracks = session.connection.getReceivers().map(r => r.track).filter(t => t && t.kind === 'audio');
+                if (tracks.length > 0) {
+                    routeRemoteAudio(new MediaStream(tracks));
+                }
             }
         });
 
@@ -338,8 +440,14 @@ export const SipPhoneProvider = ({ children }) => {
             setIncomingCall(null);
             setCallState('connected');
             setStatusMessage('Connected');
-            if (remoteAudioRef.current) {
-                remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
+            if (!sessionStartTimeRef.current) {
+                sessionStartTimeRef.current = Date.now();
+            }
+            if (session.connection && session.connection.getReceivers) {
+                const tracks = session.connection.getReceivers().map(r => r.track).filter(t => t && t.kind === 'audio');
+                if (tracks.length > 0) {
+                    routeRemoteAudio(new MediaStream(tracks));
+                }
             }
         });
 
@@ -354,10 +462,19 @@ export const SipPhoneProvider = ({ children }) => {
 
     const handleCallTermination = (status, session, errorMsg = null) => {
         stopRingtone();
+        cleanupAudioRouting();
         pendingOriginateRef.current = null;
         setCallState('ended');
         setActiveSession(null);
         setIncomingCall(null);
+
+        // Calculate accurate duration directly from sessionStartTimeRef
+        let durationSecs = 0;
+        if (sessionStartTimeRef.current) {
+            durationSecs = Math.max(1, Math.round((Date.now() - sessionStartTimeRef.current) / 1000));
+        }
+        sessionStartTimeRef.current = null;
+        setCallDuration(durationSecs);
 
         // Save Call Detail Record to backend
         const phone = session?.remote_identity?.uri?.user || callNumber;
@@ -366,7 +483,7 @@ export const SipPhoneProvider = ({ children }) => {
                 direction: session?.direction || callDirection,
                 customer_phone: phone,
                 status: status === 'completed' ? 'answered' : 'failed',
-                duration_seconds: callDuration,
+                duration_seconds: durationSecs,
                 notes: errorMsg ? `Call status: ${errorMsg}` : 'WebRTC in-browser call',
             }).catch(e => console.error('Failed to log WebRTC call:', e));
         }
@@ -374,7 +491,7 @@ export const SipPhoneProvider = ({ children }) => {
         setTimeout(() => {
             setCallState('idle');
             setCallDuration(0);
-        }, 3000);
+        }, 4000);
     };
 
     // ----------------------------------------------------
@@ -408,7 +525,14 @@ export const SipPhoneProvider = ({ children }) => {
         }
 
         const options = {
-            mediaConstraints: { audio: true, video: false },
+            mediaConstraints: {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            },
             pcConfig: {
                 iceServers: [
                     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
@@ -436,7 +560,14 @@ export const SipPhoneProvider = ({ children }) => {
         initAudioContext();
 
         const options = {
-            mediaConstraints: { audio: true, video: false },
+            mediaConstraints: {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            },
             pcConfig: {
                 iceServers: [
                     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
@@ -473,6 +604,7 @@ export const SipPhoneProvider = ({ children }) => {
 
     const hangupCall = () => {
         stopRingtone();
+        cleanupAudioRouting();
         pendingOriginateRef.current = null;
         if (activeSession) {
             try {
@@ -531,6 +663,7 @@ export const SipPhoneProvider = ({ children }) => {
                 toggleMute,
                 sendDTMF,
                 reconnect,
+                testSpeakerSound,
             }}
         >
             {/* Hidden HTML5 Audio Element for Remote Audio Playback */}

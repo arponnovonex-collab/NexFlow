@@ -136,6 +136,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/call-center/logs', [CallCenterController::class, 'getCallLogs']);
     Route::post('/call-center/logs', [CallCenterController::class, 'storeCallLog']);
     Route::post('/call-center/sync-logs', [CallCenterController::class, 'syncLogs']);
+    Route::get('/call-center/recordings', [CallCenterController::class, 'getRecordings']);
     Route::get('/call-center/recordings/{uniqueid}', [CallCenterController::class, 'streamRecording']);
     Route::put('/call-center/logs/{callLog}', [CallCenterController::class, 'updateCallLog']);
     Route::get('/call-center/customer-lookup', [CallCenterController::class, 'lookupCustomer']);

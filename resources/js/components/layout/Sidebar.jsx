@@ -438,6 +438,17 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                     </div>
                                 )}
                             </NavLink>
+                            <NavLink to="/call-center/recordings" className={linkClasses}>
+                                <Volume2 className="w-4 h-4 shrink-0 text-indigo-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>Call Recordings</span>
+                                        <span className="bg-indigo-500/20 text-indigo-400 text-[9px] font-bold px-1.5 py-0.2 rounded-full">
+                                            Audio
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
                         </div>
                     )}
                 </div>

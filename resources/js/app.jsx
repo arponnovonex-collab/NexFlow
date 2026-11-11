@@ -40,6 +40,7 @@ import { AutoSmsPage } from './pages/sms/AutoSmsPage';
 import { SteadfastPage } from './pages/courier/SteadfastPage';
 import { CallCenterConfigPage } from './pages/call-center/CallCenterConfigPage';
 import { IpCallPage } from './pages/call-center/IpCallPage';
+import { CallRecordingsPage } from './pages/call-center/CallRecordingsPage';
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
@@ -119,6 +120,7 @@ export const App = () => {
                             {/* Call Center (ePBX.bd) */}
                             <Route path="call-center/configuration" element={<CallCenterConfigPage />} />
                             <Route path="call-center/ip-call" element={<IpCallPage />} />
+                            <Route path="call-center/recordings" element={<CallRecordingsPage />} />
 
                             {/* Team */}
                             <Route path="team" element={<TeamManagementPage />} />

@@ -286,10 +286,118 @@ class CallCenterController extends Controller
     }
 
     /**
+     * Get paginated Call Recordings with filters and statistics.
+     */
+    public function getRecordings(Request $request): JsonResponse
+    {
+        $query = CallLog::with(['customer', 'agent'])
+            ->where(function ($q) {
+                $q->whereNotNull('recording_url')
+                    ->orWhere('duration_seconds', '>', 0)
+                    ->orWhere('status', 'answered');
+            })
+            ->latest('id');
+
+        // Search by phone, customer name, or notes
+        if ($request->filled('search')) {
+            $term = $request->search;
+            $query->where(function ($q) use ($term) {
+                $q->where('customer_phone', 'like', "%{$term}%")
+                    ->orWhere('agent_extension', 'like', "%{$term}%")
+                    ->orWhere('notes', 'like', "%{$term}%")
+                    ->orWhereHas('customer', function ($cq) use ($term) {
+                        $cq->where('name', 'like', "%{$term}%");
+                    });
+            });
+        }
+
+        // Filter by direction
+        if ($request->filled('direction') && $request->direction !== 'all') {
+            $query->where('direction', $request->direction);
+        }
+
+        // Filter by date range
+        if ($request->filled('date_range')) {
+            switch ($request->date_range) {
+                case 'today':
+                    $query->whereDate('started_at', now()->today());
+                    break;
+                case 'yesterday':
+                    $query->whereDate('started_at', now()->subDay()->toDateString());
+                    break;
+                case 'last_7_days':
+                    $query->where('started_at', '>=', now()->subDays(7));
+                    break;
+                case 'this_month':
+                    $query->where('started_at', '>=', now()->startOfMonth());
+                    break;
+            }
+        }
+
+        // Duration filter
+        if ($request->filled('min_duration') && (int) $request->min_duration > 0) {
+            $query->where('duration_seconds', '>=', (int) $request->min_duration);
+        }
+
+        $recordings = $query->paginate($request->input('per_page', 15));
+
+        // Format and ensure recording stream URLs
+        $items = collect($recordings->items())->map(function ($log) {
+            $streamUrl = $log->recording_url;
+            if (empty($streamUrl) && ! empty($log->call_session_id) && ! str_starts_with($log->call_session_id, 'webrtc_')) {
+                $streamUrl = url("/api/call-center/recordings/{$log->call_session_id}");
+            }
+            $data = $log->toArray();
+            $data['stream_url'] = $streamUrl;
+            return $data;
+        });
+
+        // Compute summary metrics
+        $allQuery = CallLog::where(function ($q) {
+            $q->whereNotNull('recording_url')
+                ->orWhere('duration_seconds', '>', 0)
+                ->orWhere('status', 'answered');
+        });
+
+        $totalCount = (clone $allQuery)->count();
+        $totalSeconds = (clone $allQuery)->sum('duration_seconds');
+        $todayCount = (clone $allQuery)->whereDate('started_at', now()->today())->count();
+        $todaySeconds = (clone $allQuery)->whereDate('started_at', now()->today())->sum('duration_seconds');
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $items,
+            'meta' => [
+                'current_page' => $recordings->currentPage(),
+                'last_page' => $recordings->lastPage(),
+                'total' => $recordings->total(),
+            ],
+            'stats' => [
+                'total_recordings' => $totalCount,
+                'total_minutes' => round($totalSeconds / 60, 1),
+                'today_recordings' => $todayCount,
+                'today_minutes' => round($todaySeconds / 60, 1),
+            ],
+        ]);
+    }
+
+    /**
      * Stream authenticated audio recording from ePBX.bd.
      */
-    public function streamRecording(string $uniqueid)
+    public function streamRecording(Request $request, string $uniqueid)
     {
+        // Support authentication via Sanctum header OR token query parameter
+        $user = $request->user('sanctum');
+        if (! $user) {
+            $token = $request->query('token');
+            if ($token) {
+                $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+                if ($pat) {
+                    $user = $pat->tokenable;
+                }
+            }
+        }
+
         $settings = $this->epbxService->getSettings();
         $baseUrl = rtrim($settings->api_base_url, '/');
 
@@ -298,16 +406,24 @@ class CallCenterController extends Controller
         }
 
         try {
-            $response = Http::timeout(15)
+            $response = Http::timeout(25)
                 ->withToken($settings->api_token)
                 ->get("{$baseUrl}/calls/recordings/{$uniqueid}");
 
             if ($response->successful()) {
-                return response($response->body(), 200)
-                    ->header('Content-Type', $response->header('Content-Type') ?: 'audio/wav');
+                $contentType = $response->header('Content-Type') ?: 'audio/wav';
+                $body = $response->body();
+
+                return response($body, 200, [
+                    'Content-Type' => $contentType,
+                    'Content-Length' => strlen($body),
+                    'Accept-Ranges' => 'bytes',
+                    'Content-Disposition' => 'inline; filename="call_' . $uniqueid . '.wav"',
+                    'Cache-Control' => 'no-cache, private',
+                ]);
             }
 
-            return response('Recording unavailable or expired.', $response->status());
+            return response('Recording unavailable or expired on ePBX server.', $response->status());
         } catch (\Throwable $e) {
             return response('Error fetching recording: ' . $e->getMessage(), 500);
         }
