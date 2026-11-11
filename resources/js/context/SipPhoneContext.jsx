@@ -33,6 +33,7 @@ export const SipPhoneProvider = ({ children }) => {
     const audioContextRef = useRef(null);
     const ringOscillatorRef = useRef(null);
     const ringIntervalRef = useRef(null);
+    const pendingOriginateRef = useRef(null); // { targetNumber, timestamp }
 
     // ----------------------------------------------------
     // Sound Synthesis (Web Audio API - No external files needed)
@@ -240,6 +241,43 @@ export const SipPhoneProvider = ({ children }) => {
                 const session = data.session;
 
                 if (session.direction === 'incoming') {
+                    // Check if this incoming call is from our own recent outbound originate request
+                    const isPendingOriginate = pendingOriginateRef.current &&
+                        (Date.now() - pendingOriginateRef.current.timestamp < 35000);
+
+                    if (isPendingOriginate) {
+                        const target = pendingOriginateRef.current.targetNumber;
+                        console.log('[SIP] Originate loopback call received from PBX for target:', target);
+                        pendingOriginateRef.current = null;
+
+                        setCallDirection('outbound');
+                        setCallNumber(target);
+                        setCallState('calling');
+                        setStatusMessage(`Connecting to ${target} via ePBX trunk...`);
+
+                        attachSessionListeners(session);
+
+                        const answerOptions = {
+                            mediaConstraints: { audio: true, video: false },
+                            pcConfig: {
+                                iceServers: [
+                                    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
+                                ]
+                            }
+                        };
+
+                        try {
+                            session.answer(answerOptions);
+                            if (remoteAudioRef.current) {
+                                remoteAudioRef.current.play().catch(e => console.warn('Audio play policy:', e));
+                            }
+                        } catch (e) {
+                            console.error('Failed to auto-answer originate call:', e);
+                        }
+                        return;
+                    }
+
+                    // Otherwise, genuine incoming call from customer
                     handleIncomingCall(session);
                 } else if (session.direction === 'outgoing') {
                     attachSessionListeners(session);
@@ -292,26 +330,49 @@ export const SipPhoneProvider = ({ children }) => {
         setIsMuted(false);
 
         // When WebRTC PeerConnection is created
-        session.on('peerconnection', () => {
-            const pc = session.connection;
+        session.on('peerconnection', (data) => {
+            const pc = data?.peerconnection || session.connection;
             if (pc) {
-                pc.addEventListener('track', (event) => {
-                    if (remoteAudioRef.current && event.streams && event.streams[0]) {
-                        remoteAudioRef.current.srcObject = event.streams[0];
+                const attachTrack = (event) => {
+                    console.log('[SIP] Remote audio track received:', event);
+                    if (remoteAudioRef.current) {
+                        if (event.streams && event.streams[0]) {
+                            remoteAudioRef.current.srcObject = event.streams[0];
+                        } else if (event.track) {
+                            remoteAudioRef.current.srcObject = new MediaStream([event.track]);
+                        }
                         remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
                     }
-                });
+                };
+
+                pc.ontrack = attachTrack;
+                pc.addEventListener('track', attachTrack);
             }
         });
 
         session.on('progress', () => {
             setCallState('ringing');
+            setStatusMessage('Ringing...');
+        });
+
+        session.on('accepted', () => {
+            stopRingtone();
+            setIncomingCall(null);
+            setCallState('connected');
+            setStatusMessage('Connected');
+            if (remoteAudioRef.current) {
+                remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
+            }
         });
 
         session.on('confirmed', () => {
             stopRingtone();
             setIncomingCall(null);
             setCallState('connected');
+            setStatusMessage('Connected');
+            if (remoteAudioRef.current) {
+                remoteAudioRef.current.play().catch(e => console.warn('Audio play auto-policy:', e));
+            }
         });
 
         session.on('ended', () => {
@@ -325,6 +386,7 @@ export const SipPhoneProvider = ({ children }) => {
 
     const handleCallTermination = (status, session, errorMsg = null) => {
         stopRingtone();
+        pendingOriginateRef.current = null;
         setCallState('ended');
         setActiveSession(null);
         setIncomingCall(null);
@@ -350,14 +412,14 @@ export const SipPhoneProvider = ({ children }) => {
     // ----------------------------------------------------
     // Public Call Controls
     // ----------------------------------------------------
-    const makeCall = (targetNumber) => {
+    const makeCall = async (targetNumber) => {
         if (!ua || sipStatus !== 'registered') {
             alert('SIP Phone is not registered. Status: ' + statusMessage);
             return false;
         }
 
         const clean = targetNumber.replace(/[^0-9]/g, '');
-        if (clean.length < 5) {
+        if (clean.length < 3) {
             alert('Please enter a valid phone number.');
             return false;
         }
@@ -368,6 +430,44 @@ export const SipPhoneProvider = ({ children }) => {
         setCallState('calling');
         setCallDuration(0);
 
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.play().catch(() => {});
+        }
+
+        // Internal PBX Intercom (3-4 digits e.g. 101, 102) -> direct SIP INVITE
+        if (clean.length < 7) {
+            return dialDirectSip(clean);
+        }
+
+        // Outbound PSTN / Mobile Call -> ePBX Originate + WebRTC Bridge
+        try {
+            pendingOriginateRef.current = {
+                targetNumber: clean,
+                timestamp: Date.now(),
+            };
+            setStatusMessage(`Initiating outbound call to ${clean}...`);
+
+            const res = await api.post('/call-center/originate', {
+                phone: clean,
+                extension: credentials.extension,
+            });
+
+            console.log('[Originate OK]', res.data);
+            setStatusMessage(`Connecting Extension ${credentials.extension} to ${clean}...`);
+            return true;
+        } catch (err) {
+            console.error('[Originate Error]', err);
+            const errorMsg = err.response?.data?.message || err.message;
+            pendingOriginateRef.current = null;
+
+            // Fallback to direct SIP dial
+            console.warn('Originate API failed, trying direct SIP dial as fallback...');
+            setStatusMessage('Calling via direct SIP: ' + errorMsg);
+            return dialDirectSip(clean);
+        }
+    };
+
+    const dialDirectSip = (clean) => {
         const options = {
             mediaConstraints: { audio: true, video: false },
             pcConfig: {
@@ -385,7 +485,7 @@ export const SipPhoneProvider = ({ children }) => {
             return true;
         } catch (err) {
             console.error('Call origination failed:', err);
-            alert('Failed to initiate WebRTC call: ' + err.message);
+            alert('Failed to initiate SIP call: ' + err.message);
             setCallState('idle');
             return false;
         }
@@ -434,16 +534,18 @@ export const SipPhoneProvider = ({ children }) => {
 
     const hangupCall = () => {
         stopRingtone();
+        pendingOriginateRef.current = null;
         if (activeSession) {
             try {
                 activeSession.terminate();
             } catch (e) {
-                // ignore
+                console.warn('Session terminate error:', e);
             }
         }
         setCallState('ended');
         setActiveSession(null);
         setIncomingCall(null);
+        setStatusMessage('Call ended');
     };
 
     const toggleMute = () => {
@@ -552,3 +654,4 @@ export const useSipPhone = () => {
     }
     return context;
 };
+
