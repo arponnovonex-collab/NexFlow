@@ -27,6 +27,7 @@ import {
     RotateCcw,
     ExternalLink,
     Filter,
+    Loader2,
 } from 'lucide-react';
 
 export const CallRecordingsPage = () => {
@@ -52,6 +53,7 @@ export const CallRecordingsPage = () => {
 
     // Audio playback state
     const [activePlayingId, setActivePlayingId] = useState(null);
+    const [loadingAudioId, setLoadingAudioId] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
@@ -131,12 +133,21 @@ export const CallRecordingsPage = () => {
                 audioRef.current.pause();
                 setIsPlaying(false);
             } else {
-                audioRef.current.play();
-                setIsPlaying(true);
+                setLoadingAudioId(log.id);
+                audioRef.current.play().then(() => {
+                    setIsPlaying(true);
+                    setLoadingAudioId(null);
+                }).catch(e => {
+                    console.warn('Playback error:', e);
+                    setLoadingAudioId(null);
+                    setIsPlaying(false);
+                });
             }
         } else {
-            // Switch to new recording
+            // Switch to new recording with immediate loading state
             setActivePlayingId(log.id);
+            setLoadingAudioId(log.id);
+            setIsPlaying(false);
             const callId = log.call_session_id || log.id;
             let streamUrl = `/api/call-center/recordings/${callId}`;
             if (log.stream_url) {
@@ -147,8 +158,10 @@ export const CallRecordingsPage = () => {
             audioRef.current.volume = isMuted ? 0 : volume;
             audioRef.current.play().then(() => {
                 setIsPlaying(true);
+                setLoadingAudioId(null);
             }).catch(e => {
                 console.warn('Playback error:', e);
+                setLoadingAudioId(null);
                 setIsPlaying(false);
             });
         }
@@ -205,8 +218,20 @@ export const CallRecordingsPage = () => {
                 ref={audioRef}
                 onTimeUpdate={handleTimeUpdate}
                 onLoadedMetadata={handleTimeUpdate}
+                onWaiting={() => activePlayingId && setLoadingAudioId(activePlayingId)}
+                onCanPlay={() => setLoadingAudioId(null)}
+                onPlaying={() => {
+                    setLoadingAudioId(null);
+                    setIsPlaying(true);
+                }}
+                onPause={() => setIsPlaying(false)}
+                onError={() => {
+                    setLoadingAudioId(null);
+                    setIsPlaying(false);
+                }}
                 onEnded={() => {
                     setIsPlaying(false);
+                    setLoadingAudioId(null);
                     setCurrentTime(0);
                 }}
             />
@@ -301,9 +326,20 @@ export const CallRecordingsPage = () => {
                         <button
                             type="button"
                             onClick={() => togglePlay(activeRecording)}
-                            className="w-11 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-indigo-900/50 transition-colors"
+                            disabled={loadingAudioId === activeRecording.id}
+                            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-900/50 transition-colors ${
+                                loadingAudioId === activeRecording.id
+                                    ? 'bg-indigo-700 text-white cursor-wait'
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                            }`}
                         >
-                            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+                            {loadingAudioId === activeRecording.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : isPlaying ? (
+                                <Pause className="w-5 h-5" />
+                            ) : (
+                                <Play className="w-5 h-5 ml-0.5" />
+                            )}
                         </button>
                         <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -313,6 +349,11 @@ export const CallRecordingsPage = () => {
                                 {activeRecording.customer?.name && (
                                     <span className="text-xs text-indigo-300 font-medium truncate">
                                         ({activeRecording.customer.name})
+                                    </span>
+                                )}
+                                {loadingAudioId === activeRecording.id && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium animate-pulse">
+                                        <Loader2 className="w-2.5 h-2.5 animate-spin" /> অডিও লোড হচ্ছে...
                                     </span>
                                 )}
                             </div>
@@ -568,14 +609,25 @@ export const CallRecordingsPage = () => {
                                                         <button
                                                             type="button"
                                                             onClick={() => togglePlay(log)}
-                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors shadow-sm ${
+                                                            disabled={loadingAudioId === log.id}
+                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all shadow-sm ${
                                                                 isActiveRow && isPlaying
-                                                                    ? 'bg-emerald-600 text-white'
+                                                                    ? 'bg-emerald-600 text-white shadow-emerald-950/40'
+                                                                    : isActiveRow && loadingAudioId === log.id
+                                                                    ? 'bg-indigo-700 text-white ring-2 ring-indigo-400/50 cursor-wait'
                                                                     : 'bg-indigo-600 hover:bg-indigo-500 text-white'
                                                             }`}
-                                                            title={isActiveRow && isPlaying ? 'Pause' : 'Play Audio'}
+                                                            title={
+                                                                loadingAudioId === log.id
+                                                                    ? 'অডিও লোড হচ্ছে...'
+                                                                    : isActiveRow && isPlaying
+                                                                    ? 'Pause'
+                                                                    : 'Play Audio'
+                                                            }
                                                         >
-                                                            {isActiveRow && isPlaying ? (
+                                                            {loadingAudioId === log.id ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                                                            ) : isActiveRow && isPlaying ? (
                                                                 <Pause className="w-3.5 h-3.5" />
                                                             ) : (
                                                                 <Play className="w-3.5 h-3.5 ml-0.5" />
@@ -585,13 +637,25 @@ export const CallRecordingsPage = () => {
                                                         <div className="min-w-[130px]">
                                                             <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
                                                                 <span>{isActiveRow ? formatTime(currentTime) : '00:00'}</span>
-                                                                <span>{formatTime(log.duration_seconds)}</span>
+                                                                <span>
+                                                                    {isActiveRow && loadingAudioId === log.id ? (
+                                                                        <span className="text-indigo-400 font-sans text-[10px] animate-pulse">লোড হচ্ছে...</span>
+                                                                    ) : (
+                                                                        formatTime(log.duration_seconds)
+                                                                    )}
+                                                                </span>
                                                             </div>
                                                             <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                                                 <div
-                                                                    className="bg-indigo-500 h-full rounded-full transition-all"
+                                                                    className={`h-full rounded-full transition-all ${
+                                                                        isActiveRow && loadingAudioId === log.id
+                                                                            ? 'bg-indigo-400 w-1/2 animate-pulse'
+                                                                            : 'bg-indigo-500'
+                                                                    }`}
                                                                     style={{
-                                                                        width: isActiveRow && duration > 0
+                                                                        width: isActiveRow && loadingAudioId === log.id
+                                                                            ? '60%'
+                                                                            : isActiveRow && duration > 0
                                                                             ? `${(currentTime / duration) * 100}%`
                                                                             : '0%'
                                                                     }}

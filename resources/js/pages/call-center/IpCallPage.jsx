@@ -37,6 +37,7 @@ import {
     Sparkles,
     Info,
     Radio,
+    Loader2,
 } from 'lucide-react';
 
 export const IpCallPage = () => {
@@ -78,6 +79,7 @@ export const IpCallPage = () => {
 
     // Audio player state
     const [playingRecordingId, setPlayingRecordingId] = useState(null);
+    const [loadingRecordingId, setLoadingRecordingId] = useState(null);
     const audioRef = useRef(null);
 
     // Keypad numbers
@@ -279,8 +281,10 @@ export const IpCallPage = () => {
         if (playingRecordingId === log.id) {
             audioRef.current?.pause();
             setPlayingRecordingId(null);
+            setLoadingRecordingId(null);
         } else {
             setPlayingRecordingId(log.id);
+            setLoadingRecordingId(log.id);
             if (audioRef.current) {
                 const callId = log.call_session_id || log.id;
                 let streamUrl = `/api/call-center/recordings/${callId}`;
@@ -288,7 +292,13 @@ export const IpCallPage = () => {
                     streamUrl = log.recording_url;
                 }
                 audioRef.current.src = streamUrl;
-                audioRef.current.play().catch(e => console.warn('Audio play error:', e));
+                audioRef.current.play().then(() => {
+                    setLoadingRecordingId(null);
+                }).catch(e => {
+                    console.warn('Audio play error:', e);
+                    setLoadingRecordingId(null);
+                    setPlayingRecordingId(null);
+                });
             }
         }
     };
@@ -300,7 +310,19 @@ export const IpCallPage = () => {
             {/* Audio player element for CDR recordings */}
             <audio
                 ref={audioRef}
-                onEnded={() => setPlayingRecordingId(null)}
+                onWaiting={() => {
+                    if (playingRecordingId) setLoadingRecordingId(playingRecordingId);
+                }}
+                onCanPlay={() => setLoadingRecordingId(null)}
+                onPlaying={() => setLoadingRecordingId(null)}
+                onError={() => {
+                    setLoadingRecordingId(null);
+                    setPlayingRecordingId(null);
+                }}
+                onEnded={() => {
+                    setPlayingRecordingId(null);
+                    setLoadingRecordingId(null);
+                }}
                 className="hidden"
             />
 
@@ -760,10 +782,17 @@ export const IpCallPage = () => {
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handlePlayRecording(log)}
-                                                                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 transition-colors"
-                                                                    title="Play Recording"
+                                                                    disabled={loadingRecordingId === log.id}
+                                                                    className={`p-1 rounded transition-colors ${
+                                                                        loadingRecordingId === log.id
+                                                                            ? 'bg-indigo-900/60 text-indigo-300 cursor-wait'
+                                                                            : 'bg-slate-800 hover:bg-slate-700 text-indigo-300'
+                                                                    }`}
+                                                                    title={loadingRecordingId === log.id ? 'অডিও লোড হচ্ছে...' : 'Play Recording'}
                                                                 >
-                                                                    {playingRecordingId === log.id ? (
+                                                                    {loadingRecordingId === log.id ? (
+                                                                        <Loader2 className="w-3 h-3 text-indigo-400 animate-spin" />
+                                                                    ) : playingRecordingId === log.id ? (
                                                                         <Pause className="w-3 h-3 text-emerald-400" />
                                                                     ) : (
                                                                         <Play className="w-3 h-3" />

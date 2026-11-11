@@ -141,7 +141,8 @@ class CallCenterController extends Controller
     public function getCallLogs(Request $request): JsonResponse
     {
         $query = CallLog::with(['customer', 'agent'])
-            ->latest('id');
+            ->orderByDesc('started_at')
+            ->orderByDesc('id');
 
         if ($request->filled('search')) {
             $term = $request->search;
@@ -296,7 +297,8 @@ class CallCenterController extends Controller
                     ->orWhere('duration_seconds', '>', 0)
                     ->orWhere('status', 'answered');
             })
-            ->latest('id');
+            ->orderByDesc('started_at')
+            ->orderByDesc('id');
 
         // Search by phone, customer name, or notes
         if ($request->filled('search')) {
@@ -386,10 +388,42 @@ class CallCenterController extends Controller
     }
 
     /**
-     * Stream audio recording from ePBX.bd.
+     * Stream audio recording from ePBX.bd with local caching for instant playback.
      */
     public function streamRecording(Request $request, string $uniqueid)
     {
+        $cleanId = preg_replace('/[^a-zA-Z0-9_\.]/', '', basename($uniqueid));
+        if (empty($cleanId)) {
+            abort(404, 'Invalid recording ID');
+        }
+
+        // Resolve recording ID either directly or from CallLog
+        $epbxCallId = $cleanId;
+        $callLog = CallLog::where('call_session_id', $cleanId)
+            ->orWhere('id', $cleanId)
+            ->first();
+
+        if ($callLog) {
+            if (! empty($callLog->call_session_id) && ! str_starts_with($callLog->call_session_id, 'webrtc_')) {
+                $epbxCallId = $callLog->call_session_id;
+            } elseif (! empty($callLog->recording_url) && preg_match('/recordings\/([a-zA-Z0-9_\.]+)/', $callLog->recording_url, $m)) {
+                $epbxCallId = $m[1];
+            }
+        }
+
+        $cacheDir = storage_path('app/recordings_cache');
+        $cacheFile = "{$cacheDir}/{$epbxCallId}.wav";
+
+        // If already cached locally, serve immediately with range support
+        if (file_exists($cacheFile) && filesize($cacheFile) > 0) {
+            return response()->file($cacheFile, [
+                'Content-Type' => 'audio/wav',
+                'Accept-Ranges' => 'bytes',
+                'Content-Disposition' => 'inline; filename="call_' . $epbxCallId . '.wav"',
+                'Cache-Control' => 'public, max-age=604800',
+            ]);
+        }
+
         $settings = $this->epbxService->getSettings();
         $baseUrl = rtrim($settings->api_base_url, '/');
 
@@ -397,23 +431,25 @@ class CallCenterController extends Controller
             abort(401, 'ePBX API Token is not configured.');
         }
 
-        $uniqueid = basename($uniqueid);
-
         try {
             $response = Http::timeout(25)
                 ->withToken($settings->api_token)
-                ->get("{$baseUrl}/calls/recordings/{$uniqueid}");
+                ->get("{$baseUrl}/calls/recordings/{$epbxCallId}");
 
             if ($response->successful()) {
-                $contentType = $response->header('Content-Type') ?: 'audio/wav';
                 $body = $response->body();
 
-                return response($body, 200, [
-                    'Content-Type' => $contentType,
-                    'Content-Length' => strlen($body),
+                // Save to local cache for instant future playback
+                if (! is_dir($cacheDir)) {
+                    @mkdir($cacheDir, 0755, true);
+                }
+                @file_put_contents($cacheFile, $body);
+
+                return response()->file($cacheFile, [
+                    'Content-Type' => 'audio/wav',
                     'Accept-Ranges' => 'bytes',
-                    'Content-Disposition' => 'inline; filename="call_' . $uniqueid . '.wav"',
-                    'Cache-Control' => 'public, max-age=86400',
+                    'Content-Disposition' => 'inline; filename="call_' . $epbxCallId . '.wav"',
+                    'Cache-Control' => 'public, max-age=604800',
                 ]);
             }
 
