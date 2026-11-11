@@ -340,8 +340,9 @@ class ConversationController extends Controller
         }
 
         $deliveryError = null;
+        $errorCode = null;
 
-        $message = DB::transaction(function () use ($conversation, $text, $user, $isNote, $attachmentData, $replyToMessage, &$deliveryError) {
+        $message = DB::transaction(function () use ($request, $conversation, $text, $user, $isNote, $attachmentData, $replyToMessage, &$deliveryError, &$errorCode) {
             $displayText = $text;
             if (empty(trim((string) $displayText)) && $attachmentData) {
                 $displayText = $attachmentData['placeholder'] ?? '📎 [Attachment]';
