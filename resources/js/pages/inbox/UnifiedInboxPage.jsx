@@ -242,16 +242,6 @@ export const UnifiedInboxPage = () => {
     const recorderExtRef = useRef('webm');
     const sendImmediatelyRef = useRef(false);
 
-    // Meta 24-Hour Policy Window & Tag Selection State
-    const [selectedMessageTag, setSelectedMessageTag] = useState('AUTO');
-
-    // Calculate time elapsed since last customer message in active conversation
-    const lastCustomerMsg = activeConversation?.messages?.filter((m) => m.sender_type === 'customer').slice(-1)[0];
-    const lastCustomerTime = lastCustomerMsg?.created_at ? new Date(lastCustomerMsg.created_at).getTime() : null;
-    const hoursSinceCustomerMsg = lastCustomerTime ? (Date.now() - lastCustomerTime) / (1000 * 60 * 60) : 999;
-    const isOutside24h = (activeConversation?.platform === 'facebook_page' || activeConversation?.platform === 'instagram_business') && hoursSinceCustomerMsg >= 24;
-    const hoursLeftInWindow = Math.max(0, 24 - hoursSinceCustomerMsg);
-
     const handleFileSelect = (e) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -870,7 +860,6 @@ export const UnifiedInboxPage = () => {
         if ((!textToSend && !fileToSend && !mediaToSend) || !activeConversation) return;
 
         const currentReplyTo = replyingToMessage;
-        const tagToSend = selectedMessageTag !== 'AUTO' ? selectedMessageTag : undefined;
         setSending(true);
         try {
             let res;
@@ -883,9 +872,6 @@ export const UnifiedInboxPage = () => {
                 formData.append('file_type', catToSend || 'file');
                 if (currentReplyTo?.id) {
                     formData.append('reply_to_message_id', currentReplyTo.id);
-                }
-                if (tagToSend) {
-                    formData.append('message_tag', tagToSend);
                 }
 
                 const fname = filenameOverride || fileToSend.name || `voice_${Date.now()}.webm`;
@@ -902,9 +888,6 @@ export const UnifiedInboxPage = () => {
                 if (currentReplyTo?.id) {
                     formData.append('reply_to_message_id', currentReplyTo.id);
                 }
-                if (tagToSend) {
-                    formData.append('message_tag', tagToSend);
-                }
 
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, formData);
             } else {
@@ -914,9 +897,6 @@ export const UnifiedInboxPage = () => {
                 };
                 if (currentReplyTo?.id) {
                     payload.reply_to_message_id = currentReplyTo.id;
-                }
-                if (tagToSend) {
-                    payload.message_tag = tagToSend;
                 }
                 res = await api.post(`/conversations/${activeConversation.id}/messages`, payload);
             }
@@ -2158,40 +2138,6 @@ export const UnifiedInboxPage = () => {
                                         >
                                             <X className="w-4 h-4" />
                                         </button>
-                                    </div>
-                                )}
-
-                                {/* Meta 24-Hour Messaging Policy Window Bar & Smart Tag Selector */}
-                                {(activeConversation?.platform === 'facebook_page' || activeConversation?.platform === 'instagram_business') && (
-                                    <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl border text-[11px] mb-1.5 transition-all ${
-                                        isOutside24h
-                                            ? 'bg-amber-950/25 border-amber-500/30 text-amber-300'
-                                            : 'bg-emerald-950/20 border-emerald-500/20 text-emerald-400'
-                                    }`}>
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className={`w-2 h-2 rounded-full shrink-0 ${isOutside24h ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`}></span>
-                                            <span className="truncate">
-                                                {isOutside24h
-                                                    ? 'গ্রাহকের ২৪ ঘণ্টার রেসপন্স উইন্ডো সমাপ্ত • স্বয়ংক্রিয় Message Tag সক্রিয়'
-                                                    : `২৪ ঘণ্টার মেসেজিং উইন্ডো সক্রিয় (${hoursLeftInWindow > 0 ? `${Math.floor(hoursLeftInWindow)} ঘণ্টা বাকি` : 'Active'})`}
-                                            </span>
-                                        </div>
-                                        {activeConversation?.platform === 'facebook_page' && (
-                                            <div className="flex items-center gap-1.5 shrink-0 text-[10px]">
-                                                <span className="text-slate-400 font-mono">Tag:</span>
-                                                <select
-                                                    value={selectedMessageTag}
-                                                    onChange={(e) => setSelectedMessageTag(e.target.value)}
-                                                    className="bg-slate-900 border border-slate-700/80 rounded px-2 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                                                    title="Meta Message Tag Selection"
-                                                >
-                                                    <option value="AUTO">Auto (Smart Fallback)</option>
-                                                    <option value="POST_PURCHASE_UPDATE">POST_PURCHASE_UPDATE (অর্ডার/ইনভয়েস)</option>
-                                                    <option value="HUMAN_AGENT">HUMAN_AGENT (কাস্টমার সাপোর্ট - ৭ দিন)</option>
-                                                    <option value="ACCOUNT_UPDATE">ACCOUNT_UPDATE (সাধারণ আপডেট)</option>
-                                                </select>
-                                            </div>
-                                        )}
                                     </div>
                                 )}
 
