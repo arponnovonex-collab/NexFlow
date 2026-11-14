@@ -61,8 +61,15 @@ class MetaWebhookController extends Controller
         $eventId = $payload['entry'][0]['id'] ?? ('fb_ev_' . uniqid());
         $entryTime = $payload['entry'][0]['time'] ?? time();
 
+        $platform = 'facebook_page';
+        if (($payload['object'] ?? '') === 'whatsapp_business_account' || $request->is('*whatsapp*')) {
+            $platform = 'whatsapp_cloud';
+        } elseif (($payload['object'] ?? '') === 'instagram' || $request->is('*instagram*')) {
+            $platform = 'instagram_business';
+        }
+
         $webhookEvent = WebhookEvent::create([
-            'platform' => 'facebook_page',
+            'platform' => $platform,
             'event_id' => $eventId . '_' . $entryTime,
             'event_type' => 'inbound_entry',
             'payload' => $payload,
@@ -648,6 +655,12 @@ class MetaWebhookController extends Controller
             }
         }
 
+        // Fallback to active WhatsApp account if test or unmapped phoneId was used
+        if (! $account) {
+            $account = SocialAccount::where('platform', 'whatsapp_cloud')->first()
+                ?: SocialAccount::first();
+        }
+
         $contacts = $value['contacts'] ?? [];
         $contactMap = [];
         foreach ($contacts as $c) {
@@ -728,7 +741,7 @@ class MetaWebhookController extends Controller
 
             if (! $conversation) {
                 $conversation = Conversation::create([
-                    'social_account_id' => $account ? $account->id : 1,
+                    'social_account_id' => $account ? $account->id : (SocialAccount::where('platform', 'whatsapp_cloud')->value('id') ?: SocialAccount::value('id')),
                     'customer_id' => $customer->id,
                     'platform' => 'whatsapp_cloud',
                     'channel_conversation_id' => $channelConvId,
