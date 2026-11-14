@@ -11,6 +11,8 @@ import {
     File,
     AlertCircle,
     CheckCheck,
+    Copy,
+    Check,
 } from 'lucide-react';
 
 export const SwipeableMessageRow = ({
@@ -28,6 +30,7 @@ export const SwipeableMessageRow = ({
 }) => {
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
+    const [copied, setCopied] = useState(false);
     const touchStartXRef = useRef(0);
     const touchStartYRef = useRef(0);
     const isHorizontalSwipeRef = useRef(null);
@@ -35,6 +38,37 @@ export const SwipeableMessageRow = ({
     // Mouse drag support for desktop
     const mouseStartXRef = useRef(0);
     const isMouseDownRef = useRef(false);
+
+    // 1-Click Copy Message to Clipboard
+    const handleCopyMessage = async (e) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        const textToCopy = msg.text || '';
+        if (!textToCopy) return;
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(textToCopy);
+            } else {
+                const textArea = document.createElement('textarea');
+                textArea.value = textToCopy;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+            }
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy message:', err);
+        }
+    };
 
     // --- Touch Gestures ---
     const handleTouchStart = (e) => {
@@ -80,14 +114,26 @@ export const SwipeableMessageRow = ({
 
     // --- Mouse Drag Gestures (Desktop swipe to right) ---
     const handleMouseDown = (e) => {
-        // Only primary mouse button and ignore interactive elements
-        if (e.button !== 0 || e.target.closest('button, a, audio, video, img, input')) return;
+        // Only primary mouse button and ignore interactive elements or text selection
+        if (
+            e.button !== 0 ||
+            e.target.closest('button, a, audio, video, img, input, textarea, select') ||
+            e.target.closest('p, span, pre, code, .select-text, .msg-bubble-content')
+        ) {
+            return;
+        }
         mouseStartXRef.current = e.clientX;
         isMouseDownRef.current = true;
     };
 
     const handleMouseMove = (e) => {
         if (!isMouseDownRef.current) return;
+        // If user is selecting text, abort swipe
+        if (window.getSelection && window.getSelection()?.toString().length > 0) {
+            isMouseDownRef.current = false;
+            setSwipeOffset(0);
+            return;
+        }
         const diffX = e.clientX - mouseStartXRef.current;
         if (diffX > 0) {
             const maxDrag = 65;
@@ -98,7 +144,8 @@ export const SwipeableMessageRow = ({
 
     const handleMouseUp = () => {
         if (isMouseDownRef.current) {
-            if (swipeOffset >= 38) {
+            const hasSelectedText = window.getSelection && window.getSelection()?.toString().trim().length > 0;
+            if (swipeOffset >= 38 && !hasSelectedText) {
                 onReply(msg);
             }
             setSwipeOffset(0);
@@ -124,7 +171,7 @@ export const SwipeableMessageRow = ({
     return (
         <div
             id={`msg-item-${msg.id}`}
-            className={`relative flex flex-col ${isCustomer ? 'items-start' : 'items-end'} group select-none transition-all duration-300 ${
+            className={`relative flex flex-col ${isCustomer ? 'items-start' : 'items-end'} group transition-all duration-300 ${
                 isHighlighted ? 'bg-indigo-500/15 ring-2 ring-indigo-400/80 rounded-2xl p-1 shadow-lg' : ''
             }`}
         >
@@ -169,7 +216,7 @@ export const SwipeableMessageRow = ({
             >
                 {/* Main Message Bubble */}
                 <div
-                    className={`max-w-md rounded-2xl px-4 py-2.5 text-xs transition-shadow ${
+                    className={`msg-bubble-content max-w-md rounded-2xl px-4 py-2.5 text-xs transition-shadow select-text ${
                         isCustomer
                             ? 'bg-slate-800 text-slate-200 rounded-bl-sm'
                             : isAi
@@ -404,7 +451,9 @@ export const SwipeableMessageRow = ({
                                 '📎 [Attachment]',
                                 '[Attachment]',
                             ].includes(msg.text.trim())) && (
-                            <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                            <p className="leading-relaxed whitespace-pre-wrap select-text cursor-text selection:bg-indigo-500 selection:text-white break-words">
+                                {msg.text}
+                            </p>
                         )}
 
                     {isFailed && (
@@ -422,19 +471,43 @@ export const SwipeableMessageRow = ({
                     )}
                 </div>
 
-                {/* Desktop Hover Quick Reply Button */}
-                <button
-                    type="button"
-                    onClick={() => onReply(msg)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 rounded-full transition-all cursor-pointer shadow-sm shrink-0"
-                    title="Reply to message (or swipe right)"
+                {/* Quick Action Buttons (Reply, Copy) */}
+                <div
+                    className={`opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-all shrink-0 select-none ${
+                        isCustomer ? 'flex-row' : 'flex-row-reverse'
+                    }`}
                 >
-                    <Reply className="w-3.5 h-3.5" />
-                </button>
+                    <button
+                        type="button"
+                        onClick={() => onReply(msg)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/80 rounded-full transition-all cursor-pointer shadow-sm shrink-0"
+                        title="মেসেজে রিপ্লাই করুন (Reply)"
+                    >
+                        <Reply className="w-3.5 h-3.5" />
+                    </button>
+                    {msg.text && (
+                        <button
+                            type="button"
+                            onClick={handleCopyMessage}
+                            className={`p-1.5 rounded-full transition-all cursor-pointer shadow-sm shrink-0 ${
+                                copied
+                                    ? 'text-emerald-400 bg-emerald-500/20'
+                                    : 'text-slate-400 hover:text-emerald-300 hover:bg-slate-800/80'
+                            }`}
+                            title={copied ? 'কপি হয়েছে (Copied!)' : 'মেসেজ কপি করুন (Copy)'}
+                        >
+                            {copied ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Timestamps & Delivery Status */}
-            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1">
+            <div className="flex items-center gap-1.5 mt-1 text-[10px] text-slate-400 px-1 select-none">
                 {isMod && (
                     <span className="text-slate-400 font-medium">
                         Sent by {senderName || (msg.metadata?.source === 'facebook_page_inbox' ? 'Facebook Page' : 'Moderator')} ·{' '}
