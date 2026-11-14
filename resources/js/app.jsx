@@ -22,6 +22,7 @@ import { FollowupsPage } from './pages/leads/FollowupsPage';
 import { CustomersPage } from './pages/leads/CustomersPage';
 import { OrdersPage } from './pages/leads/OrdersPage';
 import { WebsiteOrdersPage } from './pages/leads/WebsiteOrdersPage';
+import { OrderSummaryPage } from './pages/leads/OrderSummaryPage';
 import { TeamManagementPage } from './pages/team/TeamManagementPage';
 import { ModeratorPerformancePage } from './pages/team/ModeratorPerformancePage';
 import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
@@ -113,6 +114,7 @@ export const App = () => {
                             <Route path="orders" element={<Navigate to="/orders/engagement" replace />} />
                             <Route path="orders/engagement" element={<OrdersPage />} />
                             <Route path="orders/website" element={<WebsiteOrdersPage />} />
+                            <Route path="orders/summary" element={<OrderSummaryPage />} />
 
                             {/* SMS Gateway & Marketing */}
                             <Route path="sms/gateway" element={<SmsGatewayPage />} />

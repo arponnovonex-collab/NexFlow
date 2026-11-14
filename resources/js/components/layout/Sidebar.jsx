@@ -194,6 +194,17 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                     </div>
                                 )}
                             </NavLink>
+                            <NavLink to="/orders/summary" className={linkClasses}>
+                                <BarChart3 className="w-4 h-4 shrink-0 text-violet-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>Order Summary</span>
+                                        <span className="bg-violet-500/20 text-violet-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                                            Reports
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
                         </div>
                     )}
                 </div>

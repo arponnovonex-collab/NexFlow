@@ -110,6 +110,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/customers/{customer}', [LeadController::class, 'updateCustomer']);
 
     // Orders & Conversions
+    Route::get('/orders/summary', [OrderController::class, 'summary']);
+    Route::get('/orders/returns', [OrderController::class, 'returns']);
+    Route::post('/orders/sync-courier-status', [OrderController::class, 'syncCourierStatus']);
+    Route::post('/orders/{order}/return-reason', [OrderController::class, 'updateReturnReason']);
+    Route::post('/orders/{order}/sync-courier-status', [OrderController::class, 'checkSingleCourierStatus']);
     Route::apiResource('orders', OrderController::class)->only(['index', 'store']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
 

@@ -34,6 +34,9 @@ class Order extends Model
         'courier_status',
         'courier_sent_at',
         'courier_response',
+        'return_reason',
+        'rider_note',
+        'returned_at',
         'wc_raw_data',
     ];
 
@@ -46,6 +49,7 @@ class Order extends Model
             'total_amount' => 'decimal:2',
             'items_data' => 'array',
             'courier_sent_at' => 'datetime',
+            'returned_at' => 'datetime',
             'courier_response' => 'array',
             'wc_raw_data' => 'array',
         ];

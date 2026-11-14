@@ -288,5 +288,119 @@ class SteadfastCourierService
             'failed_orders' => $failedList,
         ];
     }
+
+    /**
+     * Check live delivery status for a specific order.
+     */
+    public function checkDeliveryStatus(Order $order): array
+    {
+        $settings = $this->getSettings();
+        if (empty($settings->api_key) || empty($settings->secret_key)) {
+            return [
+                'success' => false,
+                'message' => 'Steadfast API Key or Secret Key is not configured.',
+            ];
+        }
+
+        $code = $order->tracking_code;
+        $cid = $order->consignment_id;
+
+        if (empty($code) && empty($cid)) {
+            return [
+                'success' => false,
+                'message' => 'Order does not have a tracking code or consignment ID.',
+            ];
+        }
+
+        try {
+            $endpoint = ! empty($code)
+                ? "{$this->baseUrl}/status_by_trackingcode/{$code}"
+                : "{$this->baseUrl}/status_by_cid/{$cid}";
+
+            $response = Http::timeout(10)->withHeaders([
+                'Api-Key' => $settings->api_key,
+                'Secret-Key' => $settings->secret_key,
+                'Content-Type' => 'application/json',
+            ])->get($endpoint);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $deliveryStatus = $data['delivery_status'] ?? null;
+
+                if ($deliveryStatus) {
+                    $update = [
+                        'courier_status' => $deliveryStatus,
+                    ];
+
+                    if (in_array($deliveryStatus, ['delivered', 'delivered_approval_pending'])) {
+                        $update['order_status'] = 'delivered';
+                    } elseif (in_array($deliveryStatus, ['cancelled', 'cancelled_approval_pending', 'cancelled_return_received'])) {
+                        $update['order_status'] = 'returned';
+                        if (! $order->returned_at) {
+                            $update['returned_at'] = now();
+                        }
+                        if (empty($order->return_reason)) {
+                            $update['return_reason'] = 'Steadfast Courier: Cancelled / Return';
+                        }
+                    }
+
+                    $order->update($update);
+
+                    return [
+                        'success' => true,
+                        'delivery_status' => $deliveryStatus,
+                        'raw_response' => $data,
+                        'message' => "Order #{$order->order_number} status updated to: {$deliveryStatus}",
+                    ];
+                }
+            }
+
+            return [
+                'success' => false,
+                'message' => 'Could not determine status from Steadfast.',
+                'raw' => $response->body(),
+            ];
+        } catch (\Exception $e) {
+            Log::error("Steadfast checkDeliveryStatus error: {$e->getMessage()}");
+
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Bulk check and sync status for active/pending courier orders.
+     */
+    public function syncPendingOrdersStatus(int $limit = 50): array
+    {
+        $orders = Order::whereNotNull('tracking_code')
+            ->whereNotIn('order_status', ['delivered', 'returned', 'cancelled'])
+            ->orderByDesc('courier_sent_at')
+            ->limit($limit)
+            ->get();
+
+        $updatedCount = 0;
+        $results = [];
+
+        foreach ($orders as $order) {
+            $res = $this->checkDeliveryStatus($order);
+            if ($res['success']) {
+                $updatedCount++;
+                $results[] = [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'status' => $res['delivery_status'],
+                ];
+            }
+        }
+
+        return [
+            'total_checked' => count($orders),
+            'updated_count' => $updatedCount,
+            'details' => $results,
+        ];
+    }
 }
 
