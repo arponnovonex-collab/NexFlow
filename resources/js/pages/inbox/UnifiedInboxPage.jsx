@@ -343,8 +343,12 @@ export const UnifiedInboxPage = () => {
     const handleSelectMediaLibraryItem = (media) => {
         handleRemoveFile();
         setSelectedMediaItem(media);
-        setFileTypeCategory(media.file_type);
+        setFileTypeCategory(media.file_type || 'image');
         setFilePreviewUrl(media.file_url);
+        setMediaPickerOpen(false);
+        setTimeout(() => {
+            messageInputRef.current?.focus();
+        }, 80);
     };
 
     const getSupportedAudioMime = () => {
@@ -1910,10 +1914,10 @@ export const UnifiedInboxPage = () => {
                                             size="xs"
                                             onClick={() => setMediaPickerOpen(true)}
                                             icon={FolderOpen}
-                                            className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer font-medium shrink-0 text-[11px]"
+                                            className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer font-semibold shrink-0 text-[11px]"
                                             title="Browse Media Library (Uploads, Images, Videos, Audio)"
                                         >
-                                            Media
+                                            Media (ছবি/ভিডিও)
                                         </Button>
 
                                         <Button
@@ -2069,14 +2073,26 @@ export const UnifiedInboxPage = () => {
                                             </p>
                                         </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={handleRemoveFile}
-                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0 ml-auto"
-                                            title="Remove attachment"
-                                        >
-                                            <X className="w-4 h-4" />
-                                        </button>
+                                        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSendMessage()}
+                                                disabled={sending}
+                                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                title="এই ফাইলটি এখনই কাস্টমারকে পাঠান"
+                                            >
+                                                <Send className="w-3 h-3" />
+                                                <span>এখনই পাঠান</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveFile}
+                                                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                                title="Remove attachment"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -2126,14 +2142,26 @@ export const UnifiedInboxPage = () => {
                                             </p>
                                         </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={handleRemoveFile}
-                                            className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0 ml-auto"
-                                            title="Remove attachment"
-                                        >
-                                            <X className="w-4 h-4" />
-                                        </button>
+                                        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSendMessage()}
+                                                disabled={sending}
+                                                className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                title="এই ফাইলটি এখনই কাস্টমারকে পাঠান"
+                                            >
+                                                <Send className="w-3 h-3" />
+                                                <span>এখনই পাঠান</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveFile}
+                                                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                                title="Remove attachment"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 

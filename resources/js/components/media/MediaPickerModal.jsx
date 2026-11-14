@@ -20,6 +20,8 @@ import {
     Tag,
     ArrowRight,
     Loader2,
+    Plus,
+    Send,
 } from 'lucide-react';
 
 const FOLDER_COLORS = [
@@ -741,6 +743,12 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                         draggable
                                         onDragStart={(e) => handleDragStartCard(e, item)}
                                         onClick={() => handleCardClick(item)}
+                                        onDoubleClick={() => {
+                                            if (!isBulkMode) {
+                                                onSelectMedia(item);
+                                                onClose();
+                                            }
+                                        }}
                                         className={`group relative rounded-xl border transition-all cursor-pointer overflow-hidden flex flex-col ${
                                             isSelected
                                                 ? 'border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/40 shadow-lg'
@@ -781,19 +789,36 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                 </div>
                                             )}
 
-                                            {/* Hover Quick Action: Move to Folder */}
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openMoveModal(item);
-                                                }}
-                                                className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 z-20 px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-indigo-600 text-[10px] font-semibold text-white shadow-md border border-slate-700 transition-all flex items-center gap-1 cursor-pointer"
-                                                title="Move this image to a product folder"
-                                            >
-                                                <Folder className="w-3 h-3 text-indigo-400" />
-                                                <span>Move</span>
-                                            </button>
+                                            {/* Hover Quick Action: Add to Chat & Move */}
+                                            <div className="opacity-0 group-hover:opacity-100 absolute top-1.5 right-1.5 z-20 flex items-center gap-1 transition-all">
+                                                {!isBulkMode && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onSelectMedia(item);
+                                                            onClose();
+                                                        }}
+                                                        className="px-2 py-0.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[10px] font-bold text-white shadow-md flex items-center gap-1 cursor-pointer"
+                                                        title="মেসেজে যোগ করুন"
+                                                    >
+                                                        <Plus className="w-3 h-3" />
+                                                        <span>+ Add</span>
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openMoveModal(item);
+                                                    }}
+                                                    className="px-2 py-0.5 rounded-lg bg-slate-900/90 hover:bg-indigo-600 text-[10px] font-semibold text-white shadow-md border border-slate-700 flex items-center gap-1 cursor-pointer"
+                                                    title="Move this image to a product folder"
+                                                >
+                                                    <Folder className="w-3 h-3 text-indigo-400" />
+                                                    <span>Move</span>
+                                                </button>
+                                            </div>
 
                                             {/* Folder badge if item has folder (clickable to change) */}
                                             {item.folder ? (
@@ -844,13 +869,31 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                             ) : null}
                                         </div>
 
-                                        <div className="p-2">
-                                            <p className="text-[11px] font-semibold text-slate-200 truncate" title={item.title}>
-                                                {item.title}
-                                            </p>
-                                            <p className="text-[10px] text-slate-400 uppercase mt-0.5">
-                                                {item.file_type} • {item.formatted_size || ''}
-                                            </p>
+                                        <div className="p-2 flex flex-col gap-1.5 border-t border-slate-900 bg-slate-950/40">
+                                            <div className="min-w-0">
+                                                <p className="text-[11px] font-semibold text-slate-200 truncate" title={item.title}>
+                                                    {item.title}
+                                                </p>
+                                                <p className="text-[10px] text-slate-400 uppercase mt-0.5">
+                                                    {item.file_type} • {item.formatted_size || ''}
+                                                </p>
+                                            </div>
+
+                                            {!isBulkMode && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onSelectMedia(item);
+                                                        onClose();
+                                                    }}
+                                                    className="w-full py-1 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                                                    title="এই ছবিটি মেসেজে যোগ করুন"
+                                                >
+                                                    <Plus className="w-3.5 h-3.5" />
+                                                    <span>মেসেজে যোগ করুন</span>
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -982,10 +1025,10 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 size="sm"
                                 disabled={!selectedItem}
                                 onClick={handleConfirm}
-                                icon={Check}
-                                className="bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 font-semibold"
+                                icon={Plus}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md shadow-indigo-600/30 text-xs px-3.5 cursor-pointer"
                             >
-                                Select & Send Media
+                                ➕ মেসেজে যোগ করুন (Add to Message)
                             </Button>
                         </div>
                     </div>

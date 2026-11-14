@@ -384,8 +384,8 @@ class ConversationController extends Controller
                                 $requestedTag = null;
                             }
 
-                            // 1. If attachment present, stream binary media to Meta Messenger with smart tag fallback
-                            if ($attachmentData && ! empty($attachmentData['local_path']) && file_exists($attachmentData['local_path'])) {
+                            // 1. If attachment present, stream binary media or send URL payload to Meta Messenger with smart tag fallback
+                            if ($attachmentData && ((! empty($attachmentData['local_path']) && file_exists($attachmentData['local_path'])) || ! empty($attachmentData['file_url']))) {
                                 $mediaResult = $this->sendMetaMediaMessage(
                                     $version,
                                     $pageToken,
@@ -1049,36 +1049,61 @@ class ConversationController extends Controller
         ?string $requestedTag = null,
         ?SocialAccount $account = null
     ): array {
-        if (empty($attachmentData['local_path']) || ! file_exists($attachmentData['local_path'])) {
-            return ['success' => false, 'error' => 'Local attachment file not found', 'error_code' => 404];
+        $hasLocalPath = ! empty($attachmentData['local_path']) && file_exists($attachmentData['local_path']);
+        $publicUrl = ! empty($attachmentData['file_url']) ? url($attachmentData['file_url']) : null;
+
+        if (! $hasLocalPath && ! $publicUrl) {
+            return ['success' => false, 'error' => 'Attachment file not found', 'error_code' => 404];
         }
 
         $metaType = in_array($attachmentData['file_type'], ['image', 'video', 'audio', 'file'])
             ? $attachmentData['file_type']
             : 'file';
-        $sendFileName = $attachmentData['file_name'];
+        $sendFileName = $attachmentData['file_name'] ?? ('attachment_' . time());
         if ($metaType === 'audio' && str_ends_with(strtolower($sendFileName), '.webm')) {
             $sendFileName = preg_replace('/\.webm$/i', '.ogg', $sendFileName);
         }
 
-        $attemptMediaSend = function (array $formFields, $token) use ($version, $attachmentData, $sendFileName) {
-            $handle = fopen($attachmentData['local_path'], 'r');
-            try {
-                $res = Http::timeout(50)->withToken($token)
-                    ->attach('filedata', $handle, $sendFileName)
-                    ->post("https://graph.facebook.com/{$version}/me/messages", $formFields);
-                return $res;
-            } finally {
-                if (is_resource($handle)) {
-                    fclose($handle);
+        $attemptMediaSend = function (array $formFields, $token) use ($version, $hasLocalPath, $attachmentData, $sendFileName, $publicUrl, $metaType) {
+            if ($hasLocalPath) {
+                $handle = fopen($attachmentData['local_path'], 'r');
+                try {
+                    $res = Http::timeout(50)->withToken($token)
+                        ->attach('filedata', $handle, $sendFileName)
+                        ->post("https://graph.facebook.com/{$version}/me/messages", $formFields);
+                    return $res;
+                } finally {
+                    if (is_resource($handle)) {
+                        fclose($handle);
+                    }
                 }
+            } else {
+                $recipient = json_decode($formFields['recipient'] ?? '{}', true);
+                $postData = [
+                    'recipient' => $recipient,
+                    'messaging_type' => $formFields['messaging_type'] ?? 'RESPONSE',
+                    'message' => [
+                        'attachment' => [
+                            'type' => $metaType,
+                            'payload' => [
+                                'url' => $publicUrl,
+                                'is_reusable' => true,
+                            ],
+                        ],
+                    ],
+                ];
+                if (! empty($formFields['tag'])) {
+                    $postData['tag'] = $formFields['tag'];
+                }
+                return Http::timeout(50)->withToken($token)
+                    ->post("https://graph.facebook.com/{$version}/me/messages", $postData);
             }
         };
 
         $messagePayload = json_encode([
             'attachment' => [
                 'type' => $metaType,
-                'payload' => ['is_reusable' => true],
+                'payload' => $hasLocalPath ? ['is_reusable' => true] : ['url' => $publicUrl, 'is_reusable' => true],
             ],
         ]);
 
