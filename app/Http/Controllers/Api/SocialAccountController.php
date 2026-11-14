@@ -253,6 +253,31 @@ class SocialAccountController extends Controller
             }
         }
 
+        // If WhatsApp Cloud, automatically subscribe WABA to our App webhooks
+        if ($validated['platform'] === 'whatsapp_cloud' && ! str_starts_with($accessToken, 'EAAXMOCK')) {
+            try {
+                $healthRes = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$accountId}", [
+                    'access_token' => $accessToken,
+                    'fields' => 'health_status',
+                ]);
+                $entities = $healthRes->json('health_status.entities') ?? [];
+                $wabaId = null;
+                foreach ($entities as $ent) {
+                    if (($ent['entity_type'] ?? '') === 'WABA' && ! empty($ent['id'])) {
+                        $wabaId = $ent['id'];
+                        break;
+                    }
+                }
+                if ($wabaId) {
+                    Http::timeout(6)->post("https://graph.facebook.com/{$version}/{$wabaId}/subscribed_apps", [
+                        'access_token' => $accessToken,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Silently continue
+            }
+        }
+
         $metadata = $validated['metadata'] ?? [];
         $metadata['is_permanent'] = $inspection['is_permanent'];
         $metadata['token_type'] = $inspection['type'];
