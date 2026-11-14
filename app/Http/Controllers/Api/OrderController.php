@@ -42,16 +42,49 @@ class OrderController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('order_number', 'like', "%{$search}%")
-                    ->orWhere('customer_phone', 'like', "%{$search}%")
-                    ->orWhere('customer_address', 'like', "%{$search}%")
-                    ->orWhereHas('customer', fn ($cq) => $cq->where('name', 'like', "%{$search}%"));
+            $rawSearch = trim($request->search);
+            $cleanDigits = preg_replace('/[^0-9]/', '', $rawSearch);
+            $cleanNum = ltrim($rawSearch, '#');
+
+            $query->where(function ($q) use ($rawSearch, $cleanDigits, $cleanNum) {
+                // 1. Order number or WooCommerce ID match
+                $q->where('order_number', 'like', "%{$rawSearch}%")
+                    ->orWhere('order_number', 'like', "%{$cleanNum}%");
+
+                if (! empty($cleanNum) && is_numeric($cleanNum)) {
+                    $q->orWhere('wc_order_id', (int) $cleanNum);
+                }
+
+                // 2. Customer phone number match (with or without +880, 018...)
+                $q->orWhere('customer_phone', 'like', "%{$rawSearch}%");
+                if (! empty($cleanDigits)) {
+                    $lastDigits = strlen($cleanDigits) >= 10 ? substr($cleanDigits, -10) : $cleanDigits;
+                    $q->orWhere('customer_phone', 'like', "%{$cleanDigits}%")
+                        ->orWhere('customer_phone', 'like', "%{$lastDigits}%");
+                }
+
+                // 3. Customer address match
+                $q->orWhere('customer_address', 'like', "%{$rawSearch}%");
+
+                // 4. Linked Customer relation match (name or phone)
+                $q->orWhereHas('customer', function ($cq) use ($rawSearch, $cleanDigits) {
+                    $cq->where('name', 'like', "%{$rawSearch}%")
+                        ->orWhere('phone', 'like', "%{$rawSearch}%");
+                    if (! empty($cleanDigits)) {
+                        $lastDigits = strlen($cleanDigits) >= 10 ? substr($cleanDigits, -10) : $cleanDigits;
+                        $cq->orWhere('phone', 'like', "%{$cleanDigits}%")
+                            ->orWhere('phone', 'like', "%{$lastDigits}%");
+                    }
+                });
             });
         }
 
-        $orders = $query->orderByDesc('created_at')->paginate($request->integer('per_page', 20));
+        $perPage = $request->integer('per_page', 50);
+        if ($perPage > 250) {
+            $perPage = 250;
+        }
+
+        $orders = $query->orderByDesc('created_at')->paginate($perPage);
 
         return response()->json([
             'status' => 'success',

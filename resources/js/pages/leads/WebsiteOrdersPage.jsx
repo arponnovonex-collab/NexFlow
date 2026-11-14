@@ -12,7 +12,6 @@ import {
     Truck,
     CheckCircle2,
     Clock,
-    DollarSign,
     Settings,
     RefreshCw,
     Eye,
@@ -27,7 +26,8 @@ import {
     Check,
     ExternalLink,
     Copy,
-    Sliders,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
 
 export const WebsiteOrdersPage = () => {
@@ -36,6 +36,17 @@ export const WebsiteOrdersPage = () => {
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [selectedOrder, setSelectedOrder] = useState(null);
+
+    // Pagination State
+    const [page, setPage] = useState(1);
+    const [perPage, setPerPage] = useState(50);
+    const [pagination, setPagination] = useState({
+        total: 0,
+        from: 0,
+        to: 0,
+        last_page: 1,
+        current_page: 1,
+    });
 
     // WooCommerce Store Settings State
     const [settingsModalOpen, setSettingsModalOpen] = useState(false);
@@ -60,15 +71,27 @@ export const WebsiteOrdersPage = () => {
     const [sendingBulkSteadfast, setSendingBulkSteadfast] = useState(false);
     const [sendingOrderId, setSendingOrderId] = useState(null);
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (targetPage = page, targetPerPage = perPage) => {
         try {
             setLoading(true);
-            const params = { source: 'website' };
+            const params = {
+                source: 'website',
+                page: targetPage,
+                per_page: targetPerPage,
+            };
             if (statusFilter) params.order_status = statusFilter;
-            if (search) params.search = search;
+            if (search.trim()) params.search = search.trim();
 
             const res = await api.get('/orders', { params });
-            setOrders(res.data.data.data || []);
+            const pageData = res.data.data;
+            setOrders(pageData.data || []);
+            setPagination({
+                total: pageData.total || 0,
+                from: pageData.from || 0,
+                to: pageData.to || 0,
+                last_page: pageData.last_page || 1,
+                current_page: pageData.current_page || 1,
+            });
         } catch (err) {
             console.error('Failed to fetch website orders:', err);
         } finally {
@@ -88,8 +111,9 @@ export const WebsiteOrdersPage = () => {
     };
 
     useEffect(() => {
-        fetchOrders();
-    }, [statusFilter, search]);
+        fetchOrders(1, perPage);
+        setPage(1);
+    }, [statusFilter, search, perPage]);
 
     useEffect(() => {
         fetchSettings();
@@ -104,7 +128,7 @@ export const WebsiteOrdersPage = () => {
                 alert('✅ WooCommerce settings saved & connected successfully!');
                 setSettingsModalOpen(false);
                 fetchSettings();
-                fetchOrders();
+                fetchOrders(1, perPage);
             }
         } catch (err) {
             alert(`❌ Error saving settings: ${err.response?.data?.message || err.message}`);
@@ -120,14 +144,14 @@ export const WebsiteOrdersPage = () => {
             const res = await api.post('/woocommerce/sync');
             if (res.data.status === 'success') {
                 setSyncMessage(`✅ ${res.data.message}`);
-                fetchOrders();
+                fetchOrders(1, perPage);
                 fetchSettings();
             }
         } catch (err) {
             setSyncMessage(`❌ ${err.response?.data?.message || err.message}`);
         } finally {
             setSyncingOrders(false);
-            setTimeout(() => setSyncMessage(null), 6000);
+            setTimeout(() => setSyncMessage(null), 8000);
         }
     };
 
@@ -144,7 +168,7 @@ export const WebsiteOrdersPage = () => {
             await api.put(`/orders/${orderId}/status`, { order_status: newStatus });
         } catch (err) {
             alert('Failed to update order status');
-            fetchOrders();
+            fetchOrders(page, perPage);
         }
     };
 
@@ -171,7 +195,7 @@ export const WebsiteOrdersPage = () => {
             if (res.data.status === 'success') {
                 const tracking = res.data.data?.tracking_code || '';
                 alert(`✅ Website Order #${order.order_number} successfully dispatched to Steadfast!\nTracking: ${tracking}`);
-                fetchOrders();
+                fetchOrders(page, perPage);
                 if (selectedOrder && selectedOrder.id === order.id) {
                     setSelectedOrder((prev) => ({
                         ...prev,
@@ -200,7 +224,7 @@ export const WebsiteOrdersPage = () => {
                 order_ids: selectedOrderIds,
             });
             alert(`✅ Bulk Dispatch Complete! Sent: ${res.data.data?.successful?.length || 0}, Failed: ${res.data.data?.failed?.length || 0}`);
-            fetchOrders();
+            fetchOrders(page, perPage);
             setSelectedOrderIds([]);
         } catch (err) {
             alert(`❌ Error in bulk dispatch: ${err.response?.data?.message || err.message}`);
@@ -209,11 +233,11 @@ export const WebsiteOrdersPage = () => {
         }
     };
 
-    // Calculate metrics
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    const pendingCount = orders.filter((o) => ['pending_confirmation', 'confirmed', 'processing'].includes(o.order_status)).length;
-    const deliveredCount = orders.filter((o) => o.order_status === 'delivered').length;
+    // Status Counts for Metrics
+    const totalOrdersCount = pagination.total;
+    const pendingOrdersCount = orders.filter((o) => ['pending_confirmation', 'draft'].includes(o.order_status)).length;
+    const processingOrdersCount = orders.filter((o) => ['confirmed', 'processing', 'shipped'].includes(o.order_status)).length;
+    const deliveredOrdersCount = orders.filter((o) => o.order_status === 'delivered').length;
 
     const filterOptions = [
         { label: 'All Website Orders', value: '' },
@@ -236,7 +260,7 @@ export const WebsiteOrdersPage = () => {
                         Website Orders (ওয়েবসাইট অর্ডার - WooCommerce)
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        WordPress / WooCommerce ওয়েবসাইট থেকে সিঙ্ক করা সকল অর্ডার, বিস্তারিত আইটেম ও স্টেডফাস্ট কুরিয়ার ডিসপ্যাচ।
+                        WordPress / WooCommerce ওয়েবসাইট থেকে সিঙ্ক করা সকল অর্ডার, কাস্টমার নম্বর/অর্ডার আইডি দিয়ে সার্চ ও কুরিয়ার ডিসপ্যাচ।
                     </p>
                 </div>
                 <div className="flex items-center gap-2.5 flex-wrap">
@@ -257,7 +281,7 @@ export const WebsiteOrdersPage = () => {
                         className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold"
                         onClick={handleSyncNow}
                     >
-                        Sync Orders Now
+                        Sync All Orders
                     </Button>
                 </div>
             </div>
@@ -270,13 +294,13 @@ export const WebsiteOrdersPage = () => {
                 </div>
             )}
 
-            {/* Quick Metrics Cards */}
+            {/* Metrics Cards (Order Counts Only - No Revenue) */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="p-4 bg-slate-900/50 border-slate-800">
                     <div className="flex items-center justify-between">
                         <div>
-                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Website Orders</span>
-                            <span className="text-2xl font-extrabold text-slate-100">{totalOrders}</span>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Total Orders (মোট অর্ডার)</span>
+                            <span className="text-2xl font-extrabold text-cyan-400">{totalOrdersCount}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
                             <Globe className="w-5 h-5" />
@@ -287,20 +311,8 @@ export const WebsiteOrdersPage = () => {
                 <Card className="p-4 bg-slate-900/50 border-slate-800">
                     <div className="flex items-center justify-between">
                         <div>
-                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Website Revenue</span>
-                            <span className="text-2xl font-extrabold text-emerald-400">৳{totalRevenue.toFixed(0)}</span>
-                        </div>
-                        <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400">
-                            <DollarSign className="w-5 h-5" />
-                        </div>
-                    </div>
-                </Card>
-
-                <Card className="p-4 bg-slate-900/50 border-slate-800">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Active / Pending</span>
-                            <span className="text-2xl font-extrabold text-amber-400">{pendingCount}</span>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Pending / New (পেন্ডিং)</span>
+                            <span className="text-2xl font-extrabold text-amber-400">{pendingOrdersCount}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
                             <Clock className="w-5 h-5" />
@@ -311,8 +323,20 @@ export const WebsiteOrdersPage = () => {
                 <Card className="p-4 bg-slate-900/50 border-slate-800">
                     <div className="flex items-center justify-between">
                         <div>
-                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Delivered</span>
-                            <span className="text-2xl font-extrabold text-emerald-300">{deliveredCount}</span>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Processing / Shipped</span>
+                            <span className="text-2xl font-extrabold text-indigo-400">{processingOrdersCount}</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
+                            <ShoppingBag className="w-5 h-5" />
+                        </div>
+                    </div>
+                </Card>
+
+                <Card className="p-4 bg-slate-900/50 border-slate-800">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-medium">Delivered (কমপ্লিট)</span>
+                            <span className="text-2xl font-extrabold text-emerald-300">{deliveredOrdersCount}</span>
                         </div>
                         <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-300">
                             <Truck className="w-5 h-5" />
@@ -321,13 +345,16 @@ export const WebsiteOrdersPage = () => {
                 </Card>
             </div>
 
-            {/* Filter & Search Bar */}
+            {/* Filter & Powerful Search Bar */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                     {filterOptions.map((f) => (
                         <button
                             key={f.value}
-                            onClick={() => setStatusFilter(f.value)}
+                            onClick={() => {
+                                setStatusFilter(f.value);
+                                setPage(1);
+                            }}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                                 statusFilter === f.value
                                     ? 'bg-cyan-600 text-white font-bold'
@@ -339,17 +366,49 @@ export const WebsiteOrdersPage = () => {
                     ))}
                 </div>
 
-                <div className="relative min-w-[240px]">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                {/* Instant Search input by phone or order id */}
+                <div className="relative min-w-[280px] sm:min-w-[340px]">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                         type="text"
-                        placeholder="Search by order #, phone, customer..."
+                        placeholder="কাস্টমার ফোন নম্বর (018...) বা অর্ডার ID (#1042)..."
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full pl-9 pr-4 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            setPage(1);
+                        }}
+                        className="w-full pl-9 pr-8 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors shadow-inner"
                     />
+                    {search && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearch('');
+                                setPage(1);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                            title="Clear search"
+                        >
+                            ✕
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {/* Active Search Result Tag */}
+            {search.trim() && (
+                <div className="text-xs text-slate-300 bg-slate-800/60 border border-slate-700/80 px-3 py-1.5 rounded-lg flex items-center justify-between">
+                    <span>
+                        🔍 Searching for: <strong>"{search}"</strong> — {pagination.total} orders matched
+                    </span>
+                    <button
+                        onClick={() => setSearch('')}
+                        className="text-cyan-400 hover:underline text-[11px] font-medium ml-2 cursor-pointer"
+                    >
+                        Reset search
+                    </button>
+                </div>
+            )}
 
             {/* Bulk Action Bar */}
             {selectedOrderIds.length > 0 && (
@@ -408,25 +467,31 @@ export const WebsiteOrdersPage = () => {
                                 <tr>
                                     <td colSpan="8" className="p-8 text-center text-slate-500">
                                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-500" />
-                                        Loading WooCommerce orders...
+                                        Loading website orders...
                                     </td>
                                 </tr>
                             ) : orders.length === 0 ? (
                                 <tr>
                                     <td colSpan="8" className="p-12 text-center text-slate-500">
                                         <Globe className="w-8 h-8 mx-auto mb-2 opacity-40 text-cyan-400" />
-                                        <p className="font-semibold text-slate-300">No website orders found</p>
-                                        <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
-                                            Make sure your WordPress store is connected in Store Settings, then click <strong>Sync Orders Now</strong>.
+                                        <p className="font-semibold text-slate-300">
+                                            {search ? `No orders found for "${search}"` : 'No website orders found'}
                                         </p>
-                                        <Button
-                                            variant="primary"
-                                            size="sm"
-                                            onClick={() => setSettingsModalOpen(true)}
-                                            className="mt-3 bg-cyan-600 hover:bg-cyan-500"
-                                        >
-                                            Configure WooCommerce Store
-                                        </Button>
+                                        <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                                            {search
+                                                ? 'Check the phone number or order ID and try again.'
+                                                : 'Connect your WordPress store in Store Settings, then click Sync All Orders.'}
+                                        </p>
+                                        {!search && (
+                                            <Button
+                                                variant="primary"
+                                                size="sm"
+                                                onClick={() => setSettingsModalOpen(true)}
+                                                className="mt-3 bg-cyan-600 hover:bg-cyan-500"
+                                            >
+                                                Configure WooCommerce Store
+                                            </Button>
+                                        )}
                                     </td>
                                 </tr>
                             ) : (
@@ -473,8 +538,8 @@ export const WebsiteOrdersPage = () => {
                                                 <div className="font-medium text-slate-200 truncate">
                                                     {order.customer?.name || 'Guest Customer'}
                                                 </div>
-                                                <div className="text-slate-400 font-mono text-[11px] flex items-center gap-1 mt-0.5">
-                                                    <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
+                                                <div className="text-slate-400 font-mono text-[11px] flex items-center gap-1 mt-0.5 font-semibold text-emerald-400">
+                                                    <Phone className="w-3 h-3 shrink-0" />
                                                     <span>{order.customer_phone || 'N/A'}</span>
                                                 </div>
                                                 <div className="text-[11px] text-slate-500 truncate mt-0.5" title={order.customer_address}>
@@ -594,6 +659,68 @@ export const WebsiteOrdersPage = () => {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Pagination Controls */}
+                {pagination.total > 0 && (
+                    <div className="p-3 bg-slate-950/80 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+                        <div className="flex items-center gap-3">
+                            <span>
+                                Showing <strong>{pagination.from || 1}</strong> to <strong>{pagination.to || orders.length}</strong> of <strong>{pagination.total}</strong> orders
+                            </span>
+                            <div className="flex items-center gap-1.5 ml-2">
+                                <span>Per page:</span>
+                                <select
+                                    value={perPage}
+                                    onChange={(e) => {
+                                        const newPerPage = parseInt(e.target.value);
+                                        setPerPage(newPerPage);
+                                        fetchOrders(1, newPerPage);
+                                    }}
+                                    className="bg-slate-900 border border-slate-800 rounded px-2 py-0.5 text-slate-200 text-xs"
+                                >
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                    <option value="200">200</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {pagination.last_page > 1 && (
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={pagination.current_page <= 1}
+                                    onClick={() => {
+                                        const p = pagination.current_page - 1;
+                                        setPage(p);
+                                        fetchOrders(p, perPage);
+                                    }}
+                                    className="border border-slate-800 text-slate-300 disabled:opacity-40"
+                                >
+                                    <ChevronLeft className="w-3.5 h-3.5 mr-1" /> Prev
+                                </Button>
+                                <span className="px-2 text-slate-300 font-medium">
+                                    Page {pagination.current_page} of {pagination.last_page}
+                                </span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={pagination.current_page >= pagination.last_page}
+                                    onClick={() => {
+                                        const p = pagination.current_page + 1;
+                                        setPage(p);
+                                        fetchOrders(p, perPage);
+                                    }}
+                                    className="border border-slate-800 text-slate-300 disabled:opacity-40"
+                                >
+                                    Next <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )}
             </Card>
 
             {/* Store Connection Settings Modal */}
@@ -713,8 +840,8 @@ export const WebsiteOrdersPage = () => {
                         {/* Summary Header */}
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
                             <div>
-                                <span className="text-slate-400 text-[11px]">Grand Total</span>
-                                <div className="text-xl font-extrabold text-emerald-400 font-mono">
+                                <span className="text-slate-400 text-[11px]">Total Amount</span>
+                                <div className="text-xl font-extrabold text-slate-100 font-mono">
                                     ৳{parseFloat(selectedOrder.total_amount).toFixed(0)}
                                 </div>
                             </div>
@@ -733,7 +860,7 @@ export const WebsiteOrdersPage = () => {
                             </h4>
                             <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300 pt-1">
                                 <div>Name: <strong className="text-white">{selectedOrder.customer?.name}</strong></div>
-                                <div>Phone: <strong className="text-white font-mono">{selectedOrder.customer_phone}</strong></div>
+                                <div>Phone: <strong className="text-emerald-400 font-mono font-bold text-xs">{selectedOrder.customer_phone}</strong></div>
                                 <div className="col-span-2">
                                     Address: <span className="text-slate-300">{selectedOrder.customer_address}</span>
                                 </div>

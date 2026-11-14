@@ -86,7 +86,7 @@ class WooCommerceService
     /**
      * Sync orders from WooCommerce store.
      */
-    public function syncOrders(int $page = 1, int $perPage = 50): array
+    public function syncOrders(int $limitPages = 20): array
     {
         $settings = $this->getSettings();
         if (! $settings->is_enabled || empty($settings->store_url) || empty($settings->consumer_key)) {
@@ -107,49 +107,68 @@ class WooCommerceService
             'last_error' => null,
         ]);
 
+        $endpoint = "{$cleanUrl}/wp-json/wc/v3/orders";
+        $page = 1;
+        $perPage = 100;
+        $totalSynced = 0;
+        $hasMore = true;
+
         try {
-            $endpoint = "{$cleanUrl}/wp-json/wc/v3/orders";
-            $response = Http::timeout(25)
-                ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
-                ->get($endpoint, [
-                    'per_page' => $perPage,
-                    'page' => $page,
-                    'orderby' => 'date',
-                    'order' => 'desc',
-                ]);
+            while ($hasMore && $page <= $limitPages) {
+                $response = Http::timeout(35)
+                    ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                    ->get($endpoint, [
+                        'per_page' => $perPage,
+                        'page' => $page,
+                        'orderby' => 'date',
+                        'order' => 'desc',
+                    ]);
 
-            if (! $response->successful()) {
-                // Try query params fallback
-                $response = Http::timeout(25)->get($endpoint, [
-                    'consumer_key' => $settings->consumer_key,
-                    'consumer_secret' => $settings->consumer_secret,
-                    'per_page' => $perPage,
-                    'page' => $page,
-                    'orderby' => 'date',
-                    'order' => 'desc',
-                ]);
-            }
+                if (! $response->successful()) {
+                    // Try query params fallback
+                    $response = Http::timeout(35)->get($endpoint, [
+                        'consumer_key' => $settings->consumer_key,
+                        'consumer_secret' => $settings->consumer_secret,
+                        'per_page' => $perPage,
+                        'page' => $page,
+                        'orderby' => 'date',
+                        'order' => 'desc',
+                    ]);
+                }
 
-            if (! $response->successful()) {
-                $err = $response->json('message') ?: "HTTP {$response->status()}: Failed to fetch orders.";
-                $settings->update([
-                    'sync_status' => 'failed',
-                    'last_error' => $err,
-                ]);
+                if (! $response->successful()) {
+                    if ($page === 1) {
+                        $err = $response->json('message') ?: "HTTP {$response->status()}: Failed to fetch orders.";
+                        $settings->update([
+                            'sync_status' => 'failed',
+                            'last_error' => $err,
+                        ]);
 
-                return [
-                    'success' => false,
-                    'message' => $err,
-                    'synced_count' => 0,
-                ];
-            }
+                        return [
+                            'success' => false,
+                            'message' => $err,
+                            'synced_count' => 0,
+                        ];
+                    }
+                    break;
+                }
 
-            $wcOrders = $response->json();
-            $syncedCount = 0;
+                $wcOrders = $response->json();
+                if (empty($wcOrders) || ! is_array($wcOrders)) {
+                    break;
+                }
 
-            foreach ($wcOrders as $wcOrder) {
-                $this->processWooCommerceOrder($wcOrder);
-                $syncedCount++;
+                foreach ($wcOrders as $wcOrder) {
+                    $this->processWooCommerceOrder($wcOrder);
+                    $totalSynced++;
+                }
+
+                $totalPages = (int) $response->header('X-WP-TotalPages', 1);
+                if ($page >= $totalPages || count($wcOrders) < $perPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
             }
 
             $settings->update([
@@ -160,9 +179,8 @@ class WooCommerceService
 
             return [
                 'success' => true,
-                'message' => "Successfully synced {$syncedCount} orders from WooCommerce!",
-                'synced_count' => $syncedCount,
-                'total_in_batch' => count($wcOrders),
+                'message' => "Successfully synced {$totalSynced} orders from WooCommerce website!",
+                'synced_count' => $totalSynced,
             ];
         } catch (\Throwable $e) {
             Log::error('WooCommerce Order Sync Error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
@@ -174,7 +192,7 @@ class WooCommerceService
             return [
                 'success' => false,
                 'message' => 'Sync error: ' . $e->getMessage(),
-                'synced_count' => 0,
+                'synced_count' => $totalSynced,
             ];
         }
     }
