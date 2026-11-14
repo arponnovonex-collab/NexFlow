@@ -46,7 +46,7 @@ export const OrdersPage = () => {
     const fetchOrders = async () => {
         try {
             setLoading(true);
-            const params = {};
+            const params = { source: 'engagement' };
             if (statusFilter) params.order_status = statusFilter;
             if (search) params.search = search;
 
@@ -167,10 +167,10 @@ export const OrdersPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                        Customer Orders & Sales (অর্ডার ও বিক্রি)
+                        Engagement Orders (এনগেজমেন্ট অর্ডার)
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
-                        Manage confirmed customer orders, edit order status inline, and 1-click dispatch to Steadfast Courier.
+                        Manage customer orders from Facebook, Instagram, WhatsApp chats, and manual inbox orders.
                     </p>
                 </div>
                 <div className="flex items-center gap-2.5">

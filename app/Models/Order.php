@@ -9,17 +9,21 @@ class Order extends Model
 {
     protected $fillable = [
         'order_number',
+        'wc_order_id',
         'customer_id',
         'conversation_id',
         'user_id',
         'product_id',
         'variant_id',
         'quantity',
+        'items_data',
         'unit_price',
         'delivery_charge',
         'total_amount',
         'order_status',
         'payment_status',
+        'payment_method_title',
+        'shipping_method_title',
         'order_source',
         'customer_address',
         'customer_phone',
@@ -30,6 +34,7 @@ class Order extends Model
         'courier_status',
         'courier_sent_at',
         'courier_response',
+        'wc_raw_data',
     ];
 
     protected function casts(): array
@@ -39,8 +44,10 @@ class Order extends Model
             'unit_price' => 'decimal:2',
             'delivery_charge' => 'decimal:2',
             'total_amount' => 'decimal:2',
+            'items_data' => 'array',
             'courier_sent_at' => 'datetime',
             'courier_response' => 'array',
+            'wc_raw_data' => 'array',
         ];
     }
 

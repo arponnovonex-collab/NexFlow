@@ -37,6 +37,7 @@ import {
     Bookmark,
     PhoneCall,
     PhoneForwarded,
+    Globe,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -45,6 +46,7 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
     const location = useLocation();
 
     const [openSections, setOpenSections] = useState({
+        orders: true,
         connections: true,
         inbox: true,
         shortcuts: true,
@@ -159,22 +161,41 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
 
                 {/* Customer Orders */}
                 <div>
-                    {!isCollapsed && (
-                        <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                            Sales & Orders
-                        </p>
+                    {!isCollapsed ? (
+                        <button
+                            onClick={() => toggleSection('orders')}
+                            className="w-full flex items-center justify-between px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1"
+                        >
+                            <span>Customer Orders</span>
+                            {openSections.orders ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                    ) : null}
+                    {(openSections.orders || isCollapsed) && (
+                        <div className="space-y-1">
+                            <NavLink to="/orders/engagement" className={linkClasses}>
+                                <ShoppingBag className="w-4 h-4 shrink-0 text-emerald-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>Engagement Order</span>
+                                        <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                                            Inbox
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
+                            <NavLink to="/orders/website" className={linkClasses}>
+                                <Globe className="w-4 h-4 shrink-0 text-cyan-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>Website Order</span>
+                                        <span className="bg-cyan-500/20 text-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                                            WordPress
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
+                        </div>
                     )}
-                    <NavLink to="/orders" className={linkClasses}>
-                        <ShoppingBag className="w-4 h-4 shrink-0 text-emerald-400" />
-                        {!isCollapsed && (
-                            <div className="flex items-center justify-between w-full">
-                                <span>Customer Orders</span>
-                                <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                                    Active
-                                </span>
-                            </div>
-                        )}
-                    </NavLink>
                 </div>
 
                 {/* Shortcut Menu */}

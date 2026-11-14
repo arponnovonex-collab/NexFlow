@@ -28,6 +28,19 @@ class OrderController extends Controller
             $query->where('order_status', $request->order_status);
         }
 
+        if ($request->filled('source')) {
+            $source = $request->source;
+            if ($source === 'engagement') {
+                $query->where(function ($sq) {
+                    $sq->whereIn('order_source', ['manual_inbox', 'import', 'crm'])
+                        ->orWhereNull('order_source')
+                        ->orWhere('order_source', '!=', 'woocommerce');
+                });
+            } elseif ($source === 'website') {
+                $query->whereIn('order_source', ['woocommerce', 'web']);
+            }
+        }
+
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
@@ -201,6 +214,18 @@ class OrderController extends Controller
         ]);
 
         $order->update($validated);
+
+        // If order came from WooCommerce, sync status back to store
+        if ($order->wc_order_id && ! empty($validated['order_status'])) {
+            try {
+                app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                    (int) $order->wc_order_id,
+                    $validated['order_status']
+                );
+            } catch (\Throwable $e) {
+                // Silently continue
+            }
+        }
 
         return response()->json([
             'status' => 'success',

@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\SmsController;
 use App\Http\Controllers\Api\SocialAccountController;
 use App\Http\Controllers\Api\SteadfastController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\WooCommerceController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -38,6 +39,7 @@ Route::get('/webhooks/instagram', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/instagram', [MetaWebhookController::class, 'handleFacebook']);
 Route::get('/webhooks/whatsapp', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/whatsapp', [MetaWebhookController::class, 'handleFacebook']);
+Route::post('/webhooks/woocommerce', [WooCommerceController::class, 'handleWebhook']);
 Route::post('/webhooks/epbx', [EpbxWebhookController::class, 'handle']);
 Route::get('/call-center/recordings/{uniqueid}', [CallCenterController::class, 'streamRecording']);
 
@@ -178,4 +180,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/media/folders', [MediaFolderController::class, 'store']);
     Route::put('/media/folders/{folder}', [MediaFolderController::class, 'update']);
     Route::delete('/media/folders/{folder}', [MediaFolderController::class, 'destroy']);
+
+    // WooCommerce Store Integration
+    Route::get('/woocommerce/settings', [WooCommerceController::class, 'getSettings']);
+    Route::post('/woocommerce/settings', [WooCommerceController::class, 'saveSettings']);
+    Route::post('/woocommerce/sync', [WooCommerceController::class, 'syncNow']);
 });
