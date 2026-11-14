@@ -479,7 +479,20 @@ class ConversationController extends Controller
                         } elseif ($account->platform === 'whatsapp_cloud') {
                             $phoneId = $account->account_id;
                             $targetRecipient = preg_replace('/[^0-9]/', '', (string) $psid);
-                            $publicUrl = $attachmentData ? url($attachmentData['file_url']) : null;
+
+                            $rawUrl = $attachmentData['file_url'] ?? null;
+                            $publicUrl = null;
+                            if ($rawUrl) {
+                                if (str_starts_with($rawUrl, 'http://') || str_starts_with($rawUrl, 'https://')) {
+                                    $publicUrl = $rawUrl;
+                                } else {
+                                    $publicUrl = url($rawUrl);
+                                }
+                                if (str_starts_with($publicUrl, 'http://nexflow.auliro.xyz')) {
+                                    $publicUrl = str_replace('http://nexflow.auliro.xyz', 'https://nexflow.auliro.xyz', $publicUrl);
+                                }
+                            }
+
                             if ($publicUrl) {
                                 $waType = match ($attachmentData['file_type']) {
                                     'image' => 'image',
@@ -487,15 +500,28 @@ class ConversationController extends Controller
                                     'audio' => 'audio',
                                     default => 'document',
                                 };
+
+                                $caption = ! empty(trim((string) $text)) ? trim((string) $text) : null;
+                                $typeData = ['link' => $publicUrl];
+
+                                if ($waType === 'image' || $waType === 'video') {
+                                    if ($caption) {
+                                        $typeData['caption'] = $caption;
+                                    }
+                                } elseif ($waType === 'document') {
+                                    if ($caption) {
+                                        $typeData['caption'] = $caption;
+                                    }
+                                    $typeData['filename'] = $attachmentData['file_name'] ?? 'document';
+                                } elseif ($waType === 'audio') {
+                                    // Meta WhatsApp Cloud API prohibits 'filename' and 'caption' on audio parameter
+                                }
+
                                 $waPayload = [
                                     'messaging_product' => 'whatsapp',
                                     'to' => $targetRecipient,
                                     'type' => $waType,
-                                    $waType => array_filter([
-                                        'link' => $publicUrl,
-                                        'caption' => ! empty(trim((string) $text)) ? $text : null,
-                                        'filename' => $attachmentData['file_name'],
-                                    ]),
+                                    $waType => $typeData,
                                 ];
                             } else {
                                 $waPayload = [
@@ -515,6 +541,17 @@ class ConversationController extends Controller
                                     'delivery_status' => 'delivered',
                                     'platform_message_id' => $data['messages'][0]['id'] ?? $msg->platform_message_id,
                                 ]);
+
+                                // If sending audio and user typed a caption, send caption as a follow-up text message
+                                if ($publicUrl && $waType === 'audio' && ! empty($caption)) {
+                                    Http::withToken($account->access_token)
+                                        ->post("https://graph.facebook.com/{$version}/{$phoneId}/messages", [
+                                            'messaging_product' => 'whatsapp',
+                                            'to' => $targetRecipient,
+                                            'type' => 'text',
+                                            'text' => ['body' => $caption],
+                                        ]);
+                                }
                             } else {
                                 $deliveryError = $res->json('error.message') ?? $res->body();
                                 Log::error('WhatsApp Cloud Send API Error: ' . $deliveryError);
