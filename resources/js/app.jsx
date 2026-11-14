@@ -44,6 +44,15 @@ import { CallCenterConfigPage } from './pages/call-center/CallCenterConfigPage';
 import { IpCallPage } from './pages/call-center/IpCallPage';
 import { CallRecordingsPage } from './pages/call-center/CallRecordingsPage';
 
+// Smart Index Route Handler that retains Inbox or active page on browser refresh
+const IndexRouteHandler = () => {
+    const savedPath = typeof window !== 'undefined' ? sessionStorage.getItem('nexflow_current_path') : null;
+    if (savedPath && savedPath !== '/' && savedPath !== '/dashboard') {
+        return <Navigate to={savedPath} replace />;
+    }
+    return <Navigate to="/dashboard" replace />;
+};
+
 // Protected Route Guard
 const ProtectedRoute = ({ children }) => {
     const { isAuthenticated, isLoading } = useAuth();
@@ -81,7 +90,7 @@ export const App = () => {
                                 </ProtectedRoute>
                             }
                         >
-                            <Route index element={<Navigate to="/dashboard" replace />} />
+                            <Route index element={<IndexRouteHandler />} />
                             <Route path="dashboard" element={<DashboardPage />} />
                             <Route path="inbox" element={<UnifiedInboxPage />} />
                             <Route path="shortcuts/saved-sms" element={<SavedMessagesPage />} />

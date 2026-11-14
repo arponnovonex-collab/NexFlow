@@ -140,13 +140,7 @@ export const UnifiedInboxPage = () => {
         setMobileView('list');
         setMobileCrmExpanded(false);
         setActiveConversation(null);
-        if (searchParams.has('conversation')) {
-            if (window.history.length > 1) {
-                window.history.back();
-            } else {
-                navigate('/inbox', { replace: true });
-            }
-        }
+        navigate('/inbox', { replace: true });
     };
 
     const [conversations, setConversations] = useState([]);
@@ -159,6 +153,7 @@ export const UnifiedInboxPage = () => {
     const convPageRef = useRef(1);
     const hasMoreConvRef = useRef(true);
     const loadingMoreConvRef = useRef(false);
+    const convMessagesCacheRef = useRef({});
     const [replyText, setReplyText] = useState('');
     const [isInternalNote, setIsInternalNote] = useState(false);
     const [sending, setSending] = useState(false);
@@ -661,20 +656,20 @@ export const UnifiedInboxPage = () => {
             }
 
             if (!silent && resetPage) {
-                // On desktop, auto-select conversation from query param or first item
-                // On mobile, DO NOT auto-select so user always starts on customer list view
-                if (!isMobile) {
-                    const queryConvId = searchParams.get('conversation');
-                    if (queryConvId) {
-                        const found = list.find((c) => c.id === parseInt(queryConvId));
-                        if (found) {
-                            loadConversationDetails(found.id);
-                        } else if (list.length > 0) {
-                            loadConversationDetails(list[0].id);
-                        }
-                    } else if (!activeConversation && list.length > 0) {
-                        loadConversationDetails(list[0].id);
+                const queryConvId = searchParams.get('conversation');
+                if (queryConvId) {
+                    const convIdNum = parseInt(queryConvId);
+                    const found = list.find((c) => c.id === convIdNum);
+                    if (found) {
+                        loadConversationDetails(found.id, false);
+                    } else {
+                        loadConversationDetails(convIdNum, false);
                     }
+                    if (isMobile) {
+                        setMobileView('chat');
+                    }
+                } else if (!isMobile && !activeConversation && list.length > 0) {
+                    loadConversationDetails(list[0].id, false);
                 }
             }
         } catch (err) {
@@ -736,22 +731,39 @@ export const UnifiedInboxPage = () => {
     };
 
     const loadConversationDetails = async (id, isExplicitUserClick = false) => {
-        try {
-            setLoadingThread(true);
-            setReplyingToMessage(null);
-            const res = await api.get(`/conversations/${id}`);
-            setActiveConversation(res.data.data);
-            if (isExplicitUserClick && isMobile) {
-                setMobileView('chat');
-                setMobileCrmExpanded(false);
-                navigate(`/inbox?conversation=${id}`);
-            } else if (!isMobile) {
-                setSearchParams({ conversation: id }, { replace: true });
+        // 1. Immediately switch mobile view to 'chat' (0ms instant click response!)
+        if (isMobile) {
+            setMobileView('chat');
+            setMobileCrmExpanded(false);
+        }
+        setSearchParams({ conversation: id }, { replace: true });
+        setReplyingToMessage(null);
+
+        // 2. Instant Optimistic Render: load cached conversation and messages if available
+        const cachedConv = conversations.find((c) => c.id === id);
+        const cachedMessages = convMessagesCacheRef.current[id];
+
+        if (cachedConv) {
+            setActiveConversation((prev) => ({
+                ...cachedConv,
+                messages: cachedMessages || (prev?.id === id ? prev.messages : cachedConv.messages || []),
+            }));
+            if (!cachedMessages || cachedMessages.length === 0) {
+                setLoadingThread(true);
             }
+        } else {
+            setLoadingThread(true);
+        }
+
+        try {
+            const res = await api.get(`/conversations/${id}`);
+            const freshConv = res.data.data;
+            convMessagesCacheRef.current[id] = freshConv.messages || [];
+            setActiveConversation(freshConv);
 
             // Prefill order modal if customer exists
-            const cust = res.data.data.customer;
-            const lead = res.data.data.lead;
+            const cust = freshConv.customer;
+            const lead = freshConv.lead;
             setOrderForm((prev) => ({
                 ...prev,
                 customer_phone: cust?.phone || '',
@@ -759,7 +771,7 @@ export const UnifiedInboxPage = () => {
                 delivery_charge: 70,
             }));
         } catch (err) {
-            console.error(err);
+            console.error('Failed to load conversation details:', err);
         } finally {
             setLoadingThread(false);
         }

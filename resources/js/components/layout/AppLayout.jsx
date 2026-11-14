@@ -9,10 +9,13 @@ export const AppLayout = () => {
     const location = useLocation();
     const isInbox = location.pathname.startsWith('/inbox');
 
-    // Automatically close mobile drawer when navigating
+    // Automatically close mobile drawer when navigating and remember current path
     useEffect(() => {
         setMobileOpen(false);
-    }, [location.pathname]);
+        if (location.pathname && location.pathname !== '/') {
+            sessionStorage.setItem('nexflow_current_path', location.pathname + location.search);
+        }
+    }, [location.pathname, location.search]);
 
     return (
         <div className="h-screen min-h-screen bg-slate-950 text-slate-100 flex overflow-hidden">

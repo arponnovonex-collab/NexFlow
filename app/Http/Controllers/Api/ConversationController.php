@@ -107,13 +107,15 @@ class ConversationController extends Controller
     /**
      * Show single conversation details and messages.
      */
-    public function show(Conversation $conversation): JsonResponse
+    public function show(Conversation $conversation, Request $request): JsonResponse
     {
-        // Auto-sync any recent messages from Facebook/Instagram
-        try {
-            $this->syncRemoteMessages($conversation);
-        } catch (\Throwable $e) {
-            Log::warning('Active Sync on Conversation show failed: ' . $e->getMessage());
+        // Only run remote Meta sync if explicitly requested (e.g. ?sync=1)
+        if ($request->boolean('sync')) {
+            try {
+                $this->syncRemoteMessages($conversation);
+            } catch (\Throwable $e) {
+                Log::warning('Active Sync on Conversation show failed: ' . $e->getMessage());
+            }
         }
 
         $conversation->load([
@@ -132,48 +134,6 @@ class ConversationController extends Controller
                 ]);
             },
         ]);
-
-        // Auto-enrich customer profile if still generic name or lacks real profile picture
-        if (($conversation->platform === 'facebook_page' || $conversation->platform === 'instagram_business') && $conversation->customer) {
-            $cust = $conversation->customer;
-            $needsName = str_starts_with($cust->name, 'Facebook Customer') || empty($cust->name);
-            $needsAvatar = empty($cust->avatar_url) || str_contains($cust->avatar_url, 'unsplash.com');
-
-            if ($needsName || $needsAvatar) {
-                $psid = preg_replace('/^t_(?:ig_|wa_)?/', '', $conversation->channel_conversation_id);
-                \App\Services\FacebookProfileService::resolveCustomerName($conversation->socialAccount, $psid, $cust);
-                $conversation->load('customer');
-            }
-        }
-
-        // Auto-backfill attachments for any photo messages that lack attachments
-        foreach ($conversation->messages as $msg) {
-            if ($msg->attachments->isEmpty() && ($msg->text === '📷 [Photo]' || $msg->message_type === 'attachment' || $msg->message_type === 'image')) {
-                if ($msg->platform_message_id) {
-                    $event = WebhookEvent::where('payload', 'like', '%' . $msg->platform_message_id . '%')->first();
-                    if ($event && ! empty($event->payload['entry'])) {
-                        foreach ($event->payload['entry'] as $entry) {
-                            foreach ($entry['messaging'] ?? [] as $m) {
-                                if (($m['message']['mid'] ?? '') === $msg->platform_message_id && ! empty($m['message']['attachments'])) {
-                                    foreach ($m['message']['attachments'] as $att) {
-                                        $url = $att['payload']['url'] ?? null;
-                                        if ($url) {
-                                            $createdAtt = MessageAttachment::create([
-                                                'message_id' => $msg->id,
-                                                'file_url' => $url,
-                                                'file_type' => $att['type'] ?? 'image',
-                                                'file_name' => ($att['type'] ?? 'image') . '_' . substr(md5($url), 0, 8),
-                                            ]);
-                                            $msg->attachments->push($createdAtt);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Hide sensitive token before returning
         $conversation->socialAccount?->makeHidden(['access_token', 'refresh_token']);
