@@ -418,7 +418,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
             <div
-                className="bg-slate-900 border border-slate-800 rounded-3xl max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[92vh] relative"
+                className="bg-slate-900 border border-slate-800 rounded-3xl max-w-5xl w-full h-[88vh] max-h-[850px] shadow-2xl flex flex-col relative overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Floating Notification Toast */}
@@ -430,7 +430,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                 )}
 
                 {/* Modal Header */}
-                <div className="p-3 sm:p-4 border-b border-slate-800 flex items-center justify-between gap-2 bg-slate-950/50">
+                <div className="p-3 sm:p-4 border-b border-slate-800 flex items-center justify-between gap-2 bg-slate-950/80 shrink-0">
                     <div className="flex items-center gap-2.5 min-w-0">
                         <div className="w-8 h-8 rounded-xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
                             <FolderOpen className="w-4 h-4" />
@@ -448,12 +448,24 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 )}
                             </h3>
                             <p className="text-[11px] text-slate-400 truncate">
-                                Click "Move to Folder" on any image, drag onto folder tabs, or bulk select to organize
+                                যেকোনো ছবি সরাসরি মেসেজে পাঠাতে "মেসেজে পাঠান" বাটনে ক্লিক করুন
                             </p>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                        {/* Header Direct Send Button when an item is selected */}
+                        {selectedItem && (
+                            <button
+                                type="button"
+                                onClick={handleConfirm}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer shrink-0 animate-pulse"
+                                title="নির্বাচিত ছবিটি সরাসরি মেসেজে পাঠান"
+                            >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>মেসেজে পাঠান (Send)</span>
+                            </button>
+                        )}
                         {/* Bulk Select Toggle */}
                         <Button
                             type="button"
@@ -549,7 +561,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                 </div>
 
                 {/* Filter Toolbar: Search + Product Folders + Media Types */}
-                <div className="p-3 border-b border-slate-800 bg-slate-950/80 space-y-2.5">
+                <div className="p-3 border-b border-slate-800 bg-slate-950/80 space-y-2.5 shrink-0">
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
                         {/* Search Input */}
                         <form onSubmit={handleSearchSubmit} className="relative flex-1">
@@ -712,7 +724,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                 </div>
 
                 {/* Media Grid */}
-                <div className="p-3.5 flex-1 overflow-y-auto min-h-[300px]">
+                <div className="p-3.5 flex-1 min-h-0 overflow-y-auto">
                     {loading ? (
                         <div className="py-20 text-center">
                             <div className="w-7 h-7 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -799,11 +811,11 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                             onSelectMedia(item);
                                                             onClose();
                                                         }}
-                                                        className="px-2 py-0.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[10px] font-bold text-white shadow-md flex items-center gap-1 cursor-pointer"
-                                                        title="মেসেজে যোগ করুন"
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[11px] font-bold text-white shadow-lg flex items-center gap-1 cursor-pointer"
+                                                        title="মেসেজে পাঠান"
                                                     >
-                                                        <Plus className="w-3 h-3" />
-                                                        <span>+ Add</span>
+                                                        <Send className="w-3 h-3" />
+                                                        <span>Send</span>
                                                     </button>
                                                 )}
                                                 <button
@@ -887,11 +899,11 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                                         onSelectMedia(item);
                                                         onClose();
                                                     }}
-                                                    className="w-full py-1 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
-                                                    title="এই ছবিটি মেসেজে যোগ করুন"
+                                                    className="w-full py-1.5 px-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all cursor-pointer"
+                                                    title="এই ছবিটি মেসেজে যোগ করে পাঠান"
                                                 >
-                                                    <Plus className="w-3.5 h-3.5" />
-                                                    <span>মেসেজে যোগ করুন</span>
+                                                    <Send className="w-3.5 h-3.5" />
+                                                    <span>মেসেজে পাঠান (Send)</span>
                                                 </button>
                                             )}
                                         </div>
@@ -949,7 +961,7 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                     </div>
                 ) : (
                     /* Standard Single Select Footer with Prominent "Move to Folder" & "Send" */
-                    <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <div className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0 sticky bottom-0 z-20 shadow-2xl">
                         <div className="flex items-center gap-3 min-w-0">
                             {selectedItem ? (
                                 <div className="flex items-center gap-2.5 min-w-0">
@@ -957,12 +969,13 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                         <img
                                             src={selectedItem.file_url}
                                             alt=""
-                                            className="w-9 h-9 rounded-lg object-cover border border-slate-700 shrink-0"
+                                            className="w-10 h-10 rounded-lg object-cover border border-emerald-500/50 shrink-0 ring-2 ring-emerald-500/30"
                                         />
                                     )}
                                     <div className="min-w-0">
-                                        <p className="text-xs font-semibold text-white truncate max-w-xs sm:max-w-sm">
-                                            {selectedItem.title}
+                                        <p className="text-xs font-bold text-white truncate max-w-xs sm:max-w-sm flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-ping" />
+                                            <span>{selectedItem.title}</span>
                                         </p>
                                         <div className="flex items-center gap-1.5 mt-0.5">
                                             <span className="text-[10px] text-slate-400">Folder:</span>
@@ -997,13 +1010,14 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                     </div>
                                 </div>
                             ) : (
-                                <span className="text-xs text-slate-400">
-                                    Click any image to select, send to customer, or move into a Product Folder
+                                <span className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-400 shrink-0" />
+                                    <span>যেকোনো ছবি সিলেক্ট করুন অথবা সরাসরি ছবির উপর "মেসেজে পাঠান" বাটনে চাপুন</span>
                                 </span>
                             )}
                         </div>
 
-                        <div className="flex items-center justify-end gap-2 shrink-0">
+                        <div className="flex items-center justify-end gap-2.5 shrink-0">
                             {selectedItem && (
                                 <Button
                                     type="button"
@@ -1011,13 +1025,13 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                     size="sm"
                                     icon={Folder}
                                     onClick={() => openMoveModal(selectedItem)}
-                                    className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-semibold"
+                                    className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-semibold text-xs"
                                 >
                                     Move to Folder
                                 </Button>
                             )}
                             <Button type="button" variant="secondary" size="xs" onClick={onClose}>
-                                Cancel
+                                বন্ধ করুন (Close)
                             </Button>
                             <Button
                                 type="button"
@@ -1025,10 +1039,10 @@ export const MediaPickerModal = ({ isOpen, onClose, onSelectMedia }) => {
                                 size="sm"
                                 disabled={!selectedItem}
                                 onClick={handleConfirm}
-                                icon={Plus}
-                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-md shadow-indigo-600/30 text-xs px-3.5 cursor-pointer"
+                                icon={Send}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold shadow-lg shadow-emerald-600/40 text-xs px-4 py-2 cursor-pointer transition-all active:scale-95"
                             >
-                                ➕ মেসেজে যোগ করুন (Add to Message)
+                                {selectedItem ? '✅ এই ছবিটি মেসেজে পাঠান (Send)' : 'ছবি সিলেক্ট করুন'}
                             </Button>
                         </div>
                     </div>
