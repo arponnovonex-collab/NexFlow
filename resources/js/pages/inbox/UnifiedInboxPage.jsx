@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { playIncomingMessageSound, playOutgoingMessageSound } from '../../utils/soundEffects';
@@ -1160,7 +1160,20 @@ export const UnifiedInboxPage = () => {
                             ({activeConversation?.social_account?.name || activeConversation?.socialAccount?.name})
                         </p>
                     )}
-                    <p className="text-xs text-slate-400 mt-0.5">{activeConversation?.customer?.phone || 'No phone recorded'}</p>
+                    {activeConversation?.customer?.phone ? (
+                        <div className="mt-0.5">
+                            <Link
+                                to={`/call-center/ip-call?phone=${encodeURIComponent(activeConversation.customer.phone)}`}
+                                className="inline-flex items-center gap-1.5 text-xs text-emerald-400 hover:text-emerald-300 font-mono font-bold hover:underline"
+                                title="IP Calling ডায়ালারে কল দিন (ePBX)"
+                            >
+                                <PhoneCall className="w-3 h-3 text-emerald-400" />
+                                <span>{activeConversation.customer.phone}</span>
+                            </Link>
+                        </div>
+                    ) : (
+                        <p className="text-xs text-slate-400 mt-0.5">No phone recorded</p>
+                    )}
                 </div>
             </div>
 

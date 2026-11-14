@@ -640,13 +640,14 @@ export const OrdersPage = () => {
                                 </div>
                                 <div>
                                     <span className="text-[10px] text-slate-400 block">Phone Number:</span>
-                                    <a
-                                        href={`tel:${selectedOrder.customer_phone || selectedOrder.customer?.phone}`}
-                                        className="text-xs font-bold font-mono text-indigo-400 hover:underline flex items-center gap-1"
+                                    <Link
+                                        to={`/call-center/ip-call?phone=${encodeURIComponent(selectedOrder.customer_phone || selectedOrder.customer?.phone || '')}`}
+                                        className="text-xs font-bold font-mono text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1.5"
+                                        title="IP Calling ডায়ালারে কল দিন"
                                     >
-                                        <Phone className="w-3 h-3" />
-                                        {selectedOrder.customer_phone || selectedOrder.customer?.phone || 'No phone'}
-                                    </a>
+                                        <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>{selectedOrder.customer_phone || selectedOrder.customer?.phone || 'No phone'}</span>
+                                    </Link>
                                 </div>
                             </div>
 

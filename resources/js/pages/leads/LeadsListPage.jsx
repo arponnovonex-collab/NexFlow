@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
@@ -154,7 +154,18 @@ export const LeadsListPage = () => {
                                                 />
                                                 <div>
                                                     <span className="font-semibold text-slate-200 block">{l.customer?.name}</span>
-                                                    <span className="text-[10px] text-slate-400">{l.customer?.phone || 'No phone'}</span>
+                                                    {l.customer?.phone ? (
+                                                        <Link
+                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(l.customer.phone)}`}
+                                                            className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono font-medium hover:underline flex items-center gap-1"
+                                                            title="IP Calling ডায়ালারে ডায়াল করুন"
+                                                        >
+                                                            <PhoneCall className="w-2.5 h-2.5" />
+                                                            <span>{l.customer.phone}</span>
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-500">No phone</span>
+                                                    )}
                                                 </div>
                                             </div>
                                         </td>

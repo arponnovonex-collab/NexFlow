@@ -538,9 +538,19 @@ export const WebsiteOrdersPage = () => {
                                                 <div className="font-medium text-slate-200 truncate">
                                                     {order.customer?.name || 'Guest Customer'}
                                                 </div>
-                                                <div className="text-slate-400 font-mono text-[11px] flex items-center gap-1 mt-0.5 font-semibold text-emerald-400">
-                                                    <Phone className="w-3 h-3 shrink-0" />
-                                                    <span>{order.customer_phone || 'N/A'}</span>
+                                                <div className="text-slate-400 font-mono text-[11px] flex items-center gap-1.5 mt-0.5">
+                                                    {order.customer_phone ? (
+                                                        <Link
+                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
+                                                            className="font-semibold text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1"
+                                                            title="IP Calling ডায়ালারে কল দিন (ePBX)"
+                                                        >
+                                                            <PhoneCall className="w-3 h-3 text-emerald-400" />
+                                                            <span>{order.customer_phone}</span>
+                                                        </Link>
+                                                    ) : (
+                                                        <span className="text-slate-500">N/A</span>
+                                                    )}
                                                 </div>
                                                 <div className="text-[11px] text-slate-500 truncate mt-0.5" title={order.customer_address}>
                                                     {order.customer_address || 'No Address Provided'}
@@ -643,14 +653,25 @@ export const WebsiteOrdersPage = () => {
 
                                             {/* Actions */}
                                             <td className="p-3 text-right">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedOrder(order)}
-                                                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                                                    title="View Full Order Details"
-                                                >
-                                                    <Eye className="w-4 h-4" />
-                                                </button>
+                                                <div className="flex items-center justify-end gap-1">
+                                                    {order.customer_phone && (
+                                                        <Link
+                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
+                                                            className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer inline-flex items-center"
+                                                            title="IP Phone দিয়ে কল করুন (ePBX)"
+                                                        >
+                                                            <PhoneCall className="w-4 h-4" />
+                                                        </Link>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedOrder(order)}
+                                                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                                        title="View Full Order Details"
+                                                    >
+                                                        <Eye className="w-4 h-4" />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -860,7 +881,18 @@ export const WebsiteOrdersPage = () => {
                             </h4>
                             <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300 pt-1">
                                 <div>Name: <strong className="text-white">{selectedOrder.customer?.name}</strong></div>
-                                <div>Phone: <strong className="text-emerald-400 font-mono font-bold text-xs">{selectedOrder.customer_phone}</strong></div>
+                                <div>
+                                    Phone: <strong className="text-emerald-400 font-mono font-bold text-xs">{selectedOrder.customer_phone}</strong>
+                                    {selectedOrder.customer_phone && (
+                                        <Link
+                                            to={`/call-center/ip-call?phone=${encodeURIComponent(selectedOrder.customer_phone)}`}
+                                            className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition-colors"
+                                            title="IP Calling ডায়ালারে লোড করুন"
+                                        >
+                                            <PhoneCall className="w-3 h-3" /> Call
+                                        </Link>
+                                    )}
+                                </div>
                                 <div className="col-span-2">
                                     Address: <span className="text-slate-300">{selectedOrder.customer_address}</span>
                                 </div>

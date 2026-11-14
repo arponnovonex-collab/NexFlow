@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import api from '../../api/client';
 import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
@@ -59,8 +59,11 @@ export const IpCallPage = () => {
         testSpeakerSound,
     } = useSipPhone();
 
+    const location = useLocation();
+
     // Local dialer input
     const [phoneNumber, setPhoneNumber] = useState('');
+    const [urlLoadedPhone, setUrlLoadedPhone] = useState(null);
     const [customerMatch, setCustomerMatch] = useState(null);
     const [lookupLoading, setLookupLoading] = useState(false);
     const [copiedPass, setCopiedPass] = useState(false);
@@ -98,20 +101,36 @@ export const IpCallPage = () => {
         { digit: '#', sub: '' },
     ];
 
-    // Load initial logs and check URL phone parameter
+    // Load initial logs
     useEffect(() => {
         fetchCallLogs();
+    }, []);
 
+    // Watch URL query parameters whenever navigated or clicked from CRM
+    useEffect(() => {
         try {
-            const params = new URLSearchParams(window.location.search);
+            const params = new URLSearchParams(location.search);
             const targetPhone = params.get('phone');
+            const autoCall = params.get('autocall') === 'true';
+
             if (targetPhone) {
-                setPhoneNumber(targetPhone);
+                const clean = targetPhone.replace(/[^0-9]/g, '');
+                if (clean) {
+                    setPhoneNumber(clean);
+                    setUrlLoadedPhone(clean);
+
+                    if (autoCall && isOnline && sipCallState === 'idle') {
+                        const t = setTimeout(() => {
+                            handleStartCall(clean);
+                        }, 500);
+                        return () => clearTimeout(t);
+                    }
+                }
             }
         } catch (e) {
-            console.error(e);
+            console.error('URL phone parse error:', e);
         }
-    }, []);
+    }, [location.search, isOnline]);
 
     // When SIP call number changes, update local state
     useEffect(() => {
@@ -524,6 +543,30 @@ export const IpCallPage = () => {
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {/* URL Loaded Phone Notification Banner */}
+                        {urlLoadedPhone && phoneNumber === urlLoadedPhone && sipCallState === 'idle' && (
+                            <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs flex items-center justify-between shadow-lg shadow-emerald-950/40">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+                                        <PhoneCall className="w-4 h-4 animate-pulse" />
+                                    </div>
+                                    <div>
+                                        <span className="font-bold text-white block">কাস্টমার নম্বর ডায়ালারে লোড করা হয়েছে!</span>
+                                        <span className="text-[11px] text-emerald-400 font-mono font-bold tracking-wider">{urlLoadedPhone}</span>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleStartCall(urlLoadedPhone)}
+                                    disabled={!isOnline}
+                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/60 disabled:opacity-50 transition-all cursor-pointer"
+                                >
+                                    <Phone className="w-3.5 h-3.5" />
+                                    <span>এখনই কল দিন</span>
+                                </button>
                             </div>
                         )}
 
