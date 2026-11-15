@@ -60,6 +60,7 @@ import {
     Loader2,
     ChevronDown,
     ChevronUp,
+    ExternalLink,
 } from 'lucide-react';
 
 export const UnifiedInboxPage = () => {
@@ -2256,6 +2257,75 @@ export const UnifiedInboxPage = () => {
                                         </button>
                                     </div>
                                 )}
+
+                                {/* 24-Hour Meta Messaging Window Status Banner */}
+                                {(() => {
+                                    if (activeConversation?.platform !== 'facebook_page' && activeConversation?.platform !== 'instagram_business') return null;
+                                    const lastCustomerMsg = sortedMessages.filter((m) => m.sender_type === 'customer').pop();
+                                    if (!lastCustomerMsg) return null;
+                                    const customerTime = new Date(lastCustomerMsg.sent_at || lastCustomerMsg.created_at).getTime();
+                                    if (!customerTime || isNaN(customerTime)) return null;
+                                    const hoursElapsed = (Date.now() - customerTime) / (1000 * 60 * 60);
+                                    const isExpired = hoursElapsed >= 24;
+
+                                    const pageId =
+                                        activeConversation?.social_account?.account_id ||
+                                        activeConversation?.socialAccount?.account_id;
+                                    const metaInboxUrl = pageId
+                                        ? `https://business.facebook.com/latest/inbox/all?asset_id=${pageId}`
+                                        : 'https://business.facebook.com/latest/inbox';
+
+                                    if (!isExpired) {
+                                        const remainingHours = Math.max(1, Math.round(24 - hoursElapsed));
+                                        return (
+                                            <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-950/40 border border-emerald-500/20 rounded-xl mb-1.5 text-[11px] text-emerald-300">
+                                                <span className="flex items-center gap-1.5 font-medium truncate">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                                                    <span>মেটা ২৪ ঘণ্টা উইন্ডো সক্রিয় (আর প্রায় {remainingHours} ঘণ্টা বাকি আছে)</span>
+                                                </span>
+                                                <span className="text-[10px] text-emerald-400/80 font-mono hidden sm:inline">Active Window</span>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 px-3 bg-amber-950/40 border border-amber-500/30 rounded-xl mb-1.5 animate-fade-in shadow-md">
+                                            <div className="flex items-start sm:items-center gap-2 min-w-0">
+                                                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                                                <div className="min-w-0">
+                                                    <p className="text-[11px] font-bold text-amber-300 leading-tight">
+                                                        মেটা ২৪ ঘণ্টার মেসেজিং উইন্ডো শেষ হয়ে গেছে
+                                                    </p>
+                                                    <p className="text-[10px] text-amber-200/80 leading-tight mt-0.5">
+                                                        মেটা পলিসি অনুযায়ী এপিআই মেসেজ ব্লক হতে পারে। নিচের বাটন দিয়ে সরাসরি পেজ ইনবক্স / বিজনেস স্যুট থেকে পাঠান:
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                                                <a
+                                                    href={metaInboxUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+                                                    title="Open Meta Business Suite Inbox"
+                                                >
+                                                    <ExternalLink className="w-3 h-3" />
+                                                    <span>Business Suite এ যান</span>
+                                                </a>
+                                                {activeConversation?.customer?.phone && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleInitiateCall(activeConversation.customer.phone)}
+                                                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+                                                    >
+                                                        <PhoneCall className="w-3 h-3" />
+                                                        <span>কল দিন</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 <div className="relative">
                                     <textarea

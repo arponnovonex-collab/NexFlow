@@ -904,8 +904,13 @@ class ConversationController extends Controller
             if (
                 str_contains($lower, 'outside of allowed window') ||
                 str_contains($lower, 'allowed window') ||
+                str_contains($lower, 'human_agent') ||
+                str_contains($lower, 'deprecated message tag') ||
+                str_contains($lower, 'prior approval') ||
                 str_contains($lower, 'policy-overview') ||
                 str_contains($lower, '2018278') ||
+                str_contains($lower, '2018276') ||
+                str_contains($lower, '1893061') ||
                 str_contains($lower, '24 hour') ||
                 str_contains($lower, '24-hour')
             ) {
@@ -986,8 +991,8 @@ class ConversationController extends Controller
         $lastError = null;
         $lastErrorCode = null;
 
-        // Attempt 1: Standard RESPONSE (if within 24h and no specific tag requested)
-        if ($hoursSinceCustomer < 24 && empty($requestedTag)) {
+        // Attempt 1: Standard RESPONSE (always attempt first, in case Meta's active window is still open)
+        if (empty($requestedTag)) {
             $payload = [
                 'recipient' => ['id' => $psid],
                 'messaging_type' => 'RESPONSE',
@@ -1018,7 +1023,7 @@ class ConversationController extends Controller
 
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
-            Log::warning("Standard 24h Meta Send failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
+            Log::warning("Standard Meta Send failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
 
             if (! $this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
                 return [
@@ -1066,6 +1071,11 @@ class ConversationController extends Controller
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
             Log::warning("Meta Send with tag {$tag} failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
+        }
+
+        if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+            $lastError = 'মেটা পলিসি (Facebook Policy): গ্রাহকের শেষ মেসেজের পর ২৪ ঘণ্টার উইন্ডো শেষ হয়ে গেছে। ফেসবুক পেজ ইনবক্স / মেটা বিজনেস স্যুট থেকে পাঠান।';
+            $lastErrorCode = 10;
         }
 
         return [
@@ -1149,8 +1159,8 @@ class ConversationController extends Controller
         $lastError = null;
         $lastErrorCode = null;
 
-        // Standard attempt if within 24h
-        if ($hoursSinceCustomer < 24 && empty($requestedTag)) {
+        // Standard attempt (attempt RESPONSE first, in case window is still open)
+        if (empty($requestedTag)) {
             $formFields = [
                 'recipient' => json_encode(['id' => $psid]),
                 'messaging_type' => 'RESPONSE',
@@ -1189,6 +1199,11 @@ class ConversationController extends Controller
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
             Log::warning("Meta Attachment with tag {$tag} failed: {$lastError}");
+        }
+
+        if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+            $lastError = 'মেটা পলিসি (Facebook Policy): গ্রাহকের শেষ মেসেজের পর ২৪ ঘণ্টার উইন্ডো শেষ হয়ে গেছে। ফেসবুক পেজ ইনবক্স / মেটা বিজনেস স্যুট থেকে পাঠান।';
+            $lastErrorCode = 10;
         }
 
         return ['success' => false, 'error' => $lastError, 'error_code' => $lastErrorCode];
