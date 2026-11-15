@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\MediaFolderController;
 use App\Http\Controllers\Api\MetaWebhookController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\ProductAttributeController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\SavedMessageController;
 use App\Http\Controllers\Api\SmsController;
@@ -69,6 +70,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Product Catalog
     Route::get('/product-categories', [ProductController::class, 'categories']);
     Route::apiResource('products', ProductController::class);
+    Route::apiResource('product-attributes', ProductAttributeController::class);
+    Route::post('/product-attributes/{attribute}/values', [ProductAttributeController::class, 'addValue']);
+    Route::delete('/product-attributes/{attribute}/values/{value}', [ProductAttributeController::class, 'deleteValue']);
 
     // Comment Automation
     Route::get('/posts', [CommentAutomationController::class, 'posts']);
@@ -190,4 +194,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/woocommerce/settings', [WooCommerceController::class, 'getSettings']);
     Route::post('/woocommerce/settings', [WooCommerceController::class, 'saveSettings']);
     Route::post('/woocommerce/sync', [WooCommerceController::class, 'syncNow']);
+    Route::post('/woocommerce/sync-products', [WooCommerceController::class, 'syncProducts']);
 });

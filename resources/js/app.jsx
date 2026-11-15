@@ -16,6 +16,7 @@ import { AutomationRulesPage } from './pages/automation/AutomationRulesPage';
 import { AiControlCenterPage } from './pages/automation/AiControlCenterPage';
 import { AiPlaygroundPage } from './pages/automation/AiPlaygroundPage';
 import { ProductsListPage } from './pages/products/ProductsListPage';
+import { ProductAttributesPage } from './pages/products/ProductAttributesPage';
 import { PostProductMappingPage } from './pages/products/PostProductMappingPage';
 import { LeadsListPage } from './pages/leads/LeadsListPage';
 import { FollowupsPage } from './pages/leads/FollowupsPage';
@@ -113,6 +114,7 @@ export const App = () => {
 
                             {/* Products */}
                             <Route path="products" element={<ProductsListPage />} />
+                            <Route path="products/attributes" element={<ProductAttributesPage />} />
                             <Route path="products/mappings" element={<PostProductMappingPage />} />
 
                             {/* Lead CRM */}

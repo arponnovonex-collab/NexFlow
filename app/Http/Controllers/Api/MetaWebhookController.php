@@ -753,13 +753,14 @@ class MetaWebhookController extends Controller
                     'unread_count' => 1,
                 ]);
             } else {
-            $waTimestamp = $msg['timestamp'] ?? null;
-            $msgSentAt = $waTimestamp ? Carbon::createFromTimestamp($waTimestamp) : now();
+                $waTimestamp = $msg['timestamp'] ?? null;
+                $msgSentAt = $waTimestamp ? Carbon::createFromTimestamp($waTimestamp) : now();
 
-            if (! $conversation->last_message_at || $msgSentAt > $conversation->last_message_at) {
-                $conversation->update(['last_message_at' => $msgSentAt]);
+                if (! $conversation->last_message_at || $msgSentAt > $conversation->last_message_at) {
+                    $conversation->update(['last_message_at' => $msgSentAt]);
+                }
+                $conversation->increment('unread_count');
             }
-            $conversation->increment('unread_count');
 
             // Store Message
             Message::create([

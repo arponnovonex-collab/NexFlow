@@ -63,6 +63,7 @@ export const WebsiteOrdersPage = () => {
     });
     const [savingSettings, setSavingSettings] = useState(false);
     const [syncingOrders, setSyncingOrders] = useState(false);
+    const [syncingProducts, setSyncingProducts] = useState(false);
     const [syncMessage, setSyncMessage] = useState(null);
     const [copiedWebhook, setCopiedWebhook] = useState(false);
 
@@ -151,6 +152,22 @@ export const WebsiteOrdersPage = () => {
             setSyncMessage(`❌ ${err.response?.data?.message || err.message}`);
         } finally {
             setSyncingOrders(false);
+            setTimeout(() => setSyncMessage(null), 8000);
+        }
+    };
+
+    const handleSyncProductsNow = async () => {
+        try {
+            setSyncingProducts(true);
+            setSyncMessage(null);
+            const res = await api.post('/woocommerce/sync-products');
+            if (res.data.status === 'success') {
+                setSyncMessage(`✅ ${res.data.message}`);
+            }
+        } catch (err) {
+            setSyncMessage(`❌ ${err.response?.data?.message || err.message}`);
+        } finally {
+            setSyncingProducts(false);
             setTimeout(() => setSyncMessage(null), 8000);
         }
     };
@@ -272,6 +289,16 @@ export const WebsiteOrdersPage = () => {
                         onClick={() => setSettingsModalOpen(true)}
                     >
                         Store Settings
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={ShoppingBag}
+                        loading={syncingProducts}
+                        className="bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 font-bold"
+                        onClick={handleSyncProductsNow}
+                    >
+                        Sync Products (পণ্য সিঙ্ক)
                     </Button>
                     <Button
                         variant="primary"

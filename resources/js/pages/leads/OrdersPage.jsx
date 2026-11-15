@@ -353,9 +353,10 @@ export const OrdersPage = () => {
                                 </tr>
                             ) : (
                                 orders.map((o) => {
-                                    const variantText = o.variant
-                                        ? [o.variant.size && `Size: ${o.variant.size}`, o.variant.color && `Color: ${o.variant.color}`].filter(Boolean).join(', ')
-                                        : null;
+                                    const variantText = [
+                                        (o.variant?.size || o.size) && `Size: ${o.variant?.size || o.size}`,
+                                        (o.variant?.color || o.color) && `Color: ${o.variant?.color || o.color}`,
+                                    ].filter(Boolean).join(', ');
 
                                     const isSelected = selectedOrderIds.includes(o.id);
 
@@ -398,6 +399,11 @@ export const OrdersPage = () => {
                                                         </Link>
                                                     )}
                                                 </div>
+                                                {(o.customer_email || o.customer?.email) && (
+                                                    <span className="text-[10px] text-slate-500 block truncate max-w-[160px]" title={o.customer_email || o.customer?.email}>
+                                                        {o.customer_email || o.customer?.email}
+                                                    </span>
+                                                )}
                                             </td>
 
                                             {/* Address */}

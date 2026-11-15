@@ -11,6 +11,7 @@ class Product extends Model
 {
     protected $fillable = [
         'category_id',
+        'wc_product_id',
         'name',
         'sku',
         'slug',
@@ -20,6 +21,7 @@ class Product extends Model
         'selling_price',
         'discount_price',
         'material',
+        'attributes',
         'features',
         'availability',
         'product_url',
@@ -41,6 +43,7 @@ class Product extends Model
             'discount_price' => 'decimal:2',
             'delivery_charge_inside_dhaka' => 'decimal:2',
             'delivery_charge_outside_dhaka' => 'decimal:2',
+            'attributes' => 'array',
             'features' => 'array',
             'faqs' => 'array',
             'is_active' => 'boolean',

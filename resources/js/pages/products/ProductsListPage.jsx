@@ -15,12 +15,19 @@ import {
     Layers,
     Share2,
     X,
+    Globe,
+    RefreshCw,
+    Sliders,
+    Sparkles,
+    Tag,
 } from 'lucide-react';
 
 export const ProductsListPage = () => {
     const [products, setProducts] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [globalAttributes, setGlobalAttributes] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [syncingWc, setSyncingWc] = useState(false);
     const [search, setSearch] = useState('');
     const [addModal, setAddModal] = useState(false);
     const [editModal, setEditModal] = useState(false);
@@ -58,16 +65,31 @@ export const ProductsListPage = () => {
     const fetchProducts = async () => {
         try {
             setLoading(true);
-            const [prodRes, catRes] = await Promise.all([
-                api.get('/products', { params: { search } }),
+            const [prodRes, catRes, attrRes] = await Promise.all([
+                api.get('/products', { params: { search, per_page: 100 } }),
                 api.get('/product-categories'),
+                api.get('/product-attributes').catch(() => ({ data: { data: [] } })),
             ]);
-            setProducts(prodRes.data.data.data || []);
+            setProducts(prodRes.data.data?.data || prodRes.data.data || []);
             setCategories(catRes.data.data || []);
+            setGlobalAttributes(attrRes.data?.data || []);
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSyncWebsiteProducts = async () => {
+        setSyncingWc(true);
+        try {
+            const res = await api.post('/woocommerce/sync-products');
+            alert(res.data?.message || `Successfully synced ${res.data?.synced_count || 0} products from website!`);
+            fetchProducts();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to sync products from website.');
+        } finally {
+            setSyncingWc(false);
         }
     };
 
@@ -225,9 +247,27 @@ export const ProductsListPage = () => {
                         Verified knowledge base for AI automation. AI only quotes prices and stock levels configured here.
                     </p>
                 </div>
-                <Button variant="primary" size="sm" icon={Plus} onClick={() => setAddModal(true)}>
-                    Add New Product
-                </Button>
+                <div className="flex items-center gap-2.5">
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleSyncWebsiteProducts}
+                        disabled={syncingWc}
+                        className="bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-500/40 text-emerald-300 font-bold text-xs shadow cursor-pointer"
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncingWc ? 'animate-spin' : ''}`} />
+                        <span>{syncingWc ? 'Syncing...' : 'Sync from Website (WooCommerce)'}</span>
+                    </Button>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        icon={Plus}
+                        onClick={() => setAddModal(true)}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md shadow-indigo-600/30"
+                    >
+                        Add New Product
+                    </Button>
+                </div>
             </div>
 
             {/* Filter & Search Bar */}
@@ -276,7 +316,14 @@ export const ProductsListPage = () => {
                                                 </div>
                                                 <div>
                                                     <span className="font-semibold text-slate-200 block">{p.name}</span>
-                                                    <span className="text-[10px] text-slate-400 font-mono">SKU: {p.sku}</span>
+                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                        <span className="text-[10px] text-slate-400 font-mono">SKU: {p.sku}</span>
+                                                        {p.wc_product_id && (
+                                                            <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                                🌐 Website
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </td>

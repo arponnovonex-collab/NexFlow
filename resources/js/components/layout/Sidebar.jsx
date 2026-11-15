@@ -349,6 +349,10 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <ShoppingBag className="w-4 h-4 shrink-0" />
                                 {!isCollapsed && <span>Products & Stock</span>}
                             </NavLink>
+                            <NavLink to="/products/attributes" className={linkClasses}>
+                                <Sliders className="w-4 h-4 shrink-0" />
+                                {!isCollapsed && <span>Attributes</span>}
+                            </NavLink>
                             <NavLink to="/products/mappings" className={linkClasses}>
                                 <Layers className="w-4 h-4 shrink-0" />
                                 {!isCollapsed && <span>Post-Product Mapping</span>}

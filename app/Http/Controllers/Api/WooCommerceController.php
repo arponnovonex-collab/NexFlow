@@ -118,6 +118,20 @@ class WooCommerceController extends Controller
     }
 
     /**
+     * Manual Trigger Sync Products from WooCommerce.
+     */
+    public function syncProducts(): JsonResponse
+    {
+        $result = $this->wcService->syncProducts();
+
+        return response()->json([
+            'status' => $result['success'] ? 'success' : 'error',
+            'message' => $result['message'],
+            'synced_count' => $result['synced_count'] ?? 0,
+        ], $result['success'] ? 200 : 422);
+    }
+
+    /**
      * Handle incoming WooCommerce order webhook (order.created or order.updated).
      */
     public function handleWebhook(Request $request): Response

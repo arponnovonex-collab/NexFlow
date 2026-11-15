@@ -65,8 +65,11 @@ class OrderController extends Controller
                         ->orWhere('customer_phone', 'like', "%{$lastDigits}%");
                 }
 
-                // 3. Customer address match
-                $q->orWhere('customer_address', 'like', "%{$rawSearch}%");
+                // 3. Customer address & email match
+                $q->orWhere('customer_address', 'like', "%{$rawSearch}%")
+                    ->orWhere('customer_email', 'like', "%{$rawSearch}%")
+                    ->orWhere('size', 'like', "%{$rawSearch}%")
+                    ->orWhere('color', 'like', "%{$rawSearch}%");
 
                 // 4. Linked Customer relation match (name or phone)
                 $q->orWhereHas('customer', function ($cq) use ($rawSearch, $cleanDigits) {
@@ -102,9 +105,13 @@ class OrderController extends Controller
         $validated = $request->validate([
             'customer_id' => 'nullable|exists:customers,id',
             'customer_name' => 'nullable|string|max:255',
+            'customer_email' => 'nullable|string|email|max:255',
             'conversation_id' => 'nullable|exists:conversations,id',
             'product_id' => 'required|exists:products,id',
             'variant_id' => 'nullable|exists:product_variants,id',
+            'size' => 'nullable|string|max:50',
+            'color' => 'nullable|string|max:50',
+            'order_attributes' => 'nullable|array',
             'quantity' => 'required|integer|min:1',
             'unit_price' => 'required|numeric|min:0',
             'delivery_charge' => 'required|numeric|min:0',
@@ -119,17 +126,27 @@ class OrderController extends Controller
 
         // Determine or create customer
         $customerId = $validated['customer_id'] ?? null;
+        $customerEmail = ! empty($validated['customer_email']) ? trim($validated['customer_email']) : null;
+
         if (! $customerId) {
             $customer = Customer::firstOrCreate(
                 ['phone' => $validated['customer_phone']],
-                ['name' => $validated['customer_name'] ?? 'Customer']
+                [
+                    'name' => $validated['customer_name'] ?? 'Customer',
+                    'email' => $customerEmail,
+                ]
             );
             $customerId = $customer->id;
+            if ($customerEmail && empty($customer->email)) {
+                $customer->update(['email' => $customerEmail]);
+            }
         } else {
-            // Update customer phone if provided
-            Customer::where('id', $customerId)->update([
-                'phone' => $validated['customer_phone'],
-            ]);
+            // Update customer phone / email if provided
+            $custUpdates = ['phone' => $validated['customer_phone']];
+            if ($customerEmail) {
+                $custUpdates['email'] = $customerEmail;
+            }
+            Customer::where('id', $customerId)->update($custUpdates);
             if (! empty($validated['customer_name'])) {
                 Customer::where('id', $customerId)
                     ->where(function ($q) {
@@ -152,6 +169,17 @@ class OrderController extends Controller
             }
         }
 
+        // Determine size & color
+        $size = $validated['size'] ?? null;
+        $color = $validated['color'] ?? null;
+        if (! empty($validated['variant_id'])) {
+            $variant = \App\Models\ProductVariant::find($validated['variant_id']);
+            if ($variant) {
+                $size = $size ?: $variant->size;
+                $color = $color ?: $variant->color;
+            }
+        }
+
         // Custom order number or generate auto ID
         $orderNumber = ! empty($validated['order_number'])
             ? trim($validated['order_number'])
@@ -169,6 +197,9 @@ class OrderController extends Controller
             'user_id' => $user->id,
             'product_id' => $validated['product_id'],
             'variant_id' => $validated['variant_id'] ?? null,
+            'size' => $size,
+            'color' => $color,
+            'order_attributes' => $validated['order_attributes'] ?? null,
             'quantity' => $validated['quantity'],
             'unit_price' => $validated['unit_price'],
             'delivery_charge' => $validated['delivery_charge'],
@@ -178,6 +209,7 @@ class OrderController extends Controller
             'order_source' => ! empty($validated['conversation_id']) ? 'manual_inbox' : 'web',
             'customer_address' => $validated['customer_address'],
             'customer_phone' => $validated['customer_phone'],
+            'customer_email' => $customerEmail,
             'notes' => $validated['notes'] ?? null,
         ];
 

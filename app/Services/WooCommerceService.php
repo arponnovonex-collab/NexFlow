@@ -4,9 +4,17 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\ProductAttribute;
+use App\Models\ProductAttributeValue;
+use App\Models\ProductCategory;
+use App\Models\ProductImage;
+use App\Models\ProductVariant;
 use App\Models\WooCommerceSetting;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class WooCommerceService
 {
@@ -330,6 +338,346 @@ class WooCommerceService
                 'wc_raw_data' => $wcOrder,
             ]
         );
+    }
+
+    /**
+     * Sync products from WooCommerce store.
+     */
+    public function syncProducts(int $limitPages = 15): array
+    {
+        $settings = $this->getSettings();
+        if (! $settings->is_enabled || empty($settings->store_url) || empty($settings->consumer_key)) {
+            return [
+                'success' => false,
+                'message' => 'WooCommerce store is not configured or disabled.',
+                'synced_count' => 0,
+            ];
+        }
+
+        $cleanUrl = rtrim(trim($settings->store_url), '/');
+        if (! str_starts_with($cleanUrl, 'http://') && ! str_starts_with($cleanUrl, 'https://')) {
+            $cleanUrl = 'https://' . $cleanUrl;
+        }
+
+        $endpoint = "{$cleanUrl}/wp-json/wc/v3/products";
+        $page = 1;
+        $perPage = 100;
+        $totalSynced = 0;
+        $hasMore = true;
+
+        try {
+            while ($hasMore && $page <= $limitPages) {
+                $response = Http::timeout(35)
+                    ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                    ->get($endpoint, [
+                        'per_page' => $perPage,
+                        'page' => $page,
+                        'status' => 'publish',
+                    ]);
+
+                if (! $response->successful()) {
+                    // Try query params fallback
+                    $response = Http::timeout(35)->get($endpoint, [
+                        'consumer_key' => $settings->consumer_key,
+                        'consumer_secret' => $settings->consumer_secret,
+                        'per_page' => $perPage,
+                        'page' => $page,
+                        'status' => 'publish',
+                    ]);
+                }
+
+                if (! $response->successful()) {
+                    if ($page === 1) {
+                        $err = $response->json('message') ?: "HTTP {$response->status()}: Failed to fetch products from WooCommerce.";
+                        return [
+                            'success' => false,
+                            'message' => $err,
+                            'synced_count' => 0,
+                        ];
+                    }
+                    break;
+                }
+
+                $wcProducts = $response->json();
+                if (empty($wcProducts) || ! is_array($wcProducts)) {
+                    break;
+                }
+
+                foreach ($wcProducts as $wcProd) {
+                    try {
+                        $this->processWooCommerceProduct($wcProd, $cleanUrl, $settings);
+                        $totalSynced++;
+                    } catch (\Throwable $ex) {
+                        Log::error("Failed to sync WC Product #{$wcProd['id']}: " . $ex->getMessage());
+                    }
+                }
+
+                if (count($wcProducts) < $perPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
+            }
+
+            return [
+                'success' => true,
+                'message' => "Successfully synced {$totalSynced} products from WooCommerce store!",
+                'synced_count' => $totalSynced,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('WooCommerce Product Sync Exception: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Sync failed: ' . $e->getMessage(),
+                'synced_count' => $totalSynced,
+            ];
+        }
+    }
+
+    /**
+     * Process and upsert a single WooCommerce product into NexFlow.
+     */
+    public function processWooCommerceProduct(array $wcProd, string $cleanUrl, WooCommerceSetting $settings): ?Product
+    {
+        $wcProductId = (int) ($wcProd['id'] ?? 0);
+        if (! $wcProductId) {
+            return null;
+        }
+
+        $name = trim(html_entity_decode($wcProd['name'] ?? 'Product'));
+        $sku = ! empty($wcProd['sku']) ? trim($wcProd['sku']) : ('WC-' . $wcProductId);
+        $regularPrice = (float) ($wcProd['regular_price'] ?: ($wcProd['price'] ?: 0));
+        $sellingPrice = (float) ($wcProd['sale_price'] ?: ($wcProd['price'] ?: $regularPrice));
+        $shortDesc = trim(strip_tags(html_entity_decode($wcProd['short_description'] ?? '')));
+        $fullDesc = $wcProd['description'] ?? null;
+        $availability = ($wcProd['stock_status'] ?? 'instock') === 'outofstock' ? 'out_of_stock' : 'in_stock';
+        $productUrl = $wcProd['permalink'] ?? null;
+
+        // 1. Category
+        $categoryId = null;
+        if (! empty($wcProd['categories']) && is_array($wcProd['categories'])) {
+            $catName = trim(html_entity_decode($wcProd['categories'][0]['name'] ?? ''));
+            if (! empty($catName)) {
+                $catSlug = Str::slug($catName);
+                $category = ProductCategory::firstOrCreate(
+                    ['slug' => $catSlug],
+                    ['name' => $catName, 'is_active' => true]
+                );
+                $categoryId = $category->id;
+            }
+        }
+
+        // 2. Attributes sync into product_attributes & product_attribute_values
+        $productAttributes = [];
+        if (! empty($wcProd['attributes']) && is_array($wcProd['attributes'])) {
+            foreach ($wcProd['attributes'] as $attr) {
+                $attrName = trim($attr['name'] ?? '');
+                $options = $attr['options'] ?? [];
+                if (empty($attrName) || empty($options)) {
+                    continue;
+                }
+
+                $attrSlug = Str::slug($attrName);
+                $isColor = str_contains(strtolower($attrName), 'color') || str_contains(strtolower($attrName), 'colour');
+                $type = $isColor ? 'color' : 'button';
+
+                $dbAttr = ProductAttribute::firstOrCreate(
+                    ['slug' => $attrSlug],
+                    ['name' => $attrName, 'type' => $type, 'sort_order' => 1]
+                );
+
+                foreach ($options as $optIdx => $opt) {
+                    $optName = trim($opt);
+                    if ($optName !== '') {
+                        ProductAttributeValue::firstOrCreate(
+                            ['attribute_id' => $dbAttr->id, 'name' => $optName],
+                            ['value' => $optName, 'sort_order' => $optIdx + 1]
+                        );
+                    }
+                }
+
+                $productAttributes[] = [
+                    'id' => $dbAttr->id,
+                    'name' => $attrName,
+                    'options' => $options,
+                ];
+            }
+        }
+
+        // 3. Find or create Product
+        $product = Product::where('wc_product_id', $wcProductId)->first();
+        if (! $product && ! empty($sku)) {
+            $product = Product::where('sku', $sku)->first();
+        }
+
+        if (! $product) {
+            $slug = Str::slug($name) . '-' . Str::random(4);
+            $product = Product::create([
+                'wc_product_id' => $wcProductId,
+                'category_id' => $categoryId,
+                'name' => $name,
+                'sku' => $sku,
+                'slug' => $slug,
+                'short_description' => $shortDesc,
+                'full_description' => $fullDesc,
+                'regular_price' => $regularPrice,
+                'selling_price' => $sellingPrice,
+                'availability' => $availability,
+                'product_url' => $productUrl,
+                'attributes' => $productAttributes,
+                'is_active' => true,
+            ]);
+        } else {
+            $product->update([
+                'wc_product_id' => $wcProductId,
+                'category_id' => $categoryId ?: $product->category_id,
+                'name' => $name,
+                'regular_price' => $regularPrice,
+                'selling_price' => $sellingPrice,
+                'short_description' => $shortDesc ?: $product->short_description,
+                'full_description' => $fullDesc ?: $product->full_description,
+                'availability' => $availability,
+                'product_url' => $productUrl ?: $product->product_url,
+                'attributes' => ! empty($productAttributes) ? $productAttributes : $product->attributes,
+                'is_active' => true,
+            ]);
+        }
+
+        // 4. Images
+        if (! empty($wcProd['images']) && is_array($wcProd['images'])) {
+            $product->images()->delete();
+            foreach ($wcProd['images'] as $idx => $img) {
+                if (! empty($img['src'])) {
+                    ProductImage::create([
+                        'product_id' => $product->id,
+                        'image_url' => $img['src'],
+                        'is_primary' => $idx === 0,
+                        'sort_order' => $idx,
+                    ]);
+                }
+            }
+        }
+
+        // 5. Variations
+        $isVariable = ($wcProd['type'] ?? '') === 'variable' && ! empty($wcProd['variations']);
+        $syncedVariants = false;
+
+        if ($isVariable) {
+            try {
+                $varEndpoint = "{$cleanUrl}/wp-json/wc/v3/products/{$wcProductId}/variations";
+                $varRes = Http::timeout(20)
+                    ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                    ->get($varEndpoint, ['per_page' => 100]);
+
+                if (! $varRes->successful()) {
+                    $varRes = Http::timeout(20)->get($varEndpoint, [
+                        'consumer_key' => $settings->consumer_key,
+                        'consumer_secret' => $settings->consumer_secret,
+                        'per_page' => 100,
+                    ]);
+                }
+
+                if ($varRes->successful()) {
+                    $variations = $varRes->json();
+                    if (is_array($variations) && count($variations) > 0) {
+                        $product->variants()->delete();
+                        foreach ($variations as $var) {
+                            $varSku = ! empty($var['sku']) ? $var['sku'] : ($product->sku . '-VAR-' . $var['id']);
+                            $varPrice = (float) ($var['sale_price'] ?: ($var['price'] ?: ($var['regular_price'] ?: $product->selling_price)));
+                            $varStock = isset($var['stock_quantity']) && is_numeric($var['stock_quantity']) ? (int) $var['stock_quantity'] : 10;
+
+                            $size = null;
+                            $color = null;
+                            if (! empty($var['attributes']) && is_array($var['attributes'])) {
+                                foreach ($var['attributes'] as $attr) {
+                                    $attrNameLower = strtolower($attr['name'] ?? '');
+                                    $attrVal = $attr['option'] ?? '';
+                                    if (str_contains($attrNameLower, 'size') || str_contains($attrNameLower, 'সাইজ')) {
+                                        $size = $attrVal;
+                                    } elseif (str_contains($attrNameLower, 'color') || str_contains($attrNameLower, 'colour') || str_contains($attrNameLower, 'কালার')) {
+                                        $color = $attrVal;
+                                    } elseif (! $size) {
+                                        $size = $attrVal;
+                                    }
+                                }
+                            }
+
+                            ProductVariant::create([
+                                'product_id' => $product->id,
+                                'size' => $size,
+                                'color' => $color,
+                                'sku' => $varSku,
+                                'price' => $varPrice,
+                                'stock' => $varStock,
+                                'is_active' => true,
+                            ]);
+                        }
+                        $syncedVariants = true;
+                    }
+                }
+            } catch (\Throwable $ve) {
+                Log::warning("Could not fetch variations for WC product #{$wcProductId}: " . $ve->getMessage());
+            }
+        }
+
+        // Fallback: If no variations synced from API but product has attributes
+        if (! $syncedVariants && ! empty($productAttributes)) {
+            $sizes = [];
+            $colors = [];
+            foreach ($productAttributes as $pa) {
+                $paLower = strtolower($pa['name'] ?? '');
+                if (str_contains($paLower, 'size') || str_contains($paLower, 'সাইজ')) {
+                    $sizes = $pa['options'] ?? [];
+                } elseif (str_contains($paLower, 'color') || str_contains($paLower, 'colour') || str_contains($paLower, 'কালার')) {
+                    $colors = $pa['options'] ?? [];
+                }
+            }
+
+            if (! empty($sizes) || ! empty($colors)) {
+                $product->variants()->delete();
+                if (! empty($sizes) && ! empty($colors)) {
+                    foreach ($sizes as $s) {
+                        foreach ($colors as $c) {
+                            ProductVariant::create([
+                                'product_id' => $product->id,
+                                'size' => $s,
+                                'color' => $c,
+                                'sku' => $product->sku . '-' . Str::slug($s) . '-' . Str::slug($c),
+                                'price' => $product->selling_price,
+                                'stock' => 10,
+                                'is_active' => true,
+                            ]);
+                        }
+                    }
+                } elseif (! empty($sizes)) {
+                    foreach ($sizes as $s) {
+                        ProductVariant::create([
+                            'product_id' => $product->id,
+                            'size' => $s,
+                            'color' => null,
+                            'sku' => $product->sku . '-' . Str::slug($s),
+                            'price' => $product->selling_price,
+                            'stock' => 10,
+                            'is_active' => true,
+                        ]);
+                    }
+                } elseif (! empty($colors)) {
+                    foreach ($colors as $c) {
+                        ProductVariant::create([
+                            'product_id' => $product->id,
+                            'size' => null,
+                            'color' => $c,
+                            'sku' => $product->sku . '-' . Str::slug($c),
+                            'price' => $product->selling_price,
+                            'stock' => 10,
+                            'is_active' => true,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        return $product;
     }
 
     /**
