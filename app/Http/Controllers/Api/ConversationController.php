@@ -126,7 +126,7 @@ class ConversationController extends Controller
             'tags',
             'notes.user:id,name',
             'messages' => function ($q) {
-                $q->orderBy('created_at', 'asc')->with([
+                $q->orderByRaw('COALESCE(sent_at, created_at) ASC, id ASC')->with([
                     'senderUser:id,name',
                     'attachments',
                     'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
@@ -169,7 +169,7 @@ class ConversationController extends Controller
                 'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
                 'replyTo.senderUser:id,name',
             ])
-            ->orderBy('created_at', 'asc');
+            ->orderByRaw('COALESCE(sent_at, created_at) ASC, id ASC');
 
         if ($afterId) {
             $query->where('id', '>', (int) $afterId);
@@ -373,10 +373,11 @@ class ConversationController extends Controller
                             // Calculate hours since customer's last message to check 24-hour window
                             $lastCustomerMsg = $conversation->messages()
                                 ->where('sender_type', 'customer')
-                                ->latest('created_at')
+                                ->orderByRaw('COALESCE(sent_at, created_at) DESC, id DESC')
                                 ->first();
-                            $hoursSinceCustomer = $lastCustomerMsg && $lastCustomerMsg->created_at
-                                ? $lastCustomerMsg->created_at->diffInHours(now())
+                            $lastCustomerTime = $lastCustomerMsg?->sent_at ?? $lastCustomerMsg?->created_at;
+                            $hoursSinceCustomer = $lastCustomerTime
+                                ? $lastCustomerTime->diffInHours(now())
                                 : 999;
 
                             $requestedTag = $request->input('message_tag');
@@ -618,7 +619,7 @@ class ConversationController extends Controller
     {
         $lastCustomerMessage = $conversation->messages()
             ->where('sender_type', 'customer')
-            ->latest('created_at')
+            ->orderByRaw('COALESCE(sent_at, created_at) DESC, id DESC')
             ->first();
 
         $textToAnalyze = $lastCustomerMessage ? $lastCustomerMessage->text : 'Hello, can you help me?';
@@ -830,6 +831,7 @@ class ConversationController extends Controller
                 'message_type' => $msgType,
                 'delivery_status' => 'delivered',
                 'sent_at' => $sentAt,
+                'created_at' => $sentAt,
                 'metadata' => $isPage ? ['source' => 'facebook_page_inbox'] : null,
             ]);
 
@@ -845,16 +847,16 @@ class ConversationController extends Controller
                 }
             }
 
+            $updatePayload = [];
+            if (! $conversation->last_message_at || $sentAt > $conversation->last_message_at) {
+                $updatePayload['last_message_at'] = $sentAt;
+            }
             if ($isPage) {
-                $conversation->update([
-                    'last_message_at' => $sentAt,
-                    'unread_count' => 0,
-                    'is_human_takeover' => true,
-                ]);
-            } else {
-                $conversation->update([
-                    'last_message_at' => $sentAt,
-                ]);
+                $updatePayload['unread_count'] = 0;
+                $updatePayload['is_human_takeover'] = true;
+            }
+            if (! empty($updatePayload)) {
+                $conversation->update($updatePayload);
             }
 
             $synced++;
@@ -871,7 +873,7 @@ class ConversationController extends Controller
         $count = $this->syncRemoteMessages($conversation);
         $conversation->load([
             'messages' => function ($q) {
-                $q->orderBy('created_at', 'asc')->with([
+                $q->orderByRaw('COALESCE(sent_at, created_at) ASC, id ASC')->with([
                     'senderUser:id,name',
                     'attachments',
                     'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',

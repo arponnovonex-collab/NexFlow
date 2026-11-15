@@ -20,6 +20,7 @@ class Message extends Model
         'delivery_status',
         'is_internal_note',
         'sent_at',
+        'created_at',
         'metadata',
     ];
 

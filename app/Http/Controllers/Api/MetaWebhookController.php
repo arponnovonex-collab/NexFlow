@@ -455,6 +455,7 @@ class MetaWebhookController extends Controller
             'message_type' => $msgType,
             'delivery_status' => 'delivered',
             'sent_at' => $sentAt,
+            'created_at' => $sentAt,
             'metadata' => $isEcho ? [
                 'source' => 'facebook_page_inbox',
                 'app_id' => $messageObj['app_id'] ?? null,
@@ -752,9 +753,13 @@ class MetaWebhookController extends Controller
                     'unread_count' => 1,
                 ]);
             } else {
-                $conversation->increment('unread_count');
-                $conversation->update(['last_message_at' => now()]);
+            $waTimestamp = $msg['timestamp'] ?? null;
+            $msgSentAt = $waTimestamp ? Carbon::createFromTimestamp($waTimestamp) : now();
+
+            if (! $conversation->last_message_at || $msgSentAt > $conversation->last_message_at) {
+                $conversation->update(['last_message_at' => $msgSentAt]);
             }
+            $conversation->increment('unread_count');
 
             // Store Message
             Message::create([
@@ -764,7 +769,8 @@ class MetaWebhookController extends Controller
                 'text' => $msgText,
                 'message_type' => $msgType === 'text' ? 'text' : 'attachment',
                 'delivery_status' => 'delivered',
-                'sent_at' => now(),
+                'sent_at' => $msgSentAt,
+                'created_at' => $msgSentAt,
                 'metadata' => [
                     'source' => 'whatsapp_cloud',
                     'wa_id' => $fromWaId,

@@ -49,12 +49,12 @@ class Conversation extends Model
 
     public function messages(): HasMany
     {
-        return $this->hasMany(Message::class);
+        return $this->hasMany(Message::class)->orderByRaw('COALESCE(sent_at, created_at) ASC, id ASC');
     }
 
     public function latestMessage(): HasOne
     {
-        return $this->hasOne(Message::class)->latestOfMany();
+        return $this->hasOne(Message::class)->latestOfMany('sent_at');
     }
 
     public function notes(): HasMany

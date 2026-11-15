@@ -177,9 +177,21 @@ export const UnifiedInboxPage = () => {
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
     const [lightboxImageIndex, setLightboxImageIndex] = useState(0);
 
+    // Chronologically sorted messages (strictly ordered by actual sent_at / created_at, then id)
+    const sortedMessages = useMemo(() => {
+        const msgs = activeConversation?.messages || [];
+        if (msgs.length <= 1) return msgs;
+        return [...msgs].sort((a, b) => {
+            const timeA = new Date(a.sent_at || a.created_at || 0).getTime();
+            const timeB = new Date(b.sent_at || b.created_at || 0).getTime();
+            if (timeA !== timeB) return timeA - timeB;
+            return (a.id || 0) - (b.id || 0);
+        });
+    }, [activeConversation?.messages]);
+
     // Extract all image attachments from current active conversation messages
     const conversationImages = useMemo(() => {
-        const msgs = activeConversation?.messages || [];
+        const msgs = sortedMessages;
         if (msgs.length === 0) return [];
         const imgs = [];
         msgs.forEach((msg) => {
@@ -786,7 +798,8 @@ export const UnifiedInboxPage = () => {
         activeConvIdRef.current = activeConversation?.id || null;
         const msgs = activeConversation?.messages || [];
         if (msgs.length > 0) {
-            lastMsgIdRef.current = msgs[msgs.length - 1].id;
+            const maxId = msgs.reduce((max, m) => Math.max(max, m.id || 0), 0);
+            lastMsgIdRef.current = maxId > 0 ? maxId : null;
         } else {
             lastMsgIdRef.current = null;
         }
@@ -820,11 +833,18 @@ export const UnifiedInboxPage = () => {
                         const toAppend = newMsgs.filter((m) => !existingIds.has(m.id));
                         if (toAppend.length === 0) return prev;
 
+                        const merged = [...(prev.messages || []), ...toAppend].sort((a, b) => {
+                            const timeA = new Date(a.sent_at || a.created_at || 0).getTime();
+                            const timeB = new Date(b.sent_at || b.created_at || 0).getTime();
+                            if (timeA !== timeB) return timeA - timeB;
+                            return (a.id || 0) - (b.id || 0);
+                        });
+
                         return {
                             ...prev,
                             is_human_takeover: res.data.data.is_human_takeover ?? prev.is_human_takeover,
                             status: res.data.data.status ?? prev.status,
-                            messages: [...(prev.messages || []), ...toAppend],
+                            messages: merged,
                         };
                     });
 
@@ -922,11 +942,20 @@ export const UnifiedInboxPage = () => {
             if (newMsg && !newMsg.sender_user && user) {
                 newMsg.sender_user = { id: user.id, name: user.name, role: user.role };
             }
-            setActiveConversation((prev) => ({
-                ...prev,
-                is_human_takeover: isInternalNote ? prev.is_human_takeover : true,
-                messages: [...(prev.messages || []), newMsg],
-            }));
+            setActiveConversation((prev) => {
+                if (!prev) return prev;
+                const merged = [...(prev.messages || []), newMsg].sort((a, b) => {
+                    const timeA = new Date(a.sent_at || a.created_at || 0).getTime();
+                    const timeB = new Date(b.sent_at || b.created_at || 0).getTime();
+                    if (timeA !== timeB) return timeA - timeB;
+                    return (a.id || 0) - (b.id || 0);
+                });
+                return {
+                    ...prev,
+                    is_human_takeover: isInternalNote ? prev.is_human_takeover : true,
+                    messages: merged,
+                };
+            });
             lastMsgIdRef.current = newMsg?.id || Date.now();
             setReplyText('');
             setReplyingToMessage(null);
@@ -1778,7 +1807,7 @@ export const UnifiedInboxPage = () => {
                             {loadingThread ? (
                                 <div className="py-20 text-center text-xs text-slate-400">Loading conversation...</div>
                             ) : (
-                                activeConversation.messages?.map((msg) => {
+                                sortedMessages.map((msg) => {
                                     const isCustomer = msg.sender_type === 'customer';
                                     const isAi = msg.sender_type === 'ai';
                                     const isMod = msg.sender_type === 'moderator';
