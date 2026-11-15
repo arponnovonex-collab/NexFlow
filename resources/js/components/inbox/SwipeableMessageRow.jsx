@@ -460,10 +460,14 @@ export const SwipeableMessageRow = ({
                         const err = String(msg.metadata?.error || '');
                         const isWindowError =
                             msg.metadata?.error_code === 10 ||
+                            msg.metadata?.error_subcode === 2018278 ||
+                            msg.metadata?.error_subcode === 2018276 ||
+                            msg.metadata?.error_subcode === 1893061 ||
                             err.includes('outside of allowed window') ||
                             err.includes('allowed window') ||
                             err.includes('HUMAN_AGENT') ||
                             err.includes('Deprecated Message Tag') ||
+                            err.includes('Invalid parameter') ||
                             err.includes('prior approval') ||
                             err.includes('২৪ ঘণ্টা');
 

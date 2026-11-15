@@ -893,29 +893,32 @@ class ConversationController extends Controller
     /**
      * Check if error from Meta Graph API is caused by the 24-hour messaging window policy.
      */
-    protected function isOutsideAllowedWindowError(?int $code, ?string $message): bool
+    protected function isOutsideAllowedWindowError(?int $code, ?string $message, ?int $subcode = null, ?string $userTitle = null): bool
     {
         if ($code === 10) {
             return true;
         }
 
-        if ($message) {
-            $lower = strtolower($message);
-            if (
-                str_contains($lower, 'outside of allowed window') ||
-                str_contains($lower, 'allowed window') ||
-                str_contains($lower, 'human_agent') ||
-                str_contains($lower, 'deprecated message tag') ||
-                str_contains($lower, 'prior approval') ||
-                str_contains($lower, 'policy-overview') ||
-                str_contains($lower, '2018278') ||
-                str_contains($lower, '2018276') ||
-                str_contains($lower, '1893061') ||
-                str_contains($lower, '24 hour') ||
-                str_contains($lower, '24-hour')
-            ) {
-                return true;
-            }
+        if ($subcode && in_array($subcode, [2018278, 2018276, 1893061])) {
+            return true;
+        }
+
+        $allText = strtolower(($message ?? '') . ' ' . ($userTitle ?? ''));
+
+        if (
+            str_contains($allText, 'outside of allowed window') ||
+            str_contains($allText, 'allowed window') ||
+            str_contains($allText, 'human_agent') ||
+            str_contains($allText, 'deprecated message tag') ||
+            str_contains($allText, 'prior approval') ||
+            str_contains($allText, 'policy-overview') ||
+            str_contains($allText, '2018278') ||
+            str_contains($allText, '2018276') ||
+            str_contains($allText, '1893061') ||
+            str_contains($allText, '24 hour') ||
+            str_contains($allText, '24-hour')
+        ) {
+            return true;
         }
 
         return false;
@@ -990,6 +993,7 @@ class ConversationController extends Controller
 
         $lastError = null;
         $lastErrorCode = null;
+        $windowClosed = ($hoursSinceCustomer >= 24);
 
         // Attempt 1: Standard RESPONSE (always attempt first, in case Meta's active window is still open)
         if (empty($requestedTag)) {
@@ -1023,9 +1027,13 @@ class ConversationController extends Controller
 
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
+            $subcode = $res->json('error.error_subcode');
+            $userTitle = $res->json('error.error_user_title');
             Log::warning("Standard Meta Send failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
 
-            if (! $this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+            if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError, $subcode, $userTitle)) {
+                $windowClosed = true;
+            } else {
                 return [
                     'success' => false,
                     'error' => $lastError,
@@ -1070,10 +1078,16 @@ class ConversationController extends Controller
 
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
+            $subcode = $res->json('error.error_subcode');
+            $userTitle = $res->json('error.error_user_title');
             Log::warning("Meta Send with tag {$tag} failed for PSID {$psid}: {$lastError} (Code: {$lastErrorCode})");
+
+            if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError, $subcode, $userTitle)) {
+                $windowClosed = true;
+            }
         }
 
-        if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+        if ($windowClosed) {
             $lastError = 'মেটা পলিসি (Facebook Policy): গ্রাহকের শেষ মেসেজের পর ২৪ ঘণ্টার উইন্ডো শেষ হয়ে গেছে। ফেসবুক পেজ ইনবক্স / মেটা বিজনেস স্যুট থেকে পাঠান।';
             $lastErrorCode = 10;
         }
@@ -1158,6 +1172,7 @@ class ConversationController extends Controller
 
         $lastError = null;
         $lastErrorCode = null;
+        $windowClosed = ($hoursSinceCustomer >= 24);
 
         // Standard attempt (attempt RESPONSE first, in case window is still open)
         if (empty($requestedTag)) {
@@ -1174,8 +1189,12 @@ class ConversationController extends Controller
 
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
+            $subcode = $res->json('error.error_subcode');
+            $userTitle = $res->json('error.error_user_title');
 
-            if (! $this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+            if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError, $subcode, $userTitle)) {
+                $windowClosed = true;
+            } else {
                 return ['success' => false, 'error' => $lastError, 'error_code' => $lastErrorCode];
             }
         }
@@ -1198,10 +1217,16 @@ class ConversationController extends Controller
 
             $lastError = $res->json('error.message') ?? $res->body();
             $lastErrorCode = $res->json('error.code');
+            $subcode = $res->json('error.error_subcode');
+            $userTitle = $res->json('error.error_user_title');
             Log::warning("Meta Attachment with tag {$tag} failed: {$lastError}");
+
+            if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError, $subcode, $userTitle)) {
+                $windowClosed = true;
+            }
         }
 
-        if ($this->isOutsideAllowedWindowError($lastErrorCode, $lastError)) {
+        if ($windowClosed) {
             $lastError = 'মেটা পলিসি (Facebook Policy): গ্রাহকের শেষ মেসেজের পর ২৪ ঘণ্টার উইন্ডো শেষ হয়ে গেছে। ফেসবুক পেজ ইনবক্স / মেটা বিজনেস স্যুট থেকে পাঠান।';
             $lastErrorCode = 10;
         }
