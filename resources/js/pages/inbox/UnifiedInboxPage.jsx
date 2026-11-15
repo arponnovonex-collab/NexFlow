@@ -104,6 +104,21 @@ export const UnifiedInboxPage = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, [searchParams]);
 
+    // Ensure /inbox base entry exists in browser history when loaded directly into a conversation on mobile
+    useEffect(() => {
+        if (isMobile && searchParams.has('conversation')) {
+            if (!window.history.state?.hasInboxBase) {
+                const currentSearch = window.location.search;
+                window.history.replaceState({ hasInboxBase: true, isBase: true }, '', '/inbox');
+                window.history.pushState(
+                    { hasInboxBase: true, isBase: false, conversation: searchParams.get('conversation') },
+                    '',
+                    '/inbox' + currentSearch
+                );
+            }
+        }
+    }, [isMobile]);
+
     // Handle smartphone hardware/gesture back button & browser history
     useEffect(() => {
         const handlePopState = () => {
@@ -116,6 +131,10 @@ export const UnifiedInboxPage = () => {
                     setActiveConversation(null);
                 } else {
                     setMobileView('chat');
+                    const convIdNum = parseInt(convId, 10);
+                    if (convIdNum && convIdNum !== activeConvIdRef.current) {
+                        loadConversationDetails(convIdNum, false);
+                    }
                 }
             }
         };
@@ -132,6 +151,7 @@ export const UnifiedInboxPage = () => {
             } else {
                 setMobileView('list');
                 setMobileCrmExpanded(false);
+                setActiveConversation(null);
             }
         }
     }, [searchParams, isMobile]);
@@ -140,7 +160,11 @@ export const UnifiedInboxPage = () => {
         setMobileView('list');
         setMobileCrmExpanded(false);
         setActiveConversation(null);
-        navigate('/inbox', { replace: true });
+        if (searchParams.has('conversation') && window.history.length > 1) {
+            navigate(-1);
+        } else {
+            navigate('/inbox', { replace: true });
+        }
     };
 
     const [conversations, setConversations] = useState([]);
@@ -752,7 +776,17 @@ export const UnifiedInboxPage = () => {
             setMobileView('chat');
             setMobileCrmExpanded(false);
         }
-        setSearchParams({ conversation: id }, { replace: true });
+        const currentConvParam = searchParams.get('conversation');
+        const isNewSelection = String(currentConvParam) !== String(id);
+        const newParams = new URLSearchParams(searchParams);
+        newParams.set('conversation', String(id));
+
+        if (isMobile && (isExplicitUserClick || isNewSelection)) {
+            // Push history entry on mobile so mobile back button returns to the conversation list
+            setSearchParams(newParams, { replace: false });
+        } else {
+            setSearchParams(newParams, { replace: true });
+        }
         setReplyingToMessage(null);
 
         // 2. Instant Optimistic Render: load cached conversation and messages if available
