@@ -1312,6 +1312,113 @@ export const UnifiedInboxPage = () => {
                 </form>
             )}
 
+            {/* AI Human Takeover & Meta 24-Hour Window Control Section */}
+            <div className="space-y-2 border-t border-slate-800/80 pt-3">
+                {/* 1. Human Takeover / AI Status Notice */}
+                {activeConversation.is_human_takeover && (
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-xs text-amber-300 space-y-1.5 animate-fade-in shadow-sm">
+                        <div className="flex items-center justify-between gap-1.5">
+                            <span className="flex items-center gap-1.5 font-bold truncate">
+                                <Bot className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span className="truncate">AI সাময়িক পজ (হিউম্যান টেকওভার সক্রিয়)</span>
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold uppercase shrink-0">
+                                Paused
+                            </span>
+                        </div>
+                        <p className="text-[11px] text-amber-200/80 leading-tight">
+                            মডারেটর বার্তা দিচ্ছেন বলে AI অটো-রিপ্লাই পজ রয়েছে।
+                        </p>
+                        <div className="pt-1 border-t border-amber-500/20 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={handleToggleTakeover}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 hover:text-white border border-amber-500/30 text-[11px] font-bold cursor-pointer transition-colors"
+                            >
+                                🤖 AI চালু করুন
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. Meta 24-Hour Messaging Window Status */}
+                {(() => {
+                    if (activeConversation?.platform !== 'facebook_page' && activeConversation?.platform !== 'instagram_business') return null;
+                    const lastCustomerMsg = sortedMessages.filter((m) => m.sender_type === 'customer').pop();
+                    if (!lastCustomerMsg) return null;
+                    const customerTime = new Date(lastCustomerMsg.sent_at || lastCustomerMsg.created_at).getTime();
+                    if (!customerTime || isNaN(customerTime)) return null;
+                    const hoursElapsed = (Date.now() - customerTime) / (1000 * 60 * 60);
+                    const isExpired = hoursElapsed >= 24;
+
+                    const pageId =
+                        activeConversation?.social_account?.account_id ||
+                        activeConversation?.socialAccount?.account_id;
+                    const metaInboxUrl = pageId
+                        ? `https://business.facebook.com/latest/inbox/all?asset_id=${pageId}`
+                        : 'https://business.facebook.com/latest/inbox';
+
+                    if (!isExpired) {
+                        const remainingHours = Math.max(1, Math.round(24 - hoursElapsed));
+                        return (
+                            <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/25 rounded-xl text-xs text-emerald-300 space-y-1 shadow-sm">
+                                <div className="flex items-center justify-between gap-1.5">
+                                    <span className="flex items-center gap-1.5 font-bold truncate">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                                        <span>মেটা ২৪ ঘণ্টা উইন্ডো সক্রিয়</span>
+                                    </span>
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold shrink-0">
+                                        Active
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-emerald-200/80 leading-tight">
+                                    আর প্রায় {remainingHours} ঘণ্টা বাকি আছে।
+                                </p>
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <div className="p-2.5 bg-amber-950/40 border border-amber-500/30 rounded-xl text-xs text-amber-300 space-y-2 animate-fade-in shadow-md">
+                            <div className="flex items-center justify-between gap-1.5">
+                                <span className="flex items-center gap-1.5 font-bold text-amber-400 truncate">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    <span>২৪ ঘণ্টার উইন্ডো শেষ</span>
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold shrink-0">
+                                    Expired
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-amber-200/80 leading-tight">
+                                মেটা পলিসি অনুযায়ী এপিআই দিয়ে মেসেজ পাঠানো বন্ধ রয়েছে।
+                            </p>
+                            <div className="pt-1.5 border-t border-amber-500/20 flex flex-wrap items-center gap-1.5">
+                                <a
+                                    href={metaInboxUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+                                    title="Open Meta Business Suite Inbox"
+                                >
+                                    <ExternalLink className="w-3 h-3" />
+                                    <span>Business Suite এ যান</span>
+                                </a>
+                                {activeConversation?.customer?.phone && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleInitiateCall(activeConversation.customer.phone)}
+                                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
+                                    >
+                                        <PhoneCall className="w-3 h-3" />
+                                        <span>কল দিন</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })()}
+            </div>
+
             {/* Quick Lead Status Selector */}
             <div className="space-y-1.5 border-t border-slate-800/80 pt-3">
                 <label className="text-xs font-semibold text-slate-300 block">Lead CRM Classification</label>
@@ -1916,23 +2023,6 @@ export const UnifiedInboxPage = () => {
 
                         {/* Message Composer Area */}
                         <div className="p-2.5 md:p-4 border-t border-slate-800 bg-slate-950/95 shrink-0 z-10">
-                            {/* Human Takeover Notice */}
-                            {activeConversation.is_human_takeover && (
-                                <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl text-[11px] text-amber-300 mb-2 animate-fade-in">
-                                    <span className="flex items-center gap-1.5 truncate">
-                                        <Bot className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                        <span className="truncate">AI সাময়িক পজ (হিউম্যান টেকওভার সক্রিয়)</span>
-                                    </span>
-                                    <button
-                                        type="button"
-                                        onClick={handleToggleTakeover}
-                                        className="font-bold underline text-amber-200 hover:text-white cursor-pointer ml-2 text-[10px] whitespace-nowrap shrink-0"
-                                    >
-                                        AI চালু করুন
-                                    </button>
-                                </div>
-                            )}
-
                             <form onSubmit={handleSendMessage} className="space-y-1.5 md:space-y-2">
                                 <div className="flex items-center justify-between text-xs">
                                     <div className="flex items-center gap-1.5 md:gap-3 overflow-x-auto pb-0.5 max-w-full">
@@ -2257,75 +2347,6 @@ export const UnifiedInboxPage = () => {
                                         </button>
                                     </div>
                                 )}
-
-                                {/* 24-Hour Meta Messaging Window Status Banner */}
-                                {(() => {
-                                    if (activeConversation?.platform !== 'facebook_page' && activeConversation?.platform !== 'instagram_business') return null;
-                                    const lastCustomerMsg = sortedMessages.filter((m) => m.sender_type === 'customer').pop();
-                                    if (!lastCustomerMsg) return null;
-                                    const customerTime = new Date(lastCustomerMsg.sent_at || lastCustomerMsg.created_at).getTime();
-                                    if (!customerTime || isNaN(customerTime)) return null;
-                                    const hoursElapsed = (Date.now() - customerTime) / (1000 * 60 * 60);
-                                    const isExpired = hoursElapsed >= 24;
-
-                                    const pageId =
-                                        activeConversation?.social_account?.account_id ||
-                                        activeConversation?.socialAccount?.account_id;
-                                    const metaInboxUrl = pageId
-                                        ? `https://business.facebook.com/latest/inbox/all?asset_id=${pageId}`
-                                        : 'https://business.facebook.com/latest/inbox';
-
-                                    if (!isExpired) {
-                                        const remainingHours = Math.max(1, Math.round(24 - hoursElapsed));
-                                        return (
-                                            <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-950/40 border border-emerald-500/20 rounded-xl mb-1.5 text-[11px] text-emerald-300">
-                                                <span className="flex items-center gap-1.5 font-medium truncate">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
-                                                    <span>মেটা ২৪ ঘণ্টা উইন্ডো সক্রিয় (আর প্রায় {remainingHours} ঘণ্টা বাকি আছে)</span>
-                                                </span>
-                                                <span className="text-[10px] text-emerald-400/80 font-mono hidden sm:inline">Active Window</span>
-                                            </div>
-                                        );
-                                    }
-
-                                    return (
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 px-3 bg-amber-950/40 border border-amber-500/30 rounded-xl mb-1.5 animate-fade-in shadow-md">
-                                            <div className="flex items-start sm:items-center gap-2 min-w-0">
-                                                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
-                                                <div className="min-w-0">
-                                                    <p className="text-[11px] font-bold text-amber-300 leading-tight">
-                                                        মেটা ২৪ ঘণ্টার মেসেজিং উইন্ডো শেষ হয়ে গেছে
-                                                    </p>
-                                                    <p className="text-[10px] text-amber-200/80 leading-tight mt-0.5">
-                                                        মেটা পলিসি অনুযায়ী এপিআই মেসেজ ব্লক হতে পারে। নিচের বাটন দিয়ে সরাসরি পেজ ইনবক্স / বিজনেস স্যুট থেকে পাঠান:
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                                                <a
-                                                    href={metaInboxUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
-                                                    title="Open Meta Business Suite Inbox"
-                                                >
-                                                    <ExternalLink className="w-3 h-3" />
-                                                    <span>Business Suite এ যান</span>
-                                                </a>
-                                                {activeConversation?.customer?.phone && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleInitiateCall(activeConversation.customer.phone)}
-                                                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shadow-sm flex items-center gap-1 transition-all cursor-pointer"
-                                                    >
-                                                        <PhoneCall className="w-3 h-3" />
-                                                        <span>কল দিন</span>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
 
                                 <div className="relative">
                                     <textarea
