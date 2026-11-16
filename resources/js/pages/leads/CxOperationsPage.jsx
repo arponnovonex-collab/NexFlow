@@ -7,12 +7,10 @@ import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import {
     Headphones,
-    ShieldAlert,
     Copy,
     AlertTriangle,
     CheckCircle2,
     XCircle,
-    Phone,
     PhoneCall,
     MessageCircle,
     Edit3,
@@ -20,29 +18,309 @@ import {
     Truck,
     RefreshCw,
     Search,
-    Calendar,
-    Layers,
-    ShoppingBag,
     Package,
     User,
     MapPin,
-    Hash,
-    ExternalLink,
+    ShoppingBag,
     Loader2,
 } from 'lucide-react';
 
+/**
+ * Reusable Individual Order Card (used both inside Duplicate Groups and Standalone).
+ */
+const OrderCard = ({
+    order,
+    isDuplicateSubCard = false,
+    orderIndex = 1,
+    onEdit,
+    onCancel,
+    onResolve,
+    onSetQtyOne,
+    onDispatchSteadfast,
+    actionLoadingId,
+    dispatchingId,
+}) => {
+    const isCancelled = order.order_status === 'cancelled';
+    const isResolved = order.is_cx_resolved;
+    const isActionLoading = actionLoadingId === order.id;
+    const isDispatching = dispatchingId === order.id;
+
+    const rawPhone = order.customer_phone || order.customer?.phone || '';
+    const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+    const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
+
+    return (
+        <div
+            className={`rounded-xl border transition-all p-3.5 space-y-3 flex flex-col justify-between ${
+                isCancelled
+                    ? 'border-rose-900/40 bg-slate-950/60 opacity-80'
+                    : isResolved
+                    ? 'border-emerald-500/40 bg-gradient-to-b from-slate-900/90 to-emerald-950/20'
+                    : isDuplicateSubCard
+                    ? 'border-rose-500/30 bg-slate-900/90 hover:border-rose-500/60'
+                    : 'border-cyan-500/30 bg-slate-900/90 hover:border-cyan-500/60'
+            }`}
+        >
+            <div className="space-y-3">
+                {/* Header: Order ID, Date & Status */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        {isDuplicateSubCard && (
+                            <span className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center justify-center text-[10px] font-black shrink-0">
+                                #{orderIndex}
+                            </span>
+                        )}
+                        <span className="font-mono font-bold text-white text-xs truncate">
+                            #{order.order_number}
+                        </span>
+                        {order.order_source === 'woocommerce' ? (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0">
+                                WC #{order.wc_order_id || order.order_number}
+                            </span>
+                        ) : (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                                CRM
+                            </span>
+                        )}
+                        <span className="text-[11px] text-slate-400 font-mono">
+                            {new Date(order.created_at).toLocaleDateString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                            })}
+                        </span>
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-1.5">
+                        {isCancelled ? (
+                            <Badge variant="danger" size="xs">
+                                ❌ বাতিলকৃত (Cancelled)
+                            </Badge>
+                        ) : isResolved ? (
+                            <Badge variant="success" size="xs">
+                                ✅ সমাধান হয়েছে (Resolved)
+                            </Badge>
+                        ) : (
+                            <Badge
+                                variant={order.order_status === 'confirmed' ? 'success' : 'warning'}
+                                size="xs"
+                            >
+                                {order.order_status}
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+
+                {/* Standalone Customer Row (If not in duplicate group) */}
+                {!isDuplicateSubCard && (
+                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                        <div className="min-w-0">
+                            <span className="text-xs font-bold text-white truncate block">
+                                {order.customer?.name || 'Customer'}
+                            </span>
+                            <span className="text-[11px] font-mono text-indigo-300">
+                                {rawPhone || 'No Phone'}
+                            </span>
+                        </div>
+                        {rawPhone && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <Link
+                                    to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
+                                    className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
+                                    title="IP কল দিন"
+                                >
+                                    <PhoneCall className="w-3.5 h-3.5" />
+                                </Link>
+                                <a
+                                    href={`https://wa.me/${waPhone}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                                    title="WhatsApp"
+                                >
+                                    <MessageCircle className="w-3.5 h-3.5" />
+                                </a>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Product & Attribute Specs */}
+                <div className="flex items-center gap-3 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+                    <div className="w-12 h-12 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
+                        {order.product?.primary_image_url ? (
+                            <img
+                                src={order.product.primary_image_url}
+                                alt=""
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <ShoppingBag className="w-5 h-5 text-indigo-400" />
+                        )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-white truncate">
+                            {order.product?.name || order.items_data?.[0]?.name || 'Product'}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {order.size ? (
+                                <span className="text-[11px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/40">
+                                    Size: {order.size}
+                                </span>
+                            ) : (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-slate-800 text-slate-400">
+                                    No Size
+                                </span>
+                            )}
+                            {order.color ? (
+                                <span className="text-[11px] px-2 py-0.5 rounded font-mono font-bold bg-purple-500/20 text-purple-200 border border-purple-500/40">
+                                    Color: {order.color}
+                                </span>
+                            ) : null}
+                            <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-bold ${order.quantity > 1 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-800 text-slate-300'}`}>
+                                Qty: {order.quantity}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Pricing Breakdown */}
+                <div className="grid grid-cols-3 gap-2 p-2 rounded-lg bg-slate-950/40 border border-slate-800/60 text-xs">
+                    <div>
+                        <span className="text-[10px] text-slate-400 block">Unit Price:</span>
+                        <span className="font-mono text-slate-200 font-semibold">৳{order.unit_price}</span>
+                    </div>
+                    <div>
+                        <span className="text-[10px] text-slate-400 block">Delivery:</span>
+                        <span className="font-mono text-slate-200 font-semibold">৳{order.delivery_charge}</span>
+                    </div>
+                    <div>
+                        <span className="text-[10px] text-emerald-400 font-bold block">Total:</span>
+                        <span className="font-mono text-emerald-300 font-black text-sm">৳{order.total_amount}</span>
+                    </div>
+                </div>
+
+                {/* Customer Address & Courier Status */}
+                <div className="text-[11px] text-slate-300 space-y-1">
+                    <p className="flex items-start gap-1">
+                        <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />
+                        <span className="line-clamp-2">{order.customer_address || 'ঠিকানা দেওয়া নেই'}</span>
+                    </p>
+                    {order.tracking_code ? (
+                        <p className="text-emerald-400 font-mono font-bold flex items-center gap-1">
+                            <Truck className="w-3 h-3 text-emerald-400" />
+                            <span>Steadfast Tracking: {order.tracking_code}</span>
+                        </p>
+                    ) : null}
+                    {order.notes && (
+                        <p className="text-[10px] text-amber-300/90 italic bg-amber-950/20 p-1.5 rounded border border-amber-500/20 line-clamp-2">
+                            {order.notes}
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            {/* Actions Toolbar */}
+            <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Quick Set Qty 1 button */}
+                    {order.quantity > 1 && !isCancelled && (
+                        <button
+                            type="button"
+                            disabled={isActionLoading}
+                            onClick={() => onSetQtyOne(order.id)}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600 text-cyan-200 hover:text-white border border-cyan-500/40 text-xs font-bold transition-all cursor-pointer"
+                            title="কোয়ান্টিটি ১ পিস করে টোটাল রিক্যালকুলেট ও সমাধান করুন"
+                        >
+                            Qty ১ করুন
+                        </button>
+                    )}
+
+                    {/* Edit Order */}
+                    <button
+                        type="button"
+                        onClick={() => onEdit(order)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                    >
+                        <Edit3 className="w-3 h-3" />
+                        <span>Edit</span>
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Cancel Order Button */}
+                    {!isCancelled && (
+                        <button
+                            type="button"
+                            onClick={() => onCancel(order)}
+                            className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                            title="এই অর্ডারটি বাতিল করুন"
+                        >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>বাতিল (Cancel)</span>
+                        </button>
+                    )}
+
+                    {/* Resolve Button: Replaces the old Confirm button! */}
+                    {!isCancelled && !isResolved && (
+                        <button
+                            type="button"
+                            disabled={isActionLoading}
+                            onClick={() => onResolve(order.id)}
+                            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+                            title="অর্ডারটি সমাধান হয়েছে হিসেবে চিহ্নিত করুন"
+                        >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Resolve (সমাধান হয়েছে)</span>
+                        </button>
+                    )}
+
+                    {/* If already resolved */}
+                    {isResolved && !isCancelled && (
+                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                            <Check className="w-3 h-3" /> সমাধানকৃত
+                        </span>
+                    )}
+
+                    {/* Steadfast Dispatch button if confirmed and no tracking */}
+                    {order.order_status === 'confirmed' && !isCancelled && !order.tracking_code && (
+                        <button
+                            type="button"
+                            disabled={isDispatching}
+                            onClick={() => onDispatchSteadfast(order)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-indigo-950/50 transition-all cursor-pointer"
+                            title="Steadfast কুরিয়ারে বুকিং দিন"
+                        >
+                            <Truck className="w-3 h-3" />
+                            <span>কুরিয়ারে পাঠান</span>
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export const CxOperationsPage = () => {
-    const [orders, setOrders] = useState([]);
+    const [cxData, setCxData] = useState({
+        duplicate_groups: [],
+        multi_qty_orders: [],
+        cancelled_orders: [],
+        other_resolved_orders: [],
+    });
+
     const [meta, setMeta] = useState({
         total_review_needed: 0,
-        duplicate_count: 0,
+        duplicate_groups_count: 0,
         multi_qty_count: 0,
-        confirmed_count: 0,
+        resolved_count: 0,
         cancelled_count: 0,
         days: 10,
     });
+
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('all'); // all, duplicates, multi_qty, confirmed, cancelled
+    const [activeTab, setActiveTab] = useState('all'); // all, duplicates, multi_qty, resolved, cancelled
     const [search, setSearch] = useState('');
     const [days, setDays] = useState(10);
     const [actionLoadingId, setActionLoadingId] = useState(null);
@@ -69,7 +347,7 @@ export const CxOperationsPage = () => {
     // Cancel Order Prompt State
     const [cancelModalOpen, setCancelModalOpen] = useState(false);
     const [orderToCancel, setOrderToCancel] = useState(null);
-    const [cancelReason, setCancelReason] = useState('Duplicate order / customer only wanted 1');
+    const [cancelReason, setCancelReason] = useState('গ্রাহক ডুপ্লিকেট অর্ডার করেছেন / একটি বাতিল করতে বলেছেন');
     const [cancelling, setCancelling] = useState(false);
 
     // Steadfast Courier dispatch state
@@ -86,7 +364,13 @@ export const CxOperationsPage = () => {
 
             const res = await api.get('/orders/cx-operations', { params });
             if (res.data.status === 'success') {
-                setOrders(res.data.data || []);
+                const d = res.data.data || {};
+                setCxData({
+                    duplicate_groups: d.duplicate_groups || [],
+                    multi_qty_orders: d.multi_qty_orders || [],
+                    cancelled_orders: d.cancelled_orders || [],
+                    other_resolved_orders: d.other_resolved_orders || [],
+                });
                 setMeta(res.data.meta || {});
             }
         } catch (err) {
@@ -105,7 +389,7 @@ export const CxOperationsPage = () => {
         fetchCxOrders();
     };
 
-    // Quick Action: Confirm, Set Qty to 1, or Cancel
+    // Quick Action: Resolve, Set Qty to 1, or Cancel
     const handleQuickAction = async (orderId, action, extra = {}) => {
         try {
             setActionLoadingId(orderId);
@@ -113,11 +397,7 @@ export const CxOperationsPage = () => {
             const res = await api.post(`/orders/${orderId}/cx-action`, payload);
 
             if (res.data.status === 'success') {
-                // Update local list
-                const updated = res.data.data;
-                setOrders((prev) =>
-                    prev.map((o) => (o.id === orderId ? { ...o, ...updated } : o))
-                );
+                // Refresh list to update groupings and resolved state immediately
                 await fetchCxOrders();
             }
         } catch (err) {
@@ -222,6 +502,12 @@ export const CxOperationsPage = () => {
         }
     };
 
+    const hasDuplicateGroups = cxData.duplicate_groups.length > 0;
+    const hasMultiQtyOrders = cxData.multi_qty_orders.length > 0;
+    const hasCancelledOrders = cxData.cancelled_orders.length > 0;
+    const hasOtherResolved = cxData.other_resolved_orders.length > 0;
+    const isFeedEmpty = !hasDuplicateGroups && !hasMultiQtyOrders && !hasCancelledOrders && !hasOtherResolved;
+
     return (
         <div className="space-y-6">
             {/* Page Header */}
@@ -237,7 +523,7 @@ export const CxOperationsPage = () => {
                         Customer Experience (CX) Verification
                     </h1>
                     <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-                        একই গ্রাহকের ডুপ্লিকেট অর্ডার (একই দিনে বা গত ১০ দিনে একাধিকবার অর্ডার) এবং একক অর্ডারে একাধিক পিস (Qty &gt; 1) স্বয়ংক্রিয়ভাবে ফিল্টার করা হয়েছে। গ্রাহককে ফোন কল দিয়ে ভেরিফাই করুন, কোয়ান্টিটি ১-এ ঠিক করুন, এডিট করুন বা অতিরিক্ত অর্ডার বাতিল করুন।
+                        একই গ্রাহকের ডুপ্লিকেট অর্ডারসমূহ পাশাপাশি প্রদর্শন করা হয়েছে। কাস্টমারকে কল দিয়ে কোনটি রাখবেন নিশ্চিত হন, অতিরিক্তটি বাতিল (Cancel) করুন এবং সঠিক অর্ডারে Resolve (সমাধান হয়েছে) ক্লিক করুন।
                     </p>
                 </div>
 
@@ -293,11 +579,11 @@ export const CxOperationsPage = () => {
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">ডুপ্লিকেট অর্ডার</span>
+                        <span className="text-[11px] font-semibold text-slate-400">ডুপ্লিকেট গ্রুপ</span>
                         <Copy className="w-4 h-4 text-rose-400" />
                     </div>
-                    <p className="text-2xl font-black text-rose-300 mt-1">{meta.duplicate_count || 0}</p>
-                    <p className="text-[10px] text-rose-400 mt-0.5 font-medium">Same Phone & Product</p>
+                    <p className="text-2xl font-black text-rose-300 mt-1">{meta.duplicate_groups_count || 0}</p>
+                    <p className="text-[10px] text-rose-400 mt-0.5 font-medium">Duplicate Cases</p>
                 </Card>
 
                 <Card
@@ -317,19 +603,19 @@ export const CxOperationsPage = () => {
                 </Card>
 
                 <Card
-                    onClick={() => setActiveTab('confirmed')}
+                    onClick={() => setActiveTab('resolved')}
                     className={`cursor-pointer transition-all ${
-                        activeTab === 'confirmed'
+                        activeTab === 'resolved'
                             ? 'bg-emerald-950/40 border-emerald-500/60 ring-2 ring-emerald-500/30'
                             : 'hover:border-slate-700'
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">কনফার্মকৃত</span>
+                        <span className="text-[11px] font-semibold text-slate-400">সমাধানকৃত (Resolved)</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     </div>
-                    <p className="text-2xl font-black text-emerald-300 mt-1">{meta.confirmed_count || 0}</p>
-                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Ready for Courier</p>
+                    <p className="text-2xl font-black text-emerald-300 mt-1">{meta.resolved_count || 0}</p>
+                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Resolved by CX</p>
                 </Card>
 
                 <Card
@@ -373,7 +659,7 @@ export const CxOperationsPage = () => {
                                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
                         }`}
                     >
-                        🔁 ডুপ্লিকেট অর্ডার ({meta.duplicate_count || 0})
+                        🔁 ডুপ্লিকেট অর্ডার ({meta.duplicate_groups_count || 0})
                     </button>
                     <button
                         type="button"
@@ -388,14 +674,14 @@ export const CxOperationsPage = () => {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('confirmed')}
+                        onClick={() => setActiveTab('resolved')}
                         className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                            activeTab === 'confirmed'
+                            activeTab === 'resolved'
                                 ? 'bg-emerald-600 text-white shadow-md'
                                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
                         }`}
                     >
-                        ✅ কনফার্মকৃত ({meta.confirmed_count || 0})
+                        ✅ সমাধানকৃত ({meta.resolved_count || 0})
                     </button>
                     <button
                         type="button"
@@ -427,366 +713,202 @@ export const CxOperationsPage = () => {
             {loading ? (
                 <div className="py-24 text-center">
                     <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-2" />
-                    <p className="text-xs text-slate-400">অর্ডার ও ডুপ্লিকেট রেকর্ড বিশ্লেষণ করা হচ্ছে...</p>
+                    <p className="text-xs text-slate-400">ডুপ্লিকেট অর্ডার ও মাল্টি-কোয়ান্টিটি বিশ্লেষণ করা হচ্ছে...</p>
                 </div>
-            ) : orders.length === 0 ? (
+            ) : isFeedEmpty ? (
                 <div className="py-20 text-center bg-slate-950/40 rounded-3xl border border-slate-800 p-8">
                     <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3 opacity-80" />
-                    <h3 className="text-base font-bold text-white">সব অর্ডার ভেরিফাই সম্পন্ন!</h3>
+                    <h3 className="text-base font-bold text-white">সব অর্ডার ভেরিফাই ও সমাধান সম্পন্ন!</h3>
                     <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
                         {activeTab === 'duplicates'
-                            ? 'গত ১০ দিনে কোনো ডুপ্লিকেট অর্ডারের রেকর্ড পাওয়া যায়নি।'
+                            ? 'গত ১০ দিনে কোনো আনভেরিফাইড ডুপ্লিকেট অর্ডারের রেকর্ড পাওয়া যায়নি।'
                             : activeTab === 'multi_qty'
                             ? 'একাধিক কোয়ান্টিটির কোনো আনভেরিফাইড অর্ডার নেই।'
+                            : activeTab === 'resolved'
+                            ? 'এখনো কোনো অর্ডার সমাধান করা হয়নি।'
                             : 'এই মুহূর্তে কোনো ডুপ্লিকেট বা অস্বাভাবিক অর্ডারের রিভিউ বাকি নেই।'}
                     </p>
                 </div>
             ) : (
-                <div className="space-y-4">
-                    {orders.map((order) => {
-                        const rawPhone = order.customer_phone || order.customer?.phone || '';
-                        const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
-                        const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
-                        const isActionLoading = actionLoadingId === order.id;
-                        const isDispatching = dispatchingId === order.id;
+                <div className="space-y-6">
+                    {/* SECTION 1: DUPLICATE GROUPS (Showing both/all orders side-by-side) */}
+                    {hasDuplicateGroups && (
+                        <div className="space-y-4">
+                            {cxData.duplicate_groups.map((group) => {
+                                const rawPhone = group.customer_phone || group.normalized_phone || '';
+                                const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+                                const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
 
-                        return (
-                            <Card
-                                key={order.id}
-                                className={`relative border transition-all ${
-                                    order.is_duplicate
-                                        ? 'border-rose-500/40 bg-gradient-to-r from-slate-900 via-rose-950/10 to-slate-900'
-                                        : order.is_multi_qty
-                                        ? 'border-cyan-500/40 bg-gradient-to-r from-slate-900 via-cyan-950/10 to-slate-900'
-                                        : 'border-slate-800'
-                                }`}
-                            >
-                                <div className="space-y-3.5">
-                                    {/* Top Row: Customer Info + Calling CTA + Status */}
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-10 h-10 rounded-xl bg-indigo-600/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 font-bold text-sm">
-                                                {order.customer?.name ? order.customer.name.charAt(0).toUpperCase() : 'C'}
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-sm font-bold text-white truncate">
-                                                        {order.customer?.name || 'Customer'}
-                                                    </span>
-                                                    <span className="text-xs font-mono font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                                                        {rawPhone || 'No Phone'}
-                                                    </span>
-                                                    {order.order_source === 'woocommerce' ? (
-                                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                                                            🌐 WooCommerce #{order.wc_order_id || order.order_number}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                                            🛍️ CRM Order #{order.order_number}
-                                                        </span>
-                                                    )}
+                                return (
+                                    <div
+                                        key={group.group_id}
+                                        className="p-4 sm:p-5 rounded-2xl border-2 border-rose-500/40 bg-gradient-to-b from-rose-950/20 via-slate-900/90 to-slate-950 space-y-4 shadow-xl"
+                                    >
+                                        {/* Duplicate Group Header */}
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-rose-500/20">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0 font-bold">
+                                                    <Copy className="w-5 h-5 animate-pulse" />
                                                 </div>
-                                                <p className="text-[11px] text-slate-400 truncate mt-0.5 flex items-center gap-1">
-                                                    <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
-                                                    <span className="truncate">{order.customer_address || 'No address provided'}</span>
-                                                </p>
+                                                <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-base font-extrabold text-white">
+                                                            {group.customer_name}
+                                                        </span>
+                                                        <span className="text-xs font-mono font-bold text-rose-300 bg-rose-950/80 px-2.5 py-0.5 rounded border border-rose-500/30">
+                                                            {rawPhone || 'No Phone'}
+                                                        </span>
+                                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                                                            ডুপ্লিকেট গ্রুপ ({group.orders.length}টি অর্ডার)
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                                                        <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                                        <span>{group.customer_address || 'ঠিকানা দেওয়া নেই'}</span>
+                                                    </p>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {/* Direct Phone Call & WhatsApp Button Group */}
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            {rawPhone && (
-                                                <Link
-                                                    to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
-                                                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
-                                                    title="IP কল দিন (ePBX Dialer)"
-                                                >
-                                                    <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
-                                                    <span>কল দিন (IP Call)</span>
-                                                </Link>
-                                            )}
+                                            {/* IP Call & WhatsApp CTAs */}
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {rawPhone && (
+                                                    <Link
+                                                        to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
+                                                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+                                                        title="গ্রাহককে IP কল দিন (ePBX Dialer)"
+                                                    >
+                                                        <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
+                                                        <span>কল দিন (IP Call)</span>
+                                                    </Link>
+                                                )}
 
-                                            {rawPhone && (
-                                                <a
-                                                    href={`https://wa.me/${waPhone}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="p-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all"
-                                                    title="WhatsApp-এ মেসেজ দিন"
-                                                >
-                                                    <MessageCircle className="w-4 h-4" />
-                                                </a>
-                                            )}
-
-                                            <Badge
-                                                variant={
-                                                    order.order_status === 'confirmed'
-                                                        ? 'success'
-                                                        : order.order_status === 'cancelled'
-                                                        ? 'danger'
-                                                        : 'warning'
-                                                }
-                                                size="sm"
-                                            >
-                                                {order.order_status}
-                                            </Badge>
-                                        </div>
-                                    </div>
-
-                                    {/* Alert Notice Banner */}
-                                    {order.is_duplicate && (
-                                        <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                                                <span className="font-semibold truncate">
-                                                    ⚠️ সতর্কবার্তা: এই গ্রাহক গত ১০ দিনে একই পণ্য {order.duplicate_siblings?.length ? order.duplicate_siblings.length + 1 : 2} বার অর্ডার করেছেন!
-                                                </span>
-                                            </div>
-                                            <span className="text-[10px] text-rose-400 font-mono bg-rose-950/60 px-2 py-0.5 rounded border border-rose-500/40 shrink-0 font-bold">
-                                                Duplicate Detected
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {order.is_multi_qty && (
-                                        <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <Package className="w-4 h-4 text-cyan-400 shrink-0" />
-                                                <span className="font-semibold truncate">
-                                                    📦 বাল্ক কোয়ান্টিটি: গ্রাহক একই পণ্য {order.quantity} পিস অর্ডার করেছেন। কল দিয়ে নিশ্চিত হন।
-                                                </span>
-                                            </div>
-                                            <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/40 shrink-0 font-bold">
-                                                Qty: {order.quantity}
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {/* Middle Row: Product Specs, Size, Color, Price Calculation */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
-                                        {/* Product info */}
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
-                                                {order.product?.primary_image_url ? (
-                                                    <img
-                                                        src={order.product.primary_image_url}
-                                                        alt=""
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                ) : (
-                                                    <ShoppingBag className="w-5 h-5 text-indigo-400" />
+                                                {rawPhone && (
+                                                    <a
+                                                        href={`https://wa.me/${waPhone}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all"
+                                                        title="WhatsApp-এ মেসেজ দিন"
+                                                    >
+                                                        <MessageCircle className="w-4 h-4" />
+                                                    </a>
                                                 )}
                                             </div>
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-bold text-white truncate">
-                                                    {order.product?.name || order.items_data?.[0]?.name || 'Product'}
-                                                </p>
-                                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                                    {order.size && (
-                                                        <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                                                            Size: {order.size}
-                                                        </span>
-                                                    )}
-                                                    {order.color && (
-                                                        <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                                                            Color: {order.color}
-                                                        </span>
-                                                    )}
-                                                    <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-slate-800 text-slate-300">
-                                                        Qty: {order.quantity}
-                                                    </span>
-                                                </div>
-                                            </div>
                                         </div>
 
-                                        {/* Financial Breakdown */}
-                                        <div className="flex flex-col justify-center text-xs space-y-1">
-                                            <div className="flex items-center justify-between text-slate-400">
-                                                <span>Unit Price:</span>
-                                                <span className="font-mono text-slate-300">৳{order.unit_price}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between text-slate-400">
-                                                <span>Delivery Fee:</span>
-                                                <span className="font-mono text-slate-300">৳{order.delivery_charge}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between font-bold text-emerald-400 pt-1 border-t border-slate-800">
-                                                <span>Total Payable:</span>
-                                                <span className="font-mono text-sm">৳{order.total_amount}</span>
-                                            </div>
+                                        {/* Actionable Banner */}
+                                        <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
+                                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                                            <span>
+                                                <strong>ডুপ্লিকেট নোটিশ:</strong> এই গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে উভয় অর্ডারই প্রদর্শিত হয়েছে। কাস্টমারকে কল দিয়ে নিশ্চিত হয়ে অপ্রয়োজনীয় অর্ডারটি <strong>বাতিল (Cancel)</strong> করুন এবং কাঙ্ক্ষিত অর্ডারে <strong>Resolve (সমাধান হয়েছে)</strong> ক্লিক করুন।
+                                            </span>
                                         </div>
 
-                                        {/* Date, Notes & Tracking */}
-                                        <div className="flex flex-col justify-center text-xs space-y-1">
-                                            <div className="flex items-center justify-between text-slate-400">
-                                                <span>Order Date:</span>
-                                                <span className="font-mono text-slate-300">
-                                                    {new Date(order.created_at).toLocaleDateString([], {
-                                                        month: 'short',
-                                                        day: 'numeric',
-                                                        hour: '2-digit',
-                                                        minute: '2-digit',
-                                                    })}
-                                                </span>
-                                            </div>
-                                            {order.tracking_code ? (
-                                                <div className="flex items-center justify-between text-emerald-400 font-semibold text-[11px]">
-                                                    <span>Steadfast Tracking:</span>
-                                                    <span className="font-mono">{order.tracking_code}</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                                                    <span>Courier Status:</span>
-                                                    <span>Not dispatched</span>
-                                                </div>
-                                            )}
-                                            {order.notes && (
-                                                <p className="text-[10px] text-amber-300/80 italic truncate mt-1 bg-amber-950/20 p-1 rounded border border-amber-500/20">
-                                                    {order.notes}
-                                                </p>
-                                            )}
+                                        {/* Side-by-Side Sibling Orders Display */}
+                                        <div className={`grid grid-cols-1 ${group.orders.length >= 2 ? 'lg:grid-cols-2' : ''} gap-4`}>
+                                            {group.orders.map((order, idx) => (
+                                                <OrderCard
+                                                    key={order.id}
+                                                    order={order}
+                                                    isDuplicateSubCard={true}
+                                                    orderIndex={idx + 1}
+                                                    onEdit={openEditModal}
+                                                    onCancel={openCancelModal}
+                                                    onResolve={(id) => handleQuickAction(id, 'resolve')}
+                                                    onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
+                                                    onDispatchSteadfast={handleDispatchSteadfast}
+                                                    actionLoadingId={actionLoadingId}
+                                                    dispatchingId={dispatchingId}
+                                                />
+                                            ))}
                                         </div>
                                     </div>
+                                );
+                            })}
+                        </div>
+                    )}
 
-                                    {/* Sibling Duplicate Orders Box (If duplicates exist) */}
-                                    {order.duplicate_siblings && order.duplicate_siblings.length > 0 && (
-                                        <div className="p-3 rounded-xl bg-rose-950/20 border border-rose-500/20 space-y-2">
-                                            <p className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
-                                                <Copy className="w-3.5 h-3.5 text-rose-400" />
-                                                <span>এই গ্রাহকের অন্যান্য একই পণ্য অর্ডারসমূহ (ডুপ্লিকেট গ্রুপ):</span>
-                                            </p>
-                                            <div className="space-y-1.5">
-                                                {order.duplicate_siblings.map((sib) => (
-                                                    <div
-                                                        key={sib.id}
-                                                        className="p-2 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs"
-                                                    >
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span className="font-mono font-bold text-indigo-300">
-                                                                #{sib.order_number}
-                                                            </span>
-                                                            <span className="text-slate-500">·</span>
-                                                            <span className="text-slate-400 text-[11px]">
-                                                                {new Date(sib.created_at).toLocaleDateString([], {
-                                                                    month: 'short',
-                                                                    day: 'numeric',
-                                                                    hour: '2-digit',
-                                                                    minute: '2-digit',
-                                                                })}
-                                                            </span>
-                                                            {sib.size && (
-                                                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                                                                    Size: {sib.size}
-                                                                </span>
-                                                            )}
-                                                            <span className="font-mono font-bold text-emerald-400">
-                                                                ৳{sib.total_amount}
-                                                            </span>
-                                                            <Badge
-                                                                variant={sib.order_status === 'confirmed' ? 'success' : sib.order_status === 'cancelled' ? 'danger' : 'neutral'}
-                                                                size="xs"
-                                                            >
-                                                                {sib.order_status}
-                                                            </Badge>
-                                                        </div>
+                    {/* SECTION 2: STANDALONE MULTI-QUANTITY ORDERS */}
+                    {hasMultiQtyOrders && (
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-bold text-cyan-300 flex items-center gap-1.5 px-1">
+                                <Package className="w-4 h-4 text-cyan-400" />
+                                <span>বাল্ক কোয়ান্টিটি অর্ডারসমূহ (Cart Quantity &gt; 1)</span>
+                            </h3>
 
-                                                        <div className="flex items-center gap-1.5 shrink-0">
-                                                            {sib.order_status !== 'cancelled' && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => openCancelModal(sib)}
-                                                                    className="px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition-all cursor-pointer"
-                                                                    title="এই ডুপ্লিকেট অর্ডারটি বাতিল করুন"
-                                                                >
-                                                                    Cancel Duplicate
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {cxData.multi_qty_orders.map((order) => (
+                                    <OrderCard
+                                        key={order.id}
+                                        order={order}
+                                        isDuplicateSubCard={false}
+                                        onEdit={openEditModal}
+                                        onCancel={openCancelModal}
+                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
+                                        onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
+                                        onDispatchSteadfast={handleDispatchSteadfast}
+                                        actionLoadingId={actionLoadingId}
+                                        dispatchingId={dispatchingId}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
-                                    {/* Action Buttons Row */}
-                                    <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-                                        <div className="flex items-center gap-2">
-                                            {/* Quick 1-Click Set Quantity to 1 button */}
-                                            {order.quantity > 1 && order.order_status !== 'cancelled' && (
-                                                <button
-                                                    type="button"
-                                                    disabled={isActionLoading}
-                                                    onClick={() => handleQuickAction(order.id, 'set_qty_one')}
-                                                    className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-cyan-950/50 transition-all active:scale-95 cursor-pointer"
-                                                    title="কোয়ান্টিটি ১ পিস করে টোটাল রিক্যালকুলেট ও কনফার্ম করুন"
-                                                >
-                                                    <Package className="w-3.5 h-3.5" />
-                                                    <span>Qty ১ করুন ও কনফার্ম (৳{((parseFloat(order.unit_price) || 0) + (parseFloat(order.delivery_charge) || 0))})</span>
-                                                </button>
-                                            )}
+                    {/* SECTION 3: OTHER RESOLVED ORDERS (when on resolved tab) */}
+                    {hasOtherResolved && (
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-1.5 px-1">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                <span>অন্যান্য সমাধানকৃত অর্ডারসমূহ</span>
+                            </h3>
 
-                                            {/* Edit Button */}
-                                            <Button
-                                                type="button"
-                                                variant="secondary"
-                                                size="sm"
-                                                icon={Edit3}
-                                                onClick={() => openEditModal(order)}
-                                                className="text-slate-200 hover:text-white"
-                                            >
-                                                Edit Order (এডিট)
-                                            </Button>
-                                        </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {cxData.other_resolved_orders.map((order) => (
+                                    <OrderCard
+                                        key={order.id}
+                                        order={order}
+                                        isDuplicateSubCard={false}
+                                        onEdit={openEditModal}
+                                        onCancel={openCancelModal}
+                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
+                                        onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
+                                        onDispatchSteadfast={handleDispatchSteadfast}
+                                        actionLoadingId={actionLoadingId}
+                                        dispatchingId={dispatchingId}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
-                                        <div className="flex items-center gap-2">
-                                            {/* Cancel Order */}
-                                            {order.order_status !== 'cancelled' && (
-                                                <Button
-                                                    type="button"
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    icon={XCircle}
-                                                    onClick={() => openCancelModal(order)}
-                                                    className="text-rose-400 border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-300"
-                                                >
-                                                    অর্ডার বাতিল (Cancel)
-                                                </Button>
-                                            )}
+                    {/* SECTION 4: CANCELLED ORDERS (when on cancelled tab) */}
+                    {hasCancelledOrders && (
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-bold text-slate-400 flex items-center gap-1.5 px-1">
+                                <XCircle className="w-4 h-4 text-slate-500" />
+                                <span>বাতিলকৃত অর্ডারসমূহ</span>
+                            </h3>
 
-                                            {/* Confirm Order */}
-                                            {order.order_status !== 'confirmed' && order.order_status !== 'cancelled' && (
-                                                <Button
-                                                    type="button"
-                                                    variant="primary"
-                                                    size="sm"
-                                                    icon={Check}
-                                                    loading={isActionLoading}
-                                                    onClick={() => handleQuickAction(order.id, 'confirm')}
-                                                    className="bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-950/50"
-                                                >
-                                                    কনফার্ম করুন (Confirm)
-                                                </Button>
-                                            )}
-
-                                            {/* Dispatch to Steadfast if confirmed and not dispatched */}
-                                            {order.order_status === 'confirmed' && !order.tracking_code && (
-                                                <Button
-                                                    type="button"
-                                                    variant="primary"
-                                                    size="sm"
-                                                    icon={Truck}
-                                                    loading={isDispatching}
-                                                    onClick={() => handleDispatchSteadfast(order)}
-                                                    className="bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-950/50"
-                                                >
-                                                    Steadfast-এ পাঠান
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </Card>
-                        );
-                    })}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {cxData.cancelled_orders.map((order) => (
+                                    <OrderCard
+                                        key={order.id}
+                                        order={order}
+                                        isDuplicateSubCard={false}
+                                        onEdit={openEditModal}
+                                        onCancel={openCancelModal}
+                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
+                                        onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
+                                        onDispatchSteadfast={handleDispatchSteadfast}
+                                        actionLoadingId={actionLoadingId}
+                                        dispatchingId={dispatchingId}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
