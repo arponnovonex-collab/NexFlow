@@ -23,10 +23,11 @@ import {
     MapPin,
     ShoppingBag,
     Loader2,
+    RotateCcw,
 } from 'lucide-react';
 
 /**
- * Reusable Individual Order Card (used both inside Duplicate Groups and Standalone).
+ * Individual Order Card (used inside Duplicate Groups and Standalone Multi-Qty).
  */
 const OrderCard = ({
     order,
@@ -34,6 +35,7 @@ const OrderCard = ({
     orderIndex = 1,
     onEdit,
     onCancel,
+    onConfirm,
     onResolve,
     onSetQtyOne,
     onDispatchSteadfast,
@@ -41,6 +43,7 @@ const OrderCard = ({
     dispatchingId,
 }) => {
     const isCancelled = order.order_status === 'cancelled';
+    const isConfirmed = order.order_status === 'confirmed';
     const isResolved = order.is_cx_resolved;
     const isActionLoading = actionLoadingId === order.id;
     const isDispatching = dispatchingId === order.id;
@@ -53,9 +56,9 @@ const OrderCard = ({
         <div
             className={`rounded-xl border transition-all p-3.5 space-y-3 flex flex-col justify-between ${
                 isCancelled
-                    ? 'border-rose-900/40 bg-slate-950/60 opacity-80'
-                    : isResolved
-                    ? 'border-emerald-500/40 bg-gradient-to-b from-slate-900/90 to-emerald-950/20'
+                    ? 'border-rose-900/40 bg-slate-950/70 opacity-75'
+                    : isConfirmed
+                    ? 'border-emerald-500/30 bg-slate-900/90 hover:border-emerald-500/60'
                     : isDuplicateSubCard
                     ? 'border-rose-500/30 bg-slate-900/90 hover:border-rose-500/60'
                     : 'border-cyan-500/30 bg-slate-900/90 hover:border-cyan-500/60'
@@ -97,16 +100,13 @@ const OrderCard = ({
                             <Badge variant="danger" size="xs">
                                 ❌ বাতিলকৃত (Cancelled)
                             </Badge>
-                        ) : isResolved ? (
+                        ) : isConfirmed ? (
                             <Badge variant="success" size="xs">
-                                ✅ সমাধান হয়েছে (Resolved)
+                                ✅ কনফার্মড (Confirmed)
                             </Badge>
                         ) : (
-                            <Badge
-                                variant={order.order_status === 'confirmed' ? 'success' : 'warning'}
-                                size="xs"
-                            >
-                                {order.order_status}
+                            <Badge variant="warning" size="xs">
+                                ⏳ {order.order_status}
                             </Badge>
                         )}
                     </div>
@@ -231,7 +231,7 @@ const OrderCard = ({
                             disabled={isActionLoading}
                             onClick={() => onSetQtyOne(order.id)}
                             className="px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600 text-cyan-200 hover:text-white border border-cyan-500/40 text-xs font-bold transition-all cursor-pointer"
-                            title="কোয়ান্টিটি ১ পিস করে টোটাল রিক্যালকুলেট ও সমাধান করুন"
+                            title="কোয়ান্টিটি ১ পিস করে টোটাল রিক্যালকুলেট করুন"
                         >
                             Qty ১ করুন
                         </button>
@@ -249,21 +249,39 @@ const OrderCard = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-wrap">
-                    {/* Cancel Order Button */}
-                    {!isCancelled && (
+                    {/* Cancel / Reject Order Button */}
+                    {!isCancelled ? (
                         <button
                             type="button"
                             onClick={() => onCancel(order)}
                             className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
-                            title="এই অর্ডারটি বাতিল করুন"
+                            title="এই অর্ডারটি বাতিল (Reject) করুন"
                         >
                             <XCircle className="w-3.5 h-3.5" />
                             <span>বাতিল (Cancel)</span>
                         </button>
+                    ) : (
+                        <span className="text-xs font-bold text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-500/30">
+                            বাতিল করা হয়েছে
+                        </span>
                     )}
 
-                    {/* Resolve Button: Replaces the old Confirm button! */}
-                    {!isCancelled && !isResolved && (
+                    {/* Confirm Order Button (Only if not confirmed and not cancelled) */}
+                    {!isConfirmed && !isCancelled && (
+                        <button
+                            type="button"
+                            disabled={isActionLoading}
+                            onClick={() => onConfirm(order.id)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-emerald-950/50 transition-all cursor-pointer"
+                            title="এই অর্ডারটি কনফার্ম করুন"
+                        >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>কনফার্ম (Confirm)</span>
+                        </button>
+                    )}
+
+                    {/* Standalone Multi-Qty Card Only: Has its own Resolve button */}
+                    {!isDuplicateSubCard && !isCancelled && !isResolved && (
                         <button
                             type="button"
                             disabled={isActionLoading}
@@ -276,15 +294,8 @@ const OrderCard = ({
                         </button>
                     )}
 
-                    {/* If already resolved */}
-                    {isResolved && !isCancelled && (
-                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/30">
-                            <Check className="w-3 h-3" /> সমাধানকৃত
-                        </span>
-                    )}
-
                     {/* Steadfast Dispatch button if confirmed and no tracking */}
-                    {order.order_status === 'confirmed' && !isCancelled && !order.tracking_code && (
+                    {isConfirmed && !isCancelled && !order.tracking_code && (
                         <button
                             type="button"
                             disabled={isDispatching}
@@ -324,6 +335,7 @@ export const CxOperationsPage = () => {
     const [search, setSearch] = useState('');
     const [days, setDays] = useState(10);
     const [actionLoadingId, setActionLoadingId] = useState(null);
+    const [groupResolvingId, setGroupResolvingId] = useState(null);
 
     // Edit Order Modal State
     const [editModalOpen, setEditModalOpen] = useState(false);
@@ -389,7 +401,7 @@ export const CxOperationsPage = () => {
         fetchCxOrders();
     };
 
-    // Quick Action: Resolve, Set Qty to 1, or Cancel
+    // Quick Action on single order: Confirm, Set Qty to 1, Cancel, or Resolve
     const handleQuickAction = async (orderId, action, extra = {}) => {
         try {
             setActionLoadingId(orderId);
@@ -397,13 +409,33 @@ export const CxOperationsPage = () => {
             const res = await api.post(`/orders/${orderId}/cx-action`, payload);
 
             if (res.data.status === 'success') {
-                // Refresh list to update groupings and resolved state immediately
                 await fetchCxOrders();
             }
         } catch (err) {
             alert('Action failed: ' + (err.response?.data?.message || err.message));
         } finally {
             setActionLoadingId(null);
+        }
+    };
+
+    // ONE RESOLVE BUTTON AT THE TOP OF THE DUPLICATE PROBLEM
+    const handleResolveGroup = async (group, reopen = false) => {
+        try {
+            setGroupResolvingId(group.group_id);
+            const orderIds = group.orders.map((o) => o.id);
+            const payload = {
+                order_ids: orderIds,
+                reopen: reopen,
+            };
+
+            const res = await api.post('/orders/cx-resolve-group', payload);
+            if (res.data.status === 'success') {
+                await fetchCxOrders();
+            }
+        } catch (err) {
+            alert('Resolve failed: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setGroupResolvingId(null);
         }
     };
 
@@ -517,13 +549,13 @@ export const CxOperationsPage = () => {
                         <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
                             <Headphones className="w-3.5 h-3.5" /> CX Operations Desk
                         </span>
-                        <span className="text-xs text-slate-400">· অর্ডার ভেরিফিকেশন ও ডুপ্লিকেট সমাধান</span>
+                        <span className="text-xs text-slate-400">· সমস্যা ভিত্তিক অর্ডার ভেরিফিকেশন ও সমাধান</span>
                     </div>
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2 mt-1">
                         Customer Experience (CX) Verification
                     </h1>
                     <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-                        একই গ্রাহকের ডুপ্লিকেট অর্ডারসমূহ পাশাপাশি প্রদর্শন করা হয়েছে। কাস্টমারকে কল দিয়ে কোনটি রাখবেন নিশ্চিত হন, অতিরিক্তটি বাতিল (Cancel) করুন এবং সঠিক অর্ডারে Resolve (সমাধান হয়েছে) ক্লিক করুন।
+                        একই গ্রাহকের ডুপ্লিকেট অর্ডারকে একটি সমস্যা (Case) হিসেবে ধরা হয়েছে। কাস্টমারকে কল দিয়ে কোনটি কনফার্ম ও কোনটি বাতিল করবেন ঠিক করুন, তারপর উপরে থাকা <strong>Resolve</strong> বাটনে ক্লিক করলে পুরো কেসটি সমাধান হয়ে পাশের <strong>Resolved</strong> ট্যাবে চলে যাবে।
                     </p>
                 </div>
 
@@ -563,7 +595,7 @@ export const CxOperationsPage = () => {
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">রিভিউ প্রয়োজন</span>
+                        <span className="text-[11px] font-semibold text-slate-400">সব সমস্যা (পেন্ডিং)</span>
                         <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                     </div>
                     <p className="text-2xl font-black text-white mt-1">{meta.total_review_needed || 0}</p>
@@ -579,7 +611,7 @@ export const CxOperationsPage = () => {
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">ডুপ্লিকেট গ্রুপ</span>
+                        <span className="text-[11px] font-semibold text-slate-400">ডুপ্লিকেট কেস</span>
                         <Copy className="w-4 h-4 text-rose-400" />
                     </div>
                     <p className="text-2xl font-black text-rose-300 mt-1">{meta.duplicate_groups_count || 0}</p>
@@ -611,11 +643,11 @@ export const CxOperationsPage = () => {
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">সমাধানকৃত (Resolved)</span>
+                        <span className="text-[11px] font-semibold text-slate-400">Resolved (সমাধানকৃত)</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     </div>
                     <p className="text-2xl font-black text-emerald-300 mt-1">{meta.resolved_count || 0}</p>
-                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Resolved by CX</p>
+                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Resolved Cases</p>
                 </Card>
 
                 <Card
@@ -631,7 +663,7 @@ export const CxOperationsPage = () => {
                         <XCircle className="w-4 h-4 text-slate-500" />
                     </div>
                     <p className="text-2xl font-black text-slate-300 mt-1">{meta.cancelled_count || 0}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Duplicate Cancelled</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Cancelled</p>
                 </Card>
             </div>
 
@@ -659,7 +691,7 @@ export const CxOperationsPage = () => {
                                 : 'text-slate-400 hover:text-white hover:bg-slate-900'
                         }`}
                     >
-                        🔁 ডুপ্লিকেট অর্ডার ({meta.duplicate_groups_count || 0})
+                        🔁 ডুপ্লিকেট সমস্যা ({meta.duplicate_groups_count || 0})
                     </button>
                     <button
                         type="button"
@@ -675,13 +707,14 @@ export const CxOperationsPage = () => {
                     <button
                         type="button"
                         onClick={() => setActiveTab('resolved')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                             activeTab === 'resolved'
-                                ? 'bg-emerald-600 text-white shadow-md'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
+                                : 'text-emerald-400 hover:text-white hover:bg-slate-900 border border-emerald-500/20'
                         }`}
                     >
-                        ✅ সমাধানকৃত ({meta.resolved_count || 0})
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Resolved (সমাধানকৃত) ({meta.resolved_count || 0})</span>
                     </button>
                     <button
                         type="button"
@@ -713,42 +746,52 @@ export const CxOperationsPage = () => {
             {loading ? (
                 <div className="py-24 text-center">
                     <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-2" />
-                    <p className="text-xs text-slate-400">ডুপ্লিকেট অর্ডার ও মাল্টি-কোয়ান্টিটি বিশ্লেষণ করা হচ্ছে...</p>
+                    <p className="text-xs text-slate-400">ডুপ্লিকেট সমস্যা ও অর্ডার বিশ্লেষণ করা হচ্ছে...</p>
                 </div>
             ) : isFeedEmpty ? (
                 <div className="py-20 text-center bg-slate-950/40 rounded-3xl border border-slate-800 p-8">
                     <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3 opacity-80" />
-                    <h3 className="text-base font-bold text-white">সব অর্ডার ভেরিফাই ও সমাধান সম্পন্ন!</h3>
+                    <h3 className="text-base font-bold text-white">সব সমস্যা সমাধান (Resolved) সম্পন্ন!</h3>
                     <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
                         {activeTab === 'duplicates'
-                            ? 'গত ১০ দিনে কোনো আনভেরিফাইড ডুপ্লিকেট অর্ডারের রেকর্ড পাওয়া যায়নি।'
+                            ? 'গত ১০ দিনে কোনো আনভেরিফাইড ডুপ্লিকেট সমস্যার রেকর্ড পাওয়া যায়নি।'
                             : activeTab === 'multi_qty'
                             ? 'একাধিক কোয়ান্টিটির কোনো আনভেরিফাইড অর্ডার নেই।'
                             : activeTab === 'resolved'
-                            ? 'এখনো কোনো অর্ডার সমাধান করা হয়নি।'
-                            : 'এই মুহূর্তে কোনো ডুপ্লিকেট বা অস্বাভাবিক অর্ডারের রিভিউ বাকি নেই।'}
+                            ? 'এখনো কোনো সমস্যা বা অর্ডার সমাধান করা হয়নি।'
+                            : 'এই মুহূর্তে কোনো ডুপ্লিকেট বা অস্বাভাবিক সমস্যার রিভিউ বাকি নেই।'}
                     </p>
                 </div>
             ) : (
                 <div className="space-y-6">
-                    {/* SECTION 1: DUPLICATE GROUPS (Showing both/all orders side-by-side) */}
+                    {/* SECTION 1: DUPLICATE PROBLEM CASES (Both orders side-by-side + ONE Resolve button at top) */}
                     {hasDuplicateGroups && (
                         <div className="space-y-4">
                             {cxData.duplicate_groups.map((group) => {
                                 const rawPhone = group.customer_phone || group.normalized_phone || '';
                                 const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
                                 const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
+                                const isGroupResolving = groupResolvingId === group.group_id;
+                                const isGroupResolved = group.is_resolved;
 
                                 return (
                                     <div
                                         key={group.group_id}
-                                        className="p-4 sm:p-5 rounded-2xl border-2 border-rose-500/40 bg-gradient-to-b from-rose-950/20 via-slate-900/90 to-slate-950 space-y-4 shadow-xl"
+                                        className={`p-4 sm:p-5 rounded-2xl border-2 space-y-4 shadow-xl transition-all ${
+                                            isGroupResolved
+                                                ? 'border-emerald-500/40 bg-gradient-to-b from-emerald-950/20 via-slate-900/90 to-slate-950'
+                                                : 'border-rose-500/40 bg-gradient-to-b from-rose-950/20 via-slate-900/90 to-slate-950'
+                                        }`}
                                     >
-                                        {/* Duplicate Group Header */}
+                                        {/* Duplicate Group Header: Customer Info + ONE Top Resolve Button */}
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-rose-500/20">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0 font-bold">
-                                                    <Copy className="w-5 h-5 animate-pulse" />
+                                                <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 font-bold ${
+                                                    isGroupResolved
+                                                        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                                                        : 'bg-rose-500/20 border-rose-500/30 text-rose-400'
+                                                }`}>
+                                                    {isGroupResolved ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5 animate-pulse" />}
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2 flex-wrap">
@@ -758,9 +801,13 @@ export const CxOperationsPage = () => {
                                                         <span className="text-xs font-mono font-bold text-rose-300 bg-rose-950/80 px-2.5 py-0.5 rounded border border-rose-500/30">
                                                             {rawPhone || 'No Phone'}
                                                         </span>
-                                                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-                                                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                                                            ডুপ্লিকেট গ্রুপ ({group.orders.length}টি অর্ডার)
+                                                        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
+                                                            isGroupResolved
+                                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                                                : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                                        }`}>
+                                                            <AlertTriangle className="w-3.5 h-3.5" />
+                                                            ডুপ্লিকেট সমস্যা ({group.orders.length}টি অর্ডার)
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
@@ -770,12 +817,12 @@ export const CxOperationsPage = () => {
                                                 </div>
                                             </div>
 
-                                            {/* IP Call & WhatsApp CTAs */}
-                                            <div className="flex items-center gap-2 shrink-0">
+                                            {/* Top Right Group Action Buttons: IP Call + WhatsApp + ONE Resolve Button */}
+                                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
                                                 {rawPhone && (
                                                     <Link
                                                         to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
-                                                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+                                                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                                                         title="গ্রাহককে IP কল দিন (ePBX Dialer)"
                                                     >
                                                         <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
@@ -788,20 +835,53 @@ export const CxOperationsPage = () => {
                                                         href={`https://wa.me/${waPhone}`}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all"
+                                                        className="p-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all"
                                                         title="WhatsApp-এ মেসেজ দিন"
                                                     >
                                                         <MessageCircle className="w-4 h-4" />
                                                     </a>
                                                 )}
+
+                                                {/* ONE TOP RESOLVE BUTTON FOR THE ENTIRE PROBLEM */}
+                                                {!isGroupResolved ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={isGroupResolving}
+                                                        onClick={() => handleResolveGroup(group, false)}
+                                                        className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 border border-emerald-400/40 transition-all active:scale-95 cursor-pointer"
+                                                        title="একটি কনফার্ম ও একটি বাতিল করার পর (বা উভয় কনফার্মের পর) এই পুরো সমস্যাটি সমাধান করতে ক্লিক করুন"
+                                                    >
+                                                        {isGroupResolving ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <CheckCircle2 className="w-4 h-4" />
+                                                        )}
+                                                        <span>Resolve (সমস্যার সমাধান হয়েছে)</span>
+                                                    </button>
+                                                ) : (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/40 flex items-center gap-1.5">
+                                                            <Check className="w-4 h-4" /> সমাধানকৃত (Resolved)
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isGroupResolving}
+                                                            onClick={() => handleResolveGroup(group, true)}
+                                                            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+                                                            title="পুনরায় পেন্ডিং করুন"
+                                                        >
+                                                            <RotateCcw className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
-                                        {/* Actionable Banner */}
+                                        {/* Actionable Notice Banner */}
                                         <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
                                             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
                                             <span>
-                                                <strong>ডুপ্লিকেট নোটিশ:</strong> এই গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে উভয় অর্ডারই প্রদর্শিত হয়েছে। কাস্টমারকে কল দিয়ে নিশ্চিত হয়ে অপ্রয়োজনীয় অর্ডারটি <strong>বাতিল (Cancel)</strong> করুন এবং কাঙ্ক্ষিত অর্ডারে <strong>Resolve (সমাধান হয়েছে)</strong> ক্লিক করুন।
+                                                <strong>সমস্যা বিশ্লেষণ:</strong> গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে উভয় অর্ডার থেকে কাঙ্ক্ষিত অর্ডারটি <strong>কনফার্ম</strong> ও অনাকাঙ্ক্ষিত অর্ডারটি <strong>বাতিল (Cancel)</strong> করুন (বা চাইলে উভয়টি কনফার্ম রাখুন), এরপর উপরে থাকা <strong>Resolve (সমস্যার সমাধান হয়েছে)</strong> বাটনে ক্লিক করলেই এটি পাশের <strong>Resolved</strong> ট্যাবে চলে যাবে।
                                             </span>
                                         </div>
 
@@ -815,7 +895,7 @@ export const CxOperationsPage = () => {
                                                     orderIndex={idx + 1}
                                                     onEdit={openEditModal}
                                                     onCancel={openCancelModal}
-                                                    onResolve={(id) => handleQuickAction(id, 'resolve')}
+                                                    onConfirm={(id) => handleQuickAction(id, 'confirm')}
                                                     onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                                     onDispatchSteadfast={handleDispatchSteadfast}
                                                     actionLoadingId={actionLoadingId}
@@ -845,6 +925,7 @@ export const CxOperationsPage = () => {
                                         isDuplicateSubCard={false}
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
+                                        onConfirm={(id) => handleQuickAction(id, 'confirm')}
                                         onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
@@ -872,6 +953,7 @@ export const CxOperationsPage = () => {
                                         isDuplicateSubCard={false}
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
+                                        onConfirm={(id) => handleQuickAction(id, 'confirm')}
                                         onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
@@ -899,6 +981,7 @@ export const CxOperationsPage = () => {
                                         isDuplicateSubCard={false}
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
+                                        onConfirm={(id) => handleQuickAction(id, 'confirm')}
                                         onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}

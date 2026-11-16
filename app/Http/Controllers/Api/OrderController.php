@@ -618,6 +618,77 @@ class OrderController extends Controller
     }
 
     /**
+     * Resolve or Reopen an entire Duplicate Group Problem.
+     */
+    public function cxResolveGroup(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_ids' => 'required|array|min:1',
+            'order_ids.*' => 'integer|exists:orders,id',
+            'reopen' => 'nullable|boolean',
+            'note' => 'nullable|string',
+        ]);
+
+        $orderIds = $validated['order_ids'];
+        $isReopen = ! empty($validated['reopen']);
+        $user = $request->user();
+        $userName = $user ? $user->name : 'CX Agent';
+        $timeStr = now()->format('d M H:i');
+
+        $orders = Order::whereIn('id', $orderIds)->get();
+
+        foreach ($orders as $order) {
+            $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+
+            if ($isReopen) {
+                $raw['is_cx_resolved'] = false;
+                $raw['cx_reopened_at'] = now()->toISOString();
+                $raw['cx_reopened_by'] = $userName;
+
+                $cxNote = "[CX Problem Reopened by {$userName} on {$timeStr}]";
+                $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+                $order->update([
+                    'notes' => $updatedNotes,
+                    'wc_raw_data' => $raw,
+                ]);
+            } else {
+                $raw['is_cx_resolved'] = true;
+                $raw['cx_resolved_at'] = now()->toISOString();
+                $raw['cx_resolved_by'] = $userName;
+
+                $cxNote = "[CX Problem Resolved by {$userName} on {$timeStr}]";
+                $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+                $updateData = [
+                    'notes' => $updatedNotes,
+                    'wc_raw_data' => $raw,
+                ];
+
+                if ($order->order_status !== 'cancelled') {
+                    $updateData['order_status'] = 'confirmed';
+
+                    if ($order->wc_order_id) {
+                        try {
+                            app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                                (int) $order->wc_order_id,
+                                'processing'
+                            );
+                        } catch (\Throwable $e) {}
+                    }
+                }
+
+                $order->update($updateData);
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $isReopen ? 'সমস্যাটি পুনরায় পেন্ডিং করা হয়েছে।' : 'সম্পূর্ণ ডুপ্লিকেট সমস্যাটি সফলভাবে সমাধান (Resolved) করা হয়েছে!',
+        ]);
+    }
+
+    /**
      * Perform quick CX action (Resolve, Cancel, Set Qty to 1, or Confirm).
      */
     public function cxAction(Request $request, Order $order): JsonResponse

@@ -115,6 +115,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Orders & Conversions
     Route::get('/orders/cx-operations', [OrderController::class, 'cxOperations']);
+    Route::post('/orders/cx-resolve-group', [OrderController::class, 'cxResolveGroup']);
     Route::post('/orders/{order}/cx-action', [OrderController::class, 'cxAction']);
     Route::put('/orders/{order}', [OrderController::class, 'update']);
     Route::get('/orders/summary', [OrderController::class, 'summary']);
