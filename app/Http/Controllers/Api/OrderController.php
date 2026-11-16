@@ -447,13 +447,18 @@ class OrderController extends Controller
 
         $order->update($validated);
 
-        if ($order->wc_order_id && ! empty($validated['order_status'])) {
+        if ($order->wc_order_id) {
             try {
-                app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
-                    (int) $order->wc_order_id,
-                    $validated['order_status']
+                $wcRes = app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce(
+                    $order,
+                    $validated
                 );
-            } catch (\Throwable $e) {}
+                if (! ($wcRes['success'] ?? false)) {
+                    \Log::warning("WooCommerce update returned false for #{$order->order_number}: " . ($wcRes['message'] ?? ''));
+                }
+            } catch (\Throwable $e) {
+                \Log::error("Failed to sync order #{$order->order_number} to WooCommerce: " . $e->getMessage());
+            }
         }
 
         return response()->json([
@@ -838,11 +843,13 @@ class OrderController extends Controller
 
             if ($order->wc_order_id && $order->order_status !== 'cancelled') {
                 try {
-                    app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
-                        (int) $order->wc_order_id,
-                        'processing'
-                    );
-                } catch (\Throwable $e) {}
+                    app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce($order, [
+                        'order_status' => 'confirmed',
+                        'notes' => $updatedNotes,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error("Failed to sync resolve to WooCommerce for #{$order->order_number}: " . $e->getMessage());
+                }
             }
 
             return response()->json([
@@ -865,13 +872,35 @@ class OrderController extends Controller
             $raw['cx_resolved_at'] = now()->toISOString();
             $raw['cx_resolved_by'] = $userName;
 
+            $itemsPayload = $order->items_data;
+            if (is_array($itemsPayload) && ! empty($itemsPayload)) {
+                $itemsPayload[0]['quantity'] = 1;
+                $itemsPayload[0]['subtotal'] = (string) $unitPrice;
+                $itemsPayload[0]['total'] = (string) $unitPrice;
+            }
+
             $order->update([
                 'quantity' => 1,
                 'total_amount' => $newTotal,
                 'order_status' => 'confirmed',
                 'notes' => $updatedNotes,
                 'wc_raw_data' => $raw,
+                'items_data' => $itemsPayload,
             ]);
+
+            if ($order->wc_order_id) {
+                try {
+                    app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce($order, [
+                        'quantity' => 1,
+                        'total_amount' => $newTotal,
+                        'order_status' => 'confirmed',
+                        'notes' => $updatedNotes,
+                        'items_data' => $itemsPayload,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error("Failed to sync qty=1 to WooCommerce for #{$order->order_number}: " . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'status' => 'success',
@@ -897,11 +926,13 @@ class OrderController extends Controller
 
             if ($order->wc_order_id) {
                 try {
-                    app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
-                        (int) $order->wc_order_id,
-                        'processing'
-                    );
-                } catch (\Throwable $e) {}
+                    app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce($order, [
+                        'order_status' => 'confirmed',
+                        'notes' => $updatedNotes,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error("Failed to sync confirm to WooCommerce for #{$order->order_number}: " . $e->getMessage());
+                }
             }
 
             return response()->json([
@@ -929,11 +960,13 @@ class OrderController extends Controller
 
             if ($order->wc_order_id) {
                 try {
-                    app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
-                        (int) $order->wc_order_id,
-                        'cancelled'
-                    );
-                } catch (\Throwable $e) {}
+                    app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce($order, [
+                        'order_status' => 'cancelled',
+                        'notes' => $updatedNotes,
+                    ]);
+                } catch (\Throwable $e) {
+                    \Log::error("Failed to sync cancel to WooCommerce for #{$order->order_number}: " . $e->getMessage());
+                }
             }
 
             return response()->json([

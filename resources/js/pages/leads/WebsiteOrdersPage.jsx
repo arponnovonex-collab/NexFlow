@@ -30,7 +30,93 @@ import {
     ChevronRight,
     Trash2,
     AlertTriangle,
+    Edit,
 } from 'lucide-react';
+
+/**
+ * Helper to robustly extract order items with Name, Size, Color, Quantity, and Price.
+ */
+const extractOrderItems = (order) => {
+    let rawItems = order?.items_data;
+    if ((!rawItems || rawItems.length === 0) && order?.wc_raw_data?.line_items) {
+        rawItems = order.wc_raw_data.line_items;
+    }
+
+    if (Array.isArray(rawItems) && rawItems.length > 0) {
+        return rawItems.map((item, idx) => {
+            let name = item.name || item.product_name || order.product?.name || `Product #${idx + 1}`;
+            let size = item.size || '';
+            let color = item.color || '';
+            let qty = parseInt(item.quantity || item.qty, 10) || 1;
+            let price = parseFloat(item.price || item.unit_price) || 0;
+
+            // 1. Check meta_data if size/color empty
+            if ((!size || !color) && Array.isArray(item.meta_data)) {
+                for (const m of item.meta_data) {
+                    const k = String(m.key || m.display_key || '').toLowerCase();
+                    const v = String(m.value || m.display_value || '').trim();
+                    if (!v || typeof m.value === 'object') continue;
+                    if (!size && (k.includes('size') || k.includes('সাইজ'))) {
+                        size = v;
+                    }
+                    if (!color && (k.includes('color') || k.includes('colour') || k.includes('কালার'))) {
+                        color = v;
+                    }
+                }
+            }
+
+            // 2. Check variation string if size/color empty
+            if ((!size || !color) && item.variation) {
+                const varStr = String(item.variation);
+                const sizeMatch = varStr.match(/size:\s*([^,;]+)/i);
+                if (!size && sizeMatch) size = sizeMatch[1].trim();
+                const colorMatch = varStr.match(/colou?r:\s*([^,;]+)/i);
+                if (!color && colorMatch) color = colorMatch[1].trim();
+            }
+
+            // 3. If product name has " - Variation" appended
+            if ((!size || !color) && name.includes(' - ')) {
+                const parts = name.split(' - ');
+                const possibleVar = parts.slice(1).join(' - ').trim();
+                name = parts[0].trim();
+                if (possibleVar) {
+                    if (possibleVar.includes(',')) {
+                        const [s, c] = possibleVar.split(',').map((x) => x.trim());
+                        if (!size) size = s;
+                        if (!color && c) color = c;
+                    } else {
+                        if (!size) size = possibleVar;
+                    }
+                }
+            }
+
+            // 4. Fallback for single item order attributes
+            if (!size && rawItems.length === 1 && order.size) size = order.size;
+            if (!color && rawItems.length === 1 && order.color) color = order.color;
+
+            return {
+                id: item.id || idx,
+                product_id: item.product_id || null,
+                name: name,
+                size: size,
+                color: color,
+                quantity: qty,
+                price: price,
+            };
+        });
+    }
+
+    return [
+        {
+            id: 1,
+            name: order?.product?.name || 'Product',
+            size: order?.size || '',
+            color: order?.color || '',
+            quantity: order?.quantity || 1,
+            price: parseFloat(order?.unit_price) || 0,
+        },
+    ];
+};
 
 export const WebsiteOrdersPage = () => {
     const [orders, setOrders] = useState([]);
@@ -80,6 +166,139 @@ export const WebsiteOrdersPage = () => {
     const [problemModalOpen, setProblemModalOpen] = useState(false);
     const [problemOrdersWarningList, setProblemOrdersWarningList] = useState([]);
     const [pendingSingleOrderId, setPendingSingleOrderId] = useState(null);
+
+    // Edit Order Modal State
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [editingOrder, setEditingOrder] = useState(null);
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [editForm, setEditForm] = useState({
+        items: [],
+        quantity: 1,
+        delivery_charge: 0,
+        total_amount: 0,
+        customer_name: '',
+        customer_phone: '',
+        customer_address: '',
+        customer_email: '',
+        notes: '',
+        order_status: 'confirmed',
+    });
+
+    const openEditModal = (order) => {
+        setEditingOrder(order);
+        const parsedItems = extractOrderItems(order);
+        const totalQty = parsedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+        const itemsTotal = parsedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+        const delivery = parseFloat(order.delivery_charge) || 0;
+        const totalAmount = parseFloat(order.total_amount) || (itemsTotal + delivery);
+
+        setEditForm({
+            items: parsedItems,
+            quantity: totalQty || order.quantity || 1,
+            delivery_charge: delivery,
+            total_amount: totalAmount,
+            customer_name: order.customer?.name || '',
+            customer_phone: order.customer_phone || order.customer?.phone || '',
+            customer_address: order.customer_address || '',
+            customer_email: order.customer_email || order.customer?.email || '',
+            notes: order.notes || '',
+            order_status: order.order_status || 'confirmed',
+        });
+        setEditModalOpen(true);
+    };
+
+    const handleItemChange = (idx, field, value) => {
+        setEditForm((prev) => {
+            const updatedItems = [...prev.items];
+            updatedItems[idx] = { ...updatedItems[idx], [field]: value };
+
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    const handleRemoveItem = (idx) => {
+        setEditForm((prev) => {
+            if (prev.items.length <= 1) {
+                alert('অন্তত একটি পণ্য অর্ডারে থাকতে হবে।');
+                return prev;
+            }
+            const updatedItems = prev.items.filter((_, i) => i !== idx);
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    const handleDeliveryChargeChange = (value) => {
+        setEditForm((prev) => {
+            const delivery = parseFloat(value) || 0;
+            const itemsTotal = prev.items.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            return {
+                ...prev,
+                delivery_charge: delivery,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    const handleEditFormChange = (field, value) => {
+        setEditForm((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
+    };
+
+    const handleSaveEdit = async (e) => {
+        e.preventDefault();
+        if (!editingOrder) return;
+
+        try {
+            setSavingEdit(true);
+            const payload = {
+                items_data: editForm.items,
+                quantity: editForm.quantity,
+                size: editForm.items[0]?.size || '',
+                color: editForm.items[0]?.color || '',
+                unit_price: editForm.items[0]?.price || 0,
+                delivery_charge: editForm.delivery_charge,
+                total_amount: editForm.total_amount,
+                customer_name: editForm.customer_name,
+                customer_phone: editForm.customer_phone,
+                customer_address: editForm.customer_address,
+                customer_email: editForm.customer_email,
+                notes: editForm.notes,
+                order_status: editForm.order_status,
+            };
+
+            const res = await api.put(`/orders/${editingOrder.id}`, payload);
+            if (res.data.status === 'success') {
+                alert(`✅ Order #${editingOrder.order_number} সফলভাবে আপডেট এবং WooCommerce-এ সেভ করা হয়েছে!`);
+                setEditModalOpen(false);
+                setEditingOrder(null);
+                fetchOrders(page, perPage);
+            }
+        } catch (err) {
+            alert('Failed to update order: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setSavingEdit(false);
+        }
+    };
 
     const fetchOrders = async (targetPage = page, targetPerPage = perPage) => {
         try {
@@ -870,6 +1089,14 @@ export const WebsiteOrdersPage = () => {
                                                     )}
                                                     <button
                                                         type="button"
+                                                        onClick={() => openEditModal(order)}
+                                                        className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                                                        title="Edit Order (অর্ডার এডিট করুন)"
+                                                    >
+                                                        <Edit className="w-4 h-4" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
                                                         onClick={() => setSelectedOrder(order)}
                                                         className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                                                         title="View Full Order Details"
@@ -1183,7 +1410,20 @@ export const WebsiteOrdersPage = () => {
                             </div>
                         )}
 
-                        <div className="flex justify-end pt-2">
+                        <div className="flex justify-between items-center pt-2">
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => {
+                                    const ord = selectedOrder;
+                                    setSelectedOrder(null);
+                                    openEditModal(ord);
+                                }}
+                                className="flex items-center gap-1.5"
+                            >
+                                <Edit className="w-3.5 h-3.5" />
+                                <span>Edit Order (এডিট)</span>
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => setSelectedOrder(null)}>
                                 Close
                             </Button>
@@ -1289,6 +1529,243 @@ export const WebsiteOrdersPage = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Edit Order Modal */}
+            {editModalOpen && editingOrder && (
+                <Modal
+                    isOpen={editModalOpen}
+                    onClose={() => setEditModalOpen(false)}
+                    title={`✏️ Edit Order ${editingOrder.order_number?.startsWith('#') ? '' : '#'}${editingOrder.order_number}`}
+                >
+                    <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+                        {/* Customer Information */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-indigo-400" /> গ্রাহকের তথ্য
+                            </h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1">গ্রাহকের নাম</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.customer_name}
+                                        onChange={(e) => handleEditFormChange('customer_name', e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1">ফোন নম্বর</label>
+                                    <input
+                                        type="text"
+                                        value={editForm.customer_phone}
+                                        onChange={(e) => handleEditFormChange('customer_phone', e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">ডেলিভারি ঠিকানা</label>
+                                <textarea
+                                    rows={2}
+                                    value={editForm.customer_address}
+                                    onChange={(e) => handleEditFormChange('customer_address', e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Ordered Products Section */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                                <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+                                    <Package className="w-4 h-4 text-cyan-400" />
+                                    <span>অর্ডারকৃত পণ্যসমূহ ({editForm.items?.length || 1}টি আইটেম)</span>
+                                </h4>
+                                <span className="text-[11px] font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 font-bold">
+                                    মোট কোয়ান্টিটি: {editForm.quantity} পিস
+                                </span>
+                            </div>
+
+                            <div className="space-y-3">
+                                {editForm.items && editForm.items.map((item, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 relative group hover:border-slate-700 transition-colors"
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center text-[10px] font-black shrink-0">
+                                                    #{idx + 1}
+                                                </span>
+                                                <span className="text-[11px] text-slate-300 font-bold">
+                                                    আইটেম {idx + 1}
+                                                </span>
+                                            </div>
+                                            {editForm.items.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveItem(idx)}
+                                                    className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold flex items-center gap-1 p-1 rounded hover:bg-rose-500/10 cursor-pointer"
+                                                    title="এই পণ্যটি অর্ডার থেকে মুছে ফেলুন"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                    <span>মুছুন</span>
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Product Name Input */}
+                                        <div>
+                                            <label className="block text-[11px] text-slate-400 mb-1 font-medium">পণ্যের নাম (Product Name)</label>
+                                            <input
+                                                type="text"
+                                                value={item.name}
+                                                onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:border-cyan-500"
+                                                placeholder="Product Name"
+                                            />
+                                        </div>
+
+                                        {/* Attributes: Size, Color, Quantity, Unit Price */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Size (সাইজ)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. 8-9-year, M, L"
+                                                    value={item.size}
+                                                    onChange={(e) => handleItemChange(idx, 'size', e.target.value)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-indigo-200 font-mono focus:border-indigo-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Color (কালার)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. Red, Blue"
+                                                    value={item.color}
+                                                    onChange={(e) => handleItemChange(idx, 'color', e.target.value)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-purple-200 font-mono focus:border-purple-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Quantity (পিস)</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity}
+                                                    onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value, 10) || 1)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-cyan-300 font-bold font-mono focus:border-cyan-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Unit Price (৳)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="any"
+                                                    value={item.price}
+                                                    onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono focus:border-cyan-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="text-right text-[11px] text-slate-400 font-mono pt-0.5">
+                                            আইটেম সাবটোটাল: <strong className="text-slate-200">৳{((item.quantity || 1) * (item.price || 0)).toFixed(0)}</strong>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Pricing & Calculations */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
+                                <ShoppingBag className="w-3.5 h-3.5 text-indigo-400" /> মূল্য ও ডেলিভারি হিসাব
+                            </h4>
+                            <div className="grid grid-cols-3 gap-2.5">
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1">মোট আইটেম কোয়ান্টিটি</label>
+                                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-bold font-mono">
+                                        {editForm.quantity} পিস
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1">Delivery Charge (৳)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={editForm.delivery_charge}
+                                        onChange={(e) => handleDeliveryChargeChange(e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1 font-bold text-emerald-400">Total Amount (৳)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={editForm.total_amount}
+                                        onChange={(e) => setEditForm({ ...editForm, total_amount: parseFloat(e.target.value) || 0 })}
+                                        className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold font-mono"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Order Status & Notes */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">Order Status</label>
+                                <select
+                                    value={editForm.order_status}
+                                    onChange={(e) => handleEditFormChange('order_status', e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                >
+                                    <option value="pending_confirmation">Pending Confirmation</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="processing">Processing</option>
+                                    <option value="delivered">Delivered</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[11px] text-slate-400 mb-1">Internal Notes</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. কাস্টমার ফোন করে কনফার্ম করেছেন"
+                                    value={editForm.notes}
+                                    onChange={(e) => handleEditFormChange('notes', e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="pt-2 flex justify-end gap-2 border-t border-slate-800">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setEditModalOpen(false)}
+                                className="text-slate-400 hover:text-white"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                size="sm"
+                                loading={savingEdit}
+                                className="bg-indigo-600 hover:bg-indigo-500 font-bold flex items-center gap-1.5"
+                            >
+                                <Check className="w-4 h-4" />
+                                <span>Save Changes (সংরক্ষণ ও WooCommerce সিঙ্ক)</span>
+                            </Button>
+                        </div>
+                    </form>
+                </Modal>
+            )}
         </div>
     );
 };

@@ -734,6 +734,221 @@ class WooCommerceService
     }
 
     /**
+     * Push full order updates (Customer name, phone, address, items, quantities, pricing, status, notes)
+     * back to the WooCommerce store via REST API.
+     */
+    public function updateOrderInWooCommerce(Order $order, array $changes = []): array
+    {
+        if (empty($order->wc_order_id)) {
+            return [
+                'success' => false,
+                'message' => 'Not a WooCommerce order.',
+            ];
+        }
+
+        $settings = $this->getSettings();
+        if (! $settings->is_enabled || empty($settings->store_url) || empty($settings->consumer_key) || empty($settings->consumer_secret)) {
+            return [
+                'success' => false,
+                'message' => 'WooCommerce store is not connected or configured.',
+            ];
+        }
+
+        $wcOrderId = (int) $order->wc_order_id;
+        $payload = [];
+
+        // 1. Status sync
+        $status = $changes['order_status'] ?? $order->order_status;
+        if (! empty($status)) {
+            $payload['status'] = match ($status) {
+                'pending_confirmation' => 'on-hold',
+                'confirmed', 'processing' => 'processing',
+                'shipped' => 'processing',
+                'delivered' => 'completed',
+                'cancelled' => 'cancelled',
+                'returned' => 'refunded',
+                default => 'processing',
+            };
+        }
+
+        // 2. Customer billing & shipping address sync
+        $name = trim((string) ($changes['customer_name'] ?? $order->customer?->name ?? ''));
+        $phone = $changes['customer_phone'] ?? $order->customer_phone ?? $order->customer?->phone ?? '';
+        $address = $changes['customer_address'] ?? $order->customer_address ?? '';
+        $email = $changes['customer_email'] ?? $order->customer_email ?? $order->customer?->email ?? '';
+
+        $nameParts = explode(' ', $name, 2);
+        $firstName = $nameParts[0] ?? '';
+        $lastName = $nameParts[1] ?? '';
+
+        $billing = [];
+        $shipping = [];
+
+        if (! empty($firstName)) {
+            $billing['first_name'] = $firstName;
+            $billing['last_name'] = $lastName;
+            $shipping['first_name'] = $firstName;
+            $shipping['last_name'] = $lastName;
+        }
+        if (! empty($phone)) {
+            $billing['phone'] = $phone;
+            $shipping['phone'] = $phone;
+        }
+        if (! empty($address)) {
+            $billing['address_1'] = $address;
+            $shipping['address_1'] = $address;
+        }
+        if (! empty($email)) {
+            $billing['email'] = $email;
+        }
+
+        if (! empty($billing)) {
+            $payload['billing'] = $billing;
+        }
+        if (! empty($shipping)) {
+            $payload['shipping'] = $shipping;
+        }
+
+        // 3. Customer note
+        if (isset($changes['notes'])) {
+            $payload['customer_note'] = (string) $changes['notes'];
+        }
+
+        // 4. Line items & quantities sync
+        $newItems = $changes['items_data'] ?? $order->items_data;
+        if (is_array($newItems) && ! empty($newItems)) {
+            $wcLineItemsPayload = [];
+            $keptItemIds = [];
+
+            foreach ($newItems as $it) {
+                $liId = $it['id'] ?? null;
+                $qty = (int) ($it['quantity'] ?? 1);
+                $unitPrice = (float) ($it['price'] ?? 0);
+                $itemTotal = $qty * $unitPrice;
+
+                $lineItemEntry = [
+                    'quantity' => $qty,
+                ];
+
+                if (! empty($liId) && is_numeric($liId)) {
+                    $lineItemEntry['id'] = (int) $liId;
+                    $keptItemIds[] = (int) $liId;
+                } elseif (! empty($it['product_id'])) {
+                    $lineItemEntry['product_id'] = (int) $it['product_id'];
+                    if (! empty($it['variation_id'])) {
+                        $lineItemEntry['variation_id'] = (int) $it['variation_id'];
+                    }
+                }
+
+                if ($unitPrice > 0) {
+                    $lineItemEntry['subtotal'] = number_format($itemTotal, 2, '.', '');
+                    $lineItemEntry['total'] = number_format($itemTotal, 2, '.', '');
+                }
+
+                // Update size & color meta_data if present
+                $metaData = [];
+                if (! empty($it['size'])) {
+                    $metaData[] = ['key' => 'Size', 'value' => (string) $it['size']];
+                }
+                if (! empty($it['color'])) {
+                    $metaData[] = ['key' => 'Color', 'value' => (string) $it['color']];
+                }
+                if (! empty($metaData)) {
+                    $lineItemEntry['meta_data'] = $metaData;
+                }
+
+                $wcLineItemsPayload[] = $lineItemEntry;
+            }
+
+            // Remove line items that were deleted in NexFlow
+            $origLineItems = $order->wc_raw_data['line_items'] ?? [];
+            if (is_array($origLineItems) && ! empty($origLineItems)) {
+                foreach ($origLineItems as $origLi) {
+                    $origId = (int) ($origLi['id'] ?? 0);
+                    if ($origId > 0 && ! in_array($origId, $keptItemIds, true)) {
+                        $wcLineItemsPayload[] = [
+                            'id' => $origId,
+                            'quantity' => 0,
+                        ];
+                    }
+                }
+            }
+
+            if (! empty($wcLineItemsPayload)) {
+                $payload['line_items'] = $wcLineItemsPayload;
+            }
+        }
+
+        // 5. Shipping lines (Delivery Charge)
+        $deliveryCharge = isset($changes['delivery_charge']) ? (float) $changes['delivery_charge'] : (float) $order->delivery_charge;
+        if ($deliveryCharge >= 0) {
+            $origShippingLines = $order->wc_raw_data['shipping_lines'] ?? [];
+            if (is_array($origShippingLines) && ! empty($origShippingLines) && ! empty($origShippingLines[0]['id'])) {
+                $payload['shipping_lines'] = [
+                    [
+                        'id' => (int) $origShippingLines[0]['id'],
+                        'total' => number_format($deliveryCharge, 2, '.', ''),
+                    ],
+                ];
+            } else {
+                $payload['shipping_lines'] = [
+                    [
+                        'method_title' => 'Delivery Charge',
+                        'method_id' => 'flat_rate',
+                        'total' => number_format($deliveryCharge, 2, '.', ''),
+                    ],
+                ];
+            }
+        }
+
+        $cleanUrl = rtrim(trim($settings->store_url), '/');
+        try {
+            $res = Http::timeout(15)
+                ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                ->put("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}", $payload);
+
+            if ($res->successful()) {
+                $updatedWcData = $res->json();
+
+                // Add audit note to WooCommerce order
+                try {
+                    $agentName = auth()->user()?->name ?: 'NexFlow CRM Agent';
+                    Http::timeout(5)
+                        ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                        ->post("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}/notes", [
+                            'note' => "Order updated from NexFlow CRM by {$agentName}.",
+                            'customer_note' => false,
+                        ]);
+                } catch (\Throwable $e) {}
+
+                // Update wc_raw_data with fresh response from WooCommerce
+                $order->update(['wc_raw_data' => $updatedWcData]);
+
+                return [
+                    'success' => true,
+                    'message' => 'Order updated in WooCommerce successfully!',
+                    'data' => $updatedWcData,
+                ];
+            }
+
+            Log::warning("WooCommerce update order #{$wcOrderId} response: " . $res->body());
+
+            return [
+                'success' => false,
+                'message' => 'WooCommerce returned error: ' . ($res->json()['message'] ?? $res->body()),
+                'status' => $res->status(),
+            ];
+        } catch (\Throwable $e) {
+            Log::error("Failed to update WC order #{$wcOrderId}: " . $e->getMessage());
+
+            return [
+                'success' => false,
+                'message' => 'Connection to WooCommerce failed: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Push status update back to WooCommerce store.
      */
     public function updateOrderStatusInWooCommerce(int $wcOrderId, string $nexflowStatus): bool
