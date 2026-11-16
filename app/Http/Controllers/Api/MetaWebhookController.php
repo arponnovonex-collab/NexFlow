@@ -187,6 +187,11 @@ class MetaWebhookController extends Controller
             ]
         );
 
+        // Enrich post with real caption, media thumbnail, and permalink if newly created or incomplete
+        if ($post->wasRecentlyCreated || str_starts_with((string) $post->message, 'Facebook Post #') || empty($post->media_url)) {
+            $this->enrichPostFromMeta($post, $account);
+        }
+
         // Store comment immediately
         $comment = SocialComment::updateOrCreate(
             [
@@ -777,6 +782,36 @@ class MetaWebhookController extends Controller
                     'wa_id' => $fromWaId,
                 ],
             ]);
+        }
+    }
+
+    /**
+     * Enrich a SocialPost with real caption, photo/video thumbnail, and permalink from Meta Graph API.
+     */
+    protected function enrichPostFromMeta(SocialPost $post, ?SocialAccount $account): void
+    {
+        if (! $account || empty($account->access_token) || str_starts_with($account->access_token, 'EAAXMOCK')) {
+            return;
+        }
+
+        try {
+            $version = config('services.meta.graph_version', 'v19.0');
+            $res = Http::timeout(8)->get("https://graph.facebook.com/{$version}/{$post->platform_post_id}", [
+                'fields' => 'id,message,story,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}',
+                'access_token' => $account->access_token,
+            ]);
+
+            if ($res->successful()) {
+                $extracted = \App\Http\Controllers\Api\CommentAutomationController::extractPostFields($res->json(), $post->platform_post_id);
+                $post->update([
+                    'message' => $extracted['message'],
+                    'media_url' => $extracted['media_url'] ?: $post->media_url,
+                    'permalink' => $extracted['permalink'] ?: $post->permalink,
+                    'published_at' => $extracted['published_at'] ?: $post->published_at,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning("Failed to enrich post {$post->id} from Meta: " . $e->getMessage());
         }
     }
 }

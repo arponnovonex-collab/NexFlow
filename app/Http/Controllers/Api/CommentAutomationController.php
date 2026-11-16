@@ -37,10 +37,96 @@ class CommentAutomationController extends Controller
 
         $posts = $query->orderByDesc('published_at')->paginate($request->integer('per_page', 50));
 
+        // On-the-fly enrichment for up to 6 incomplete posts on the active page
+        $version = config('services.meta.graph_version', 'v19.0');
+        $incomplete = $posts->filter(function ($p) {
+            return str_starts_with((string) $p->message, 'Facebook Post #') || empty($p->media_url);
+        })->take(6);
+
+        foreach ($incomplete as $p) {
+            $account = $p->socialAccount;
+            if ($account && ! empty($account->access_token) && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+                try {
+                    $res = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$p->platform_post_id}", [
+                        'fields' => 'id,message,story,description,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}',
+                        'access_token' => $account->access_token,
+                    ]);
+                    if ($res->successful()) {
+                        $extracted = self::extractPostFields($res->json(), $p->platform_post_id);
+                        $p->update([
+                            'message' => $extracted['message'],
+                            'media_url' => $extracted['media_url'] ?: $p->media_url,
+                            'permalink' => $extracted['permalink'] ?: $p->permalink,
+                            'published_at' => $extracted['published_at'] ?: $p->published_at,
+                        ]);
+                    }
+                } catch (\Throwable $e) {}
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'data' => $posts,
         ]);
+    }
+
+    /**
+     * Extract rich post fields from Facebook Graph API payload (message, media_url, permalink, published_at).
+     */
+    public static function extractPostFields(array $item, ?string $fallbackId = null): array
+    {
+        $id = (string) ($item['id'] ?? $fallbackId ?? '');
+        $attachments = $item['attachments']['data'] ?? [];
+        $firstAttachment = $attachments[0] ?? null;
+
+        // 1. Caption / Message extraction
+        $message = ! empty($item['message']) ? trim($item['message']) : null;
+        if (empty($message) && ! empty($firstAttachment['description'])) {
+            $message = trim($firstAttachment['description']);
+        }
+        if (empty($message) && ! empty($firstAttachment['title'])) {
+            $message = trim($firstAttachment['title']);
+        }
+        if (empty($message) && ! empty($item['story'])) {
+            $message = trim($item['story']);
+        }
+        if (empty($message) && ! empty($item['description'])) {
+            $message = trim($item['description']);
+        }
+        if (empty($message)) {
+            $message = 'Facebook Post #' . $id;
+        }
+
+        // 2. Media Image / Video Thumbnail extraction
+        $mediaUrl = $item['full_picture'] ?? null;
+        if (empty($mediaUrl) && ! empty($firstAttachment['media']['image']['src'])) {
+            $mediaUrl = $firstAttachment['media']['image']['src'];
+        }
+        if (empty($mediaUrl) && ! empty($firstAttachment['subattachments']['data'][0]['media']['image']['src'])) {
+            $mediaUrl = $firstAttachment['subattachments']['data'][0]['media']['image']['src'];
+        }
+        if (empty($mediaUrl) && ! empty($item['picture'])) {
+            $mediaUrl = $item['picture'];
+        }
+
+        // 3. Permalink extraction
+        $permalink = $item['permalink_url'] ?? null;
+        if (empty($permalink) && ! empty($firstAttachment['url'])) {
+            $permalink = $firstAttachment['url'];
+        }
+        if (empty($permalink) && ! empty($firstAttachment['unshimmed_url'])) {
+            $permalink = $firstAttachment['unshimmed_url'];
+        }
+
+        // 4. Published time
+        $publishedAt = isset($item['created_time']) ? Carbon::parse($item['created_time']) : now();
+
+        return [
+            'message' => $message,
+            'media_url' => $mediaUrl,
+            'permalink' => $permalink,
+            'published_at' => $publishedAt,
+        ];
     }
 
     /**
@@ -66,8 +152,9 @@ class CommentAutomationController extends Controller
             try {
                 $token = $account->access_token;
                 $endpointUrl = "https://graph.facebook.com/{$version}/{$account->account_id}/published_posts";
+                $postFields = 'id,message,story,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}';
                 $queryParams = [
-                    'fields' => 'id,message,created_time,full_picture,permalink_url',
+                    'fields' => $postFields,
                     'limit' => 50,
                     'access_token' => $token,
                 ];
@@ -104,14 +191,15 @@ class CommentAutomationController extends Controller
                     }
 
                     foreach ($items as $item) {
+                        $extracted = self::extractPostFields($item);
                         SocialPost::updateOrCreate(
                             ['platform_post_id' => (string) $item['id']],
                             [
                                 'social_account_id' => $account->id,
-                                'message' => ! empty($item['message']) ? $item['message'] : 'Facebook Post #' . $item['id'],
-                                'media_url' => $item['full_picture'] ?? null,
-                                'permalink' => $item['permalink_url'] ?? null,
-                                'published_at' => isset($item['created_time']) ? Carbon::parse($item['created_time']) : now(),
+                                'message' => $extracted['message'],
+                                'media_url' => $extracted['media_url'],
+                                'permalink' => $extracted['permalink'],
+                                'published_at' => $extracted['published_at'],
                                 'is_auto_reply_enabled' => true,
                             ]
                         );
@@ -121,6 +209,69 @@ class CommentAutomationController extends Controller
                     $endpointUrl = $res->json('paging.next') ?? null;
                     $queryParams = []; // next URL already includes access token & pagination cursor
                     $pagesFetched++;
+                }
+
+                // Also sync standalone Page Videos & Reels that may not appear in published_posts
+                try {
+                    $vidRes = Http::timeout(12)->get("https://graph.facebook.com/{$version}/{$account->account_id}/videos", [
+                        'fields' => 'id,description,title,picture,permalink_url,created_time',
+                        'limit' => 30,
+                        'access_token' => $token,
+                    ]);
+                    if ($vidRes->successful()) {
+                        $vids = $vidRes->json('data') ?? [];
+                        foreach ($vids as $v) {
+                            $vId = (string) $v['id'];
+                            $vCaption = ! empty($v['description']) ? trim($v['description']) : (! empty($v['title']) ? trim($v['title']) : 'Facebook Video #' . $vId);
+                            $vPic = $v['picture'] ?? null;
+                            $vLink = $v['permalink_url'] ?? null;
+                            $vTime = isset($v['created_time']) ? Carbon::parse($v['created_time']) : now();
+
+                            SocialPost::updateOrCreate(
+                                ['platform_post_id' => $vId],
+                                [
+                                    'social_account_id' => $account->id,
+                                    'message' => $vCaption,
+                                    'media_url' => $vPic,
+                                    'permalink' => $vLink,
+                                    'published_at' => $vTime,
+                                    'is_auto_reply_enabled' => true,
+                                ]
+                            );
+                            $syncedCount++;
+                        }
+                    }
+                } catch (\Throwable $vidEx) {
+                    Log::warning("Video sync skipped for account {$account->id}: " . $vidEx->getMessage());
+                }
+
+                // Enrich any existing incomplete posts for this account
+                $incompletePosts = SocialPost::where('social_account_id', $account->id)
+                    ->where(function ($q) {
+                        $q->where('message', 'LIKE', 'Facebook Post #%')
+                            ->orWhereNull('media_url')
+                            ->orWhere('media_url', '');
+                    })
+                    ->take(30)
+                    ->get();
+
+                foreach ($incompletePosts as $incPost) {
+                    try {
+                        $singleRes = Http::timeout(8)->get("https://graph.facebook.com/{$version}/{$incPost->platform_post_id}", [
+                            'fields' => $postFields,
+                            'access_token' => $token,
+                        ]);
+                        if ($singleRes->successful()) {
+                            $extracted = self::extractPostFields($singleRes->json(), $incPost->platform_post_id);
+                            $incPost->update([
+                                'message' => $extracted['message'],
+                                'media_url' => $extracted['media_url'] ?: $incPost->media_url,
+                                'permalink' => $extracted['permalink'] ?: $incPost->permalink,
+                                'published_at' => $extracted['published_at'] ?: $incPost->published_at,
+                            ]);
+                            $syncedCount++;
+                        }
+                    } catch (\Throwable $e) {}
                 }
             } catch (\Exception $e) {
                 Log::warning("Failed to sync posts for account {$account->id}: " . $e->getMessage());
@@ -165,7 +316,7 @@ class CommentAutomationController extends Controller
      */
     public function comments(Request $request): JsonResponse
     {
-        $query = SocialComment::with(['post.products:id,name,selling_price', 'replies']);
+        $query = SocialComment::with(['post.products:id,name,selling_price', 'post.socialAccount:id,name,platform', 'replies']);
 
         if ($request->filled('social_post_id')) {
             $query->where('social_post_id', $request->social_post_id);

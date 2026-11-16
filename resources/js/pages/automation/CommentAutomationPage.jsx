@@ -20,6 +20,10 @@ import {
     Bot,
     FileText,
     Loader2,
+    ExternalLink,
+    Video,
+    Film,
+    Image as ImageIcon,
 } from 'lucide-react';
 
 export const CommentAutomationPage = () => {
@@ -130,10 +134,14 @@ export const CommentAutomationPage = () => {
     const handleSyncPosts = async () => {
         setSyncing(true);
         try {
-            await api.post('/posts/sync');
+            const res = await api.post('/posts/sync');
             await fetchData(true);
+            if (res.data?.message) {
+                alert(res.data.message);
+            }
         } catch (err) {
             console.error(err);
+            alert('Failed to sync Facebook feed: ' + (err.response?.data?.message || err.message));
         } finally {
             setSyncing(false);
         }
@@ -292,42 +300,102 @@ export const CommentAutomationPage = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {posts.map((post) => (
-                        <Card key={post.id} className="relative">
-                            <div className="flex items-start gap-3">
-                                <img
-                                    src={post.media_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=200'}
-                                    alt="Post thumbnail"
-                                    className="w-20 h-20 rounded-xl object-cover shrink-0 ring-1 ring-slate-800"
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1">
-                                            <Facebook className="w-3 h-3" /> {post.social_account?.name}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleTogglePostAutoReply(post)}
-                                            title="Click to toggle auto-reply for this post"
-                                            className="focus:outline-none"
-                                        >
-                                            <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs" className="cursor-pointer hover:opacity-80">
-                                                {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
-                                            </Badge>
-                                        </button>
+                    {posts.map((post) => {
+                        const isVideo = post.permalink?.includes('/reel/') || post.permalink?.includes('/videos/');
+                        const isPlaceholderTitle = !post.message || post.message.startsWith('Facebook Post #');
+
+                        return (
+                            <Card key={post.id} className="relative hover:border-slate-700 transition-colors">
+                                <div className="flex items-start gap-3.5">
+                                    {/* Post Thumbnail with Video / Reel badge & hotlink-safe fallback */}
+                                    <div className="relative w-20 h-20 rounded-xl overflow-hidden shrink-0 ring-1 ring-slate-800 bg-slate-950 flex items-center justify-center group/thumb">
+                                        {post.media_url ? (
+                                            <img
+                                                src={post.media_url}
+                                                alt="Post thumbnail"
+                                                referrerPolicy="no-referrer"
+                                                crossOrigin="anonymous"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    const fallback = e.currentTarget.parentElement?.querySelector('.post-media-fallback');
+                                                    if (fallback) fallback.classList.remove('hidden');
+                                                }}
+                                                className="w-full h-full object-cover transition-transform group-hover/thumb:scale-105"
+                                            />
+                                        ) : null}
+                                        <div className={`post-media-fallback ${post.media_url ? 'hidden' : 'flex'} flex-col items-center justify-center w-full h-full p-2 bg-gradient-to-br from-slate-900 to-slate-950 text-slate-500 text-center`}>
+                                            {isVideo ? (
+                                                <Video className="w-6 h-6 text-indigo-400 mb-0.5" />
+                                            ) : (
+                                                <Facebook className="w-6 h-6 text-blue-400 mb-0.5" />
+                                            )}
+                                            <span className="text-[9px] font-mono text-slate-400">Facebook</span>
+                                        </div>
+
+                                        {/* Video / Reel badge overlay */}
+                                        {isVideo && (
+                                            <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-xs text-[9px] font-bold text-rose-300 flex items-center gap-1 shadow-sm">
+                                                <Film className="w-2.5 h-2.5 text-rose-400" />
+                                                <span>Reel</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    <p className="text-xs text-slate-200 line-clamp-2 mt-1">{post.message}</p>
-                                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                                        {post.products?.map((p) => (
-                                            <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
-                                                <ShoppingBag className="w-2.5 h-2.5 text-indigo-400" /> {p.name} ({p.selling_price} BDT)
-                                            </span>
-                                        ))}
+
+                                    {/* Post Content & Meta */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1.5 min-w-0 truncate">
+                                                <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1 truncate">
+                                                    <Facebook className="w-3 h-3 shrink-0" /> {post.social_account?.name || 'Facebook Page'}
+                                                </span>
+                                                {post.permalink && (
+                                                    <a
+                                                        href={post.permalink}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-[10px] text-slate-400 hover:text-indigo-300 inline-flex items-center gap-0.5 transition-colors shrink-0 ml-1"
+                                                        title="View post on Facebook"
+                                                    >
+                                                        <span>View</span>
+                                                        <ExternalLink className="w-2.5 h-2.5" />
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleTogglePostAutoReply(post)}
+                                                title="Click to toggle auto-reply for this post"
+                                                className="focus:outline-none shrink-0"
+                                            >
+                                                <Badge variant={post.is_auto_reply_enabled ? 'primary' : 'neutral'} size="xs" className="cursor-pointer hover:opacity-80">
+                                                    {post.is_auto_reply_enabled ? 'Auto Reply Active' : 'Paused'}
+                                                </Badge>
+                                            </button>
+                                        </div>
+
+                                        {/* Caption / Message */}
+                                        <p className="text-xs text-slate-200 line-clamp-3 mt-1.5 leading-relaxed selection:bg-indigo-500 selection:text-white">
+                                            {post.message || 'No caption available.'}
+                                        </p>
+
+                                        {/* Publication Date & Products */}
+                                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                                            {post.published_at && (
+                                                <span className="text-[10px] text-slate-400 font-mono">
+                                                    📅 {new Date(post.published_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </span>
+                                            )}
+                                            {post.products?.map((p) => (
+                                                <span key={p.id} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1">
+                                                    <ShoppingBag className="w-2.5 h-2.5 text-indigo-400" /> {p.name} ({p.selling_price} BDT)
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </Card>
-                    ))}
+                            </Card>
+                        );
+                    })}
                 </div>
 
                 {/* Infinite scroll loading & status */}
@@ -390,6 +458,52 @@ export const CommentAutomationPage = () => {
                                         {cmt.reply_status}
                                     </Badge>
                                 </div>
+
+                                {/* Post Context Preview Box */}
+                                {cmt.post && (
+                                    <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-950/80 border border-slate-800/80 my-1.5">
+                                        <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-slate-900 ring-1 ring-slate-800 flex items-center justify-center">
+                                            {cmt.post.media_url ? (
+                                                <img
+                                                    src={cmt.post.media_url}
+                                                    alt=""
+                                                    referrerPolicy="no-referrer"
+                                                    crossOrigin="anonymous"
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        e.currentTarget.style.display = 'none';
+                                                        e.currentTarget.parentElement?.querySelector('.post-thumb-fallback')?.classList.remove('hidden');
+                                                    }}
+                                                />
+                                            ) : null}
+                                            <div className={`post-thumb-fallback ${cmt.post.media_url ? 'hidden' : 'flex'} items-center justify-center w-full h-full text-blue-400`}>
+                                                <Facebook className="w-4 h-4" />
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-1">
+                                                <span className="text-[10px] font-bold text-slate-400 truncate flex items-center gap-1">
+                                                    <Facebook className="w-2.5 h-2.5 text-blue-400" />
+                                                    <span>{cmt.post.social_account?.name || 'Facebook Post'}</span>
+                                                </span>
+                                                {cmt.post.permalink && (
+                                                    <a
+                                                        href={cmt.post.permalink}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 inline-flex items-center gap-0.5 shrink-0"
+                                                    >
+                                                        <span>View</span>
+                                                        <ExternalLink className="w-2.5 h-2.5" />
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <p className="text-[11px] text-slate-300 truncate">
+                                                {cmt.post.message || 'Facebook Post'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <p className="text-xs text-slate-300 pl-2 border-l-2 border-indigo-500/40">
                                     "{cmt.message}"
