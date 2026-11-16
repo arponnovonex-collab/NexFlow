@@ -145,11 +145,14 @@ const OrderCard = ({
     const lastChange = rawData.cx_last_change || (Array.isArray(rawData.cx_history) && rawData.cx_history.length > 0 ? rawData.cx_history[rawData.cx_history.length - 1] : null);
     const historyList = Array.isArray(rawData.cx_history) ? rawData.cx_history : (lastChange ? [lastChange] : []);
 
-    const resolvedBy = lastChange?.performed_by || rawData.cx_resolved_by || (() => {
+    const resolvedBy = lastChange?.performed_by || rawData.cx_resolved_by || rawData.cx_cancelled_by || (() => {
         const m = (order.notes || '').match(/by\s+([^\]\n]+)\s+on/i);
         return m ? m[1].trim() : (isResolved ? 'CX Agent' : null);
     })();
     const resolvedTime = lastChange?.formatted_time || (() => {
+        if (rawData.cx_cancelled_at) {
+            return new Date(rawData.cx_cancelled_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
         if (rawData.cx_resolved_at) {
             return new Date(rawData.cx_resolved_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
@@ -157,7 +160,12 @@ const OrderCard = ({
         return m ? m[1].trim() : null;
     })();
 
-    const hasHistory = !!(lastChange?.before && lastChange?.after) || isResolved;
+    const cancelledBy = rawData.cx_cancelled_by || resolvedBy || order.user?.name;
+    const cancelledTime = rawData.cx_cancelled_at
+        ? new Date(rawData.cx_cancelled_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : resolvedTime;
+
+    const hasHistory = !isCancelled && (!!(lastChange?.before && lastChange?.after) || isResolved);
 
     return (
         <div
@@ -334,6 +342,35 @@ const OrderCard = ({
                         </p>
                     )}
                 </div>
+
+                {/* Cancellation Details Box (If Cancelled) */}
+                {isCancelled && (
+                    <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-xs space-y-1.5 shadow-sm">
+                        <div className="flex items-center justify-between border-b border-rose-500/20 pb-1.5 flex-wrap gap-1">
+                            <span className="font-extrabold text-rose-300 flex items-center gap-1.5">
+                                <XCircle className="w-4 h-4 text-rose-400" />
+                                <span>বাতিল করেছেন: <strong className="text-white font-bold underline">{cancelledBy || 'CX Agent'}</strong></span>
+                            </span>
+                            {cancelledTime && (
+                                <span className="text-[10px] text-rose-300/80 font-mono flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-rose-400" />
+                                    <span>{cancelledTime}</span>
+                                </span>
+                            )}
+                        </div>
+                        {(() => {
+                            const reasonText = rawData.cx_last_change?.after?.reason 
+                                || (order.notes?.includes('[CX Cancelled') ? order.notes.match(/\[CX Cancelled[^\]]*\]/)?.[0] : null)
+                                || order.return_reason
+                                || 'গ্রাহক ডুপ্লিকেট অর্ডার করেছেন / বাতিল করতে চেয়েছেন';
+                            return (
+                                <p className="text-[11px] text-slate-300">
+                                    <span className="text-slate-400 font-medium">কারণ:</span> <span className="italic text-rose-200">{reasonText}</span>
+                                </p>
+                            );
+                        })()}
+                    </div>
+                )}
 
                 {/* Resolution & Audit Trail History Box */}
                 {hasHistory && (
@@ -807,9 +844,8 @@ export const CxOperationsPage = () => {
 
     const hasDuplicateGroups = cxData.duplicate_groups.length > 0;
     const hasMultiQtyOrders = cxData.multi_qty_orders.length > 0;
-    const hasCancelledOrders = cxData.cancelled_orders.length > 0;
     const hasOtherResolved = cxData.other_resolved_orders.length > 0;
-    const isFeedEmpty = !hasDuplicateGroups && !hasMultiQtyOrders && !hasCancelledOrders && !hasOtherResolved;
+    const isFeedEmpty = !hasDuplicateGroups && !hasMultiQtyOrders && !hasOtherResolved;
 
     return (
         <div className="space-y-6">
@@ -856,7 +892,7 @@ export const CxOperationsPage = () => {
             </div>
 
             {/* KPI Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
                 <Card
                     onClick={() => setActiveTab('all')}
                     className={`cursor-pointer transition-all ${
@@ -914,27 +950,11 @@ export const CxOperationsPage = () => {
                     }`}
                 >
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">Resolved (সমাধানকৃত)</span>
+                        <span className="text-[11px] font-semibold text-slate-400">Resolved (সমাধান ও বাতিল)</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     </div>
                     <p className="text-2xl font-black text-emerald-300 mt-1">{meta.resolved_count || 0}</p>
-                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Resolved Cases</p>
-                </Card>
-
-                <Card
-                    onClick={() => setActiveTab('cancelled')}
-                    className={`cursor-pointer transition-all ${
-                        activeTab === 'cancelled'
-                            ? 'bg-slate-900 border-slate-700 ring-2 ring-slate-600'
-                            : 'hover:border-slate-700'
-                    }`}
-                >
-                    <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-slate-400">বাতিলকৃত</span>
-                        <XCircle className="w-4 h-4 text-slate-500" />
-                    </div>
-                    <p className="text-2xl font-black text-slate-300 mt-1">{meta.cancelled_count || 0}</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">Cancelled</p>
+                    <p className="text-[10px] text-emerald-400 mt-0.5 font-medium">Resolved & Cancelled</p>
                 </Card>
             </div>
 
@@ -985,18 +1005,7 @@ export const CxOperationsPage = () => {
                         }`}
                     >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Resolved (সমাধানকৃত) ({meta.resolved_count || 0})</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab('cancelled')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                            activeTab === 'cancelled'
-                                ? 'bg-slate-700 text-white shadow-md'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                        }`}
-                    >
-                        ❌ বাতিলকৃত ({meta.cancelled_count || 0})
+                        <span>Resolved ও বাতিলকৃত ({meta.resolved_count || 0})</span>
                     </button>
                 </div>
 
@@ -1207,43 +1216,16 @@ export const CxOperationsPage = () => {
                         </div>
                     )}
 
-                    {/* SECTION 3: OTHER RESOLVED ORDERS (when on resolved tab) */}
+                    {/* SECTION 3: OTHER RESOLVED & CANCELLED ORDERS (when on resolved tab) */}
                     {hasOtherResolved && (
                         <div className="space-y-3">
                             <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-1.5 px-1">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                                <span>অন্যান্য সমাধানকৃত অর্ডারসমূহ</span>
+                                <span>অন্যান্য সমাধানকৃত ও বাতিলকৃত অর্ডারসমূহ</span>
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {cxData.other_resolved_orders.map((order) => (
-                                    <OrderCard
-                                        key={order.id}
-                                        order={order}
-                                        isDuplicateSubCard={false}
-                                        onEdit={openEditModal}
-                                        onCancel={openCancelModal}
-                                        onConfirm={(id) => handleQuickAction(id, 'confirm')}
-                                        onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
-                                        onDispatchSteadfast={handleDispatchSteadfast}
-                                        actionLoadingId={actionLoadingId}
-                                        dispatchingId={dispatchingId}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* SECTION 4: CANCELLED ORDERS (when on cancelled tab) */}
-                    {hasCancelledOrders && (
-                        <div className="space-y-3">
-                            <h3 className="text-sm font-bold text-slate-400 flex items-center gap-1.5 px-1">
-                                <XCircle className="w-4 h-4 text-slate-500" />
-                                <span>বাতিলকৃত অর্ডারসমূহ</span>
-                            </h3>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {cxData.cancelled_orders.map((order) => (
                                     <OrderCard
                                         key={order.id}
                                         order={order}

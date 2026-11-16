@@ -291,6 +291,25 @@ class OrderController extends Controller
             'payment_status' => 'nullable|in:unpaid,paid,refunded',
         ]);
 
+        $user = $request->user();
+        $userName = $user ? $user->name : 'Staff';
+        $timeStr = now()->format('d M Y, h:i A');
+
+        if ($validated['order_status'] === 'cancelled' && $order->order_status !== 'cancelled') {
+            $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+            $raw['is_cx_resolved'] = true;
+            $raw['cx_cancelled_at'] = now()->toISOString();
+            $raw['cx_cancelled_by'] = $userName;
+            $raw['cx_resolved_by'] = $userName;
+            $raw['cx_resolution_action'] = 'cancelled';
+            $validated['wc_raw_data'] = $raw;
+
+            $cxNote = "[CX Cancelled (by {$userName} on {$timeStr})]";
+            $validated['notes'] = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+            $this->resolveRetainedSiblingsAfterRemoval([$order], 'cancelled', $userName);
+        }
+
         $order->update($validated);
 
         // If order came from WooCommerce, sync status back to store
@@ -327,16 +346,48 @@ class OrderController extends Controller
         $newStatus = $validated['order_status'];
         $updatedCount = 0;
         $wcService = app(\App\Services\WooCommerceService::class);
+        $user = $request->user();
+        $userName = $user ? $user->name : 'Staff';
+        $timeStr = now()->format('d M Y, h:i A');
 
-        foreach ($orders as $order) {
-            $order->update(['order_status' => $newStatus]);
-            $updatedCount++;
+        if ($newStatus === 'cancelled') {
+            foreach ($orders as $order) {
+                $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+                $raw['is_cx_resolved'] = true;
+                $raw['cx_cancelled_at'] = now()->toISOString();
+                $raw['cx_cancelled_by'] = $userName;
+                $raw['cx_resolved_by'] = $userName;
+                $raw['cx_resolution_action'] = 'cancelled';
 
-            if ($order->wc_order_id) {
-                try {
-                    $wcService->updateOrderStatusInWooCommerce((int) $order->wc_order_id, $newStatus);
-                } catch (\Throwable $e) {
-                    // Silently continue
+                $cxNote = "[CX Cancelled (by {$userName} on {$timeStr})]";
+                $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+                $order->update([
+                    'order_status' => $newStatus,
+                    'wc_raw_data' => $raw,
+                    'notes' => $updatedNotes,
+                ]);
+                $updatedCount++;
+
+                if ($order->wc_order_id) {
+                    try {
+                        $wcService->updateOrderStatusInWooCommerce((int) $order->wc_order_id, $newStatus);
+                    } catch (\Throwable $e) {}
+                }
+            }
+
+            $this->resolveRetainedSiblingsAfterRemoval($orders->all(), 'cancelled', $userName);
+        } else {
+            foreach ($orders as $order) {
+                $order->update(['order_status' => $newStatus]);
+                $updatedCount++;
+
+                if ($order->wc_order_id) {
+                    try {
+                        $wcService->updateOrderStatusInWooCommerce((int) $order->wc_order_id, $newStatus);
+                    } catch (\Throwable $e) {
+                        // Silently continue
+                    }
                 }
             }
         }
@@ -358,6 +409,13 @@ class OrderController extends Controller
             'order_ids.*' => 'integer|exists:orders,id',
         ]);
 
+        $orders = Order::whereIn('id', $validated['order_ids'])->get();
+        $user = $request->user();
+        $userName = $user ? $user->name : 'Staff';
+
+        // Auto-resolve any retained sibling duplicate orders before deletion
+        $this->resolveRetainedSiblingsAfterRemoval($orders->all(), 'deleted', $userName);
+
         $deletedCount = Order::whereIn('id', $validated['order_ids'])->delete();
 
         return response()->json([
@@ -372,12 +430,124 @@ class OrderController extends Controller
      */
     public function destroy(Order $order): JsonResponse
     {
+        $user = auth()->user();
+        $userName = $user ? $user->name : 'Staff';
+
+        // Auto-resolve any retained sibling duplicate orders before deletion
+        $this->resolveRetainedSiblingsAfterRemoval([$order], 'deleted', $userName);
+
         $order->delete();
 
         return response()->json([
             'status' => 'success',
             'message' => "Order #{$order->order_number} deleted successfully.",
         ]);
+    }
+
+    /**
+     * Automatically mark remaining sibling duplicate order as resolved when duplicates are removed / cancelled.
+     */
+    protected function resolveRetainedSiblingsAfterRemoval(array $removedOrders, string $actionType, ?string $userName = null): void
+    {
+        $userName = $userName ?: (auth()->user()?->name ?: 'Staff');
+        $timeStr = now()->format('d M Y, h:i A');
+        $startDate = Carbon::now()->subDays(15)->startOfDay();
+
+        $normalizePhone = function (?string $phone): string {
+            if (empty($phone)) return '';
+            $digits = preg_replace('/[^0-9]/', '', $phone);
+            if (str_starts_with($digits, '880') && strlen($digits) === 13) {
+                $digits = substr($digits, 2);
+            }
+            if (strlen($digits) === 10 && str_starts_with($digits, '1')) {
+                $digits = '0' . $digits;
+            }
+            return $digits;
+        };
+
+        $removedIds = array_filter(array_map(fn($o) => $o->id ?? null, $removedOrders));
+
+        foreach ($removedOrders as $removedOrder) {
+            $norm = $normalizePhone($removedOrder->customer_phone ?: $removedOrder->customer?->phone);
+            $custId = $removedOrder->customer_id;
+            $orderNum = $removedOrder->order_number;
+
+            if (empty($norm) && empty($custId)) continue;
+
+            $siblingsQuery = Order::query()
+                ->whereNotIn('id', $removedIds)
+                ->where('created_at', '>=', $startDate)
+                ->where(function ($q) use ($norm, $custId) {
+                    if ($custId) $q->where('customer_id', $custId);
+                    if ($norm) {
+                        $last10 = strlen($norm) >= 10 ? substr($norm, -10) : $norm;
+                        $q->orWhere('customer_phone', 'like', "%{$last10}%");
+                    }
+                });
+
+            $siblings = $siblingsQuery->get();
+            $activeSiblings = $siblings->filter(fn($o) => $o->order_status !== 'cancelled');
+
+            // If exactly 1 active sibling remains, auto-resolve it
+            if ($activeSiblings->count() === 1) {
+                $retainedOrder = $activeSiblings->first();
+                $raw = is_array($retainedOrder->wc_raw_data) ? $retainedOrder->wc_raw_data : [];
+                $raw['is_cx_resolved'] = true;
+                $raw['cx_resolved_by'] = $userName;
+                $raw['cx_resolved_at'] = now()->toISOString();
+                $raw['cx_resolution_action'] = 'retained_after_duplicate_removed';
+
+                $noteMsg = "[CX Verified: Retained order after duplicate #{$orderNum} was {$actionType} by {$userName} on {$timeStr}]";
+                $updatedNotes = trim(($retainedOrder->notes ? $retainedOrder->notes . "\n" : '') . $noteMsg);
+
+                $currentItems = is_array($retainedOrder->items_data) && ! empty($retainedOrder->items_data)
+                    ? $retainedOrder->items_data
+                    : [[
+                        'name' => $retainedOrder->product?->name ?: 'Product',
+                        'size' => $retainedOrder->size ?: '',
+                        'color' => $retainedOrder->color ?: '',
+                        'quantity' => (int) ($retainedOrder->quantity ?: 1),
+                        'price' => (float) ($retainedOrder->unit_price ?: 0),
+                    ]];
+
+                $historyEntry = [
+                    'id' => (string) Str::uuid(),
+                    'action' => 'duplicate_resolved',
+                    'title' => "ডুপ্লিকেট সমাধান (অর্ডার #{$orderNum} {$actionType} করার পর এটি বহাল রাখা হয়েছে)",
+                    'performed_by' => $userName,
+                    'performed_at' => now()->toISOString(),
+                    'formatted_time' => $timeStr,
+                    'before' => [
+                        'order_status' => $retainedOrder->order_status,
+                        'items' => $currentItems,
+                        'quantity' => (int) $retainedOrder->quantity,
+                        'total_amount' => (float) $retainedOrder->total_amount,
+                    ],
+                    'after' => [
+                        'order_status' => $retainedOrder->order_status === 'pending_confirmation' ? 'confirmed' : $retainedOrder->order_status,
+                        'items' => $currentItems,
+                        'quantity' => (int) $retainedOrder->quantity,
+                        'total_amount' => (float) $retainedOrder->total_amount,
+                    ],
+                    'note' => $noteMsg,
+                ];
+
+                $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+                $history[] = $historyEntry;
+                $raw['cx_history'] = $history;
+                $raw['cx_last_change'] = $historyEntry;
+
+                $updateData = [
+                    'notes' => $updatedNotes,
+                    'wc_raw_data' => $raw,
+                ];
+                if ($retainedOrder->order_status === 'pending_confirmation') {
+                    $updateData['order_status'] = 'confirmed';
+                }
+
+                $retainedOrder->update($updateData);
+            }
+        }
     }
 
     /**
@@ -657,8 +827,11 @@ class OrderController extends Controller
                     }
                 }
 
-                // Group is resolved when no unresolved active orders remain OR if any order in the group was confirmed/edited
-                $isGroupResolved = ($unresolvedActiveCount === 0) || $hasResolvedAction;
+                // Group is resolved when:
+                // 1) 1 or fewer active orders remain and at least one order was cancelled (duplicate conflict solved!)
+                // 2) OR no unresolved active orders remain
+                // 3) OR any order in the group was confirmed/edited/resolved
+                $isGroupResolved = ($activeCount <= 1 && $cancelledCount > 0) || ($unresolvedActiveCount === 0) || $hasResolvedAction;
 
                 $firstOrder = $groupList[0];
                 $duplicateGroups[] = [
@@ -775,7 +948,7 @@ class OrderController extends Controller
             }
         }
 
-        // Cancelled orders
+        // Cancelled orders - kept for API backward compatibility if explicitly queried
         $cancelledOrders = [];
         if ($tab === 'cancelled') {
             foreach ($rawOrders as $ord) {
@@ -793,7 +966,7 @@ class OrderController extends Controller
             }
         }
 
-        // Additional resolved orders
+        // Additional resolved & cancelled orders (all cancelled orders now reside under resolved tab)
         $otherResolvedOrders = [];
         if ($tab === 'resolved') {
             $existingIds = [];
@@ -807,7 +980,8 @@ class OrderController extends Controller
             }
 
             foreach ($rawOrders as $ord) {
-                if ($ord->is_cx_resolved && ! isset($existingIds[$ord->id])) {
+                $isOrdResolved = $ord->is_cx_resolved || $ord->order_status === 'cancelled';
+                if ($isOrdResolved && ! isset($existingIds[$ord->id])) {
                     if (! empty($search)) {
                         $searchMatched = $matchesSearch($ord->customer?->name)
                             || $matchesSearch($ord->customer_phone)
@@ -825,7 +999,15 @@ class OrderController extends Controller
         $pendingMultiQtyCount = count(array_filter($standaloneMultiQtyOrders, fn($o) => ! $o->is_cx_resolved && $o->order_status !== 'cancelled'));
         $totalReviewNeeded = $pendingDuplicateGroupsCount + $pendingMultiQtyCount;
 
-        $resolvedTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => ! empty($o['wc_raw_data']['is_cx_resolved']) || str_contains((string) ($o['notes'] ?? ''), '[CX Resolved') || str_contains((string) ($o['notes'] ?? ''), '[CX Review: Quantity adjusted') || str_contains((string) ($o['notes'] ?? ''), '[CX Verified') || str_contains((string) ($o['notes'] ?? ''), '[CX Edit')));
+        $resolvedTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => 
+            ! empty($o['wc_raw_data']['is_cx_resolved']) 
+            || $o['order_status'] === 'cancelled'
+            || str_contains((string) ($o['notes'] ?? ''), '[CX Resolved') 
+            || str_contains((string) ($o['notes'] ?? ''), '[CX Review: Quantity adjusted') 
+            || str_contains((string) ($o['notes'] ?? ''), '[CX Verified') 
+            || str_contains((string) ($o['notes'] ?? ''), '[CX Edit')
+            || str_contains((string) ($o['notes'] ?? ''), '[CX Cancelled')
+        ));
         $cancelledTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => $o['order_status'] === 'cancelled'));
 
         return response()->json([
@@ -1183,6 +1365,9 @@ class OrderController extends Controller
                 'notes' => $updatedNotes,
                 'wc_raw_data' => $raw,
             ]);
+
+            // Auto-resolve any remaining sibling duplicate orders in this group
+            $this->resolveRetainedSiblingsAfterRemoval([$order], 'cancelled', $userName);
 
             if ($order->wc_order_id) {
                 try {
@@ -1617,7 +1802,35 @@ class OrderController extends Controller
                 $groups[$k][] = $ord;
             }
 
+            $groupResolvedMap = [];
             foreach ($groups as $group) {
+                $activeInGroup = array_filter($group, fn($o) => $o->order_status !== 'cancelled');
+                $cancelledInGroup = array_filter($group, fn($o) => $o->order_status === 'cancelled');
+
+                $anyResolvedInGroup = false;
+                foreach ($group as $gOrd) {
+                    $raw = is_array($gOrd->wc_raw_data) ? $gOrd->wc_raw_data : [];
+                    if (! empty($raw['is_cx_resolved'])
+                        || str_contains((string) $gOrd->notes, '[CX Resolved')
+                        || str_contains((string) $gOrd->notes, '[CX Problem Resolved')
+                        || str_contains((string) $gOrd->notes, '[CX Review: Quantity adjusted')
+                        || str_contains((string) $gOrd->notes, '[CX Verified')
+                        || str_contains((string) $gOrd->notes, '[CX Edit')
+                        || str_contains((string) $gOrd->notes, '[CX Cancelled')) {
+                        $anyResolvedInGroup = true;
+                        break;
+                    }
+                }
+
+                // If only 1 or 0 active orders remain in group and at least 1 order was cancelled, or if any order was resolved:
+                $isGroupConflictResolved = (count($activeInGroup) <= 1 && count($cancelledInGroup) > 0) || $anyResolvedInGroup;
+
+                if ($isGroupConflictResolved) {
+                    foreach ($group as $gOrd) {
+                        $groupResolvedMap[$gOrd->id] = true;
+                    }
+                }
+
                 if (count($group) >= 2) {
                     foreach ($group as $gOrd) {
                         $duplicateMap[$gOrd->id] = count($group);
@@ -1629,6 +1842,7 @@ class OrderController extends Controller
         // Decorate each order in the collection
         foreach ($orders as $order) {
             $isDuplicate = isset($duplicateMap[$order->id]);
+            $isConflictResolved = ! empty($groupResolvedMap[$order->id]);
 
             // Check multi-quantity (double or multiple quantity in same order)
             $isMultiQty = ($order->quantity > 1);
@@ -1641,21 +1855,23 @@ class OrderController extends Controller
                 }
             }
 
-            // Check if resolved by CX Operation
+            // Check if resolved by CX Operation or conflict resolved
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
             $isResolved = ! empty($raw['is_cx_resolved'])
+                || $isConflictResolved
                 || str_contains((string) $order->notes, '[CX Resolved')
                 || str_contains((string) $order->notes, '[CX Problem Resolved')
                 || str_contains((string) $order->notes, '[CX Review: Quantity adjusted')
                 || str_contains((string) $order->notes, '[CX Verified')
-                || str_contains((string) $order->notes, '[CX Edit');
+                || str_contains((string) $order->notes, '[CX Edit')
+                || str_contains((string) $order->notes, '[CX Cancelled');
 
             // Determine overall duplicate status
-            if ($isDuplicate || $isMultiQty) {
+            if ($order->order_status === 'cancelled') {
+                $dupStatus = 'cancelled';
+            } elseif ($isDuplicate || $isMultiQty) {
                 if ($isResolved) {
                     $dupStatus = 'resolved';
-                } elseif ($order->order_status === 'cancelled') {
-                    $dupStatus = 'cancelled';
                 } else {
                     $dupStatus = 'problem_found';
                 }
