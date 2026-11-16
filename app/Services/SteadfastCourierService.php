@@ -54,27 +54,130 @@ class SteadfastCourierService
     }
 
     /**
-     * Format invoice description string: "product name | product variation | quantity"
+     * Format invoice description string for Steadfast:
+     * "Product Name | Product Variation | Quantity"
+     * For multiple items, chained consecutively with " | ".
      */
     public function formatInvoiceDescription(Order $order): string
     {
-        $productName = $order->product?->name ?? 'Product';
-        $variantText = 'Standard';
+        $items = [];
 
-        if ($order->variant) {
-            $parts = [];
-            if ($order->variant->size) {
-                $parts[] = 'Size: ' . $order->variant->size;
-            }
-            if ($order->variant->color) {
-                $parts[] = 'Color: ' . $order->variant->color;
-            }
-            if (! empty($parts)) {
-                $variantText = implode(', ', $parts);
+        // 1. Try to extract from items_data (WooCommerce multi-items or CRM order items)
+        $rawItems = $order->items_data;
+        if (empty($rawItems) && is_array($order->wc_raw_data) && ! empty($order->wc_raw_data['line_items'])) {
+            $rawItems = $order->wc_raw_data['line_items'];
+        }
+
+        if (! empty($rawItems) && is_array($rawItems)) {
+            foreach ($rawItems as $item) {
+                $pName = trim((string) ($item['name'] ?? $item['product_name'] ?? ''));
+                if (empty($pName)) {
+                    $pName = $order->product?->name ?: 'Product';
+                }
+
+                // Extract variation details (Size, Color, etc.)
+                $varParts = [];
+
+                if (! empty($item['size'])) {
+                    $varParts[] = 'Size: ' . trim($item['size']);
+                }
+                if (! empty($item['color'])) {
+                    $varParts[] = 'Color: ' . trim($item['color']);
+                }
+                if (! empty($item['variation'])) {
+                    $varParts[] = trim($item['variation']);
+                }
+
+                // If WooCommerce line item has meta_data
+                if (! empty($item['meta_data']) && is_array($item['meta_data'])) {
+                    foreach ($item['meta_data'] as $meta) {
+                        $key = strtolower($meta['key'] ?? $meta['display_key'] ?? '');
+                        $val = trim((string) ($meta['value'] ?? $meta['display_value'] ?? ''));
+                        if (empty($val) || is_array($val)) continue;
+
+                        if (str_contains($key, 'size') || str_contains($key, 'সাইজ')) {
+                            $varParts[] = 'Size: ' . $val;
+                        } elseif (str_contains($key, 'color') || str_contains($key, 'colour') || str_contains($key, 'কালার')) {
+                            $varParts[] = 'Color: ' . $val;
+                        }
+                    }
+                }
+
+                // If only 1 item and no variation found yet, check order-level size/color
+                if (empty($varParts) && count($rawItems) === 1) {
+                    if (! empty($order->size)) {
+                        $varParts[] = 'Size: ' . trim($order->size);
+                    }
+                    if (! empty($order->color)) {
+                        $varParts[] = 'Color: ' . trim($order->color);
+                    }
+                }
+
+                // If still empty, check order variant relationship
+                if (empty($varParts) && count($rawItems) === 1 && $order->variant) {
+                    if ($order->variant->size) $varParts[] = 'Size: ' . $order->variant->size;
+                    if ($order->variant->color) $varParts[] = 'Color: ' . $order->variant->color;
+                }
+
+                // Clean product name if it already has variation appended like "Luna Ruby - 2-3 YEAR"
+                $varParts = array_values(array_unique($varParts));
+                foreach ($varParts as $vp) {
+                    $cleanVp = preg_replace('/^(Size|Color):\s*/i', '', $vp);
+                    if (! empty($cleanVp)) {
+                        $pName = preg_replace('/\s*-\s*' . preg_quote($cleanVp, '/') . '$/i', '', $pName);
+                    }
+                }
+
+                $varText = ! empty($varParts) ? implode(', ', $varParts) : '';
+                $qty = (int) ($item['quantity'] ?? $item['qty'] ?? 1);
+
+                if (! empty($varText)) {
+                    $items[] = "{$pName} | {$varText} | {$qty}";
+                } else {
+                    $items[] = "{$pName} | {$qty}";
+                }
             }
         }
 
-        return "{$productName} | {$variantText} | {$order->quantity}";
+        // 2. Fallback to order-level product, size, color, quantity
+        if (empty($items)) {
+            $pName = $order->product?->name ?: 'Product';
+            if ($pName === 'Product' && is_array($order->wc_raw_data) && ! empty($order->wc_raw_data['line_items'])) {
+                $pName = $order->wc_raw_data['line_items'][0]['name'] ?? 'Product';
+            }
+
+            $varParts = [];
+            if (! empty($order->size)) {
+                $varParts[] = 'Size: ' . trim($order->size);
+            }
+            if (! empty($order->color)) {
+                $varParts[] = 'Color: ' . trim($order->color);
+            }
+            if (empty($varParts) && $order->variant) {
+                if ($order->variant->size) $varParts[] = 'Size: ' . $order->variant->size;
+                if ($order->variant->color) $varParts[] = 'Color: ' . $order->variant->color;
+            }
+
+            $varParts = array_values(array_unique($varParts));
+            foreach ($varParts as $vp) {
+                $cleanVp = preg_replace('/^(Size|Color):\s*/i', '', $vp);
+                if (! empty($cleanVp)) {
+                    $pName = preg_replace('/\s*-\s*' . preg_quote($cleanVp, '/') . '$/i', '', $pName);
+                }
+            }
+
+            $varText = ! empty($varParts) ? implode(', ', $varParts) : '';
+            $qty = (int) ($order->quantity ?: 1);
+
+            if (! empty($varText)) {
+                $items[] = "{$pName} | {$varText} | {$qty}";
+            } else {
+                $items[] = "{$pName} | {$qty}";
+            }
+        }
+
+        // Join items consecutively with " | "
+        return implode(' | ', $items);
     }
 
     /**
@@ -158,36 +261,36 @@ class SteadfastCourierService
             ];
         }
 
-        // Product details specified by user: "product name | product variation | quantity"
-        $productDetails = $this->formatInvoiceDescription($order);
-        $customerName = $order->customer?->name ?: 'Customer';
-
-        // Steadfast requires `invoice` to strictly contain only letters, numbers, dashes and underscores (alpha_dash)
-        $cleanInvoice = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $order->order_number);
-        if (empty($cleanInvoice)) {
-            $cleanInvoice = 'ORD-' . $order->id . '-' . time();
+        // Invoice string specified by user: "Product Name | Product Variation | Quantity" (and multiple items joined by |)
+        $invoiceDescription = $this->formatInvoiceDescription($order);
+        if (empty($invoiceDescription)) {
+            $invoiceDescription = (string) $order->order_number;
         }
 
-        // Steadfast requires `delivery_type` to be an integer: 0 = Home Delivery, 1 = Point Delivery / Hub Pick Up
+        $customerName = $order->customer?->name ?: 'Customer';
+
+        // Steadfast delivery type: 0 = Home Delivery, 1 = Hub Pick Up
         $deliveryTypeInt = 0;
         if (in_array($settings->delivery_type, ['hub', 'point', '1', 1], true)) {
             $deliveryTypeInt = 1;
         }
 
         // Note with product details & customer note
-        $noteContent = $productDetails;
+        $noteContent = $invoiceDescription;
         if (! empty($order->notes)) {
             $noteContent .= " | Note: {$order->notes}";
         }
 
+        $invoicePayload = mb_substr($invoiceDescription, 0, 250);
+
         $payload = [
-            'invoice' => $cleanInvoice,
+            'invoice' => $invoicePayload,
             'recipient_name' => $customerName,
             'recipient_phone' => $phone,
             'recipient_address' => $order->customer_address,
             'cod_amount' => (float) $order->total_amount,
             'note' => $noteContent,
-            'item_description' => $productDetails,
+            'item_description' => $invoicePayload,
             'total_lot' => (int) ($order->quantity ?: 1),
             'delivery_type' => $deliveryTypeInt,
         ];

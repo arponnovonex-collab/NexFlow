@@ -273,20 +273,59 @@ class WooCommerceService
         // Parse line items
         $lineItems = [];
         $totalQuantity = 0;
+        $firstItemSize = null;
+        $firstItemColor = null;
+        $firstItemProductId = null;
+        $firstItemVariantId = null;
+
         foreach ($wcOrder['line_items'] ?? [] as $li) {
             $qty = (int) ($li['quantity'] ?? 1);
             $totalQuantity += $qty;
+
+            $itemSize = null;
+            $itemColor = null;
+            $itemVarParts = [];
+
+            foreach ($li['meta_data'] ?? [] as $meta) {
+                $key = strtolower($meta['key'] ?? $meta['display_key'] ?? '');
+                $val = trim((string) ($meta['value'] ?? $meta['display_value'] ?? ''));
+                if (empty($val) || is_array($val)) continue;
+
+                if (str_contains($key, 'size') || str_contains($key, 'সাইজ')) {
+                    $itemSize = $val;
+                    $itemVarParts[] = 'Size: ' . $val;
+                } elseif (str_contains($key, 'color') || str_contains($key, 'colour') || str_contains($key, 'কালার')) {
+                    $itemColor = $val;
+                    $itemVarParts[] = 'Color: ' . $val;
+                }
+            }
+
+            if (! $firstItemSize && $itemSize) $firstItemSize = $itemSize;
+            if (! $firstItemColor && $itemColor) $firstItemColor = $itemColor;
+            if (! $firstItemProductId && ! empty($li['product_id'])) $firstItemProductId = $li['product_id'];
+            if (! $firstItemVariantId && ! empty($li['variation_id'])) $firstItemVariantId = $li['variation_id'];
+
             $lineItems[] = [
                 'id' => $li['id'] ?? null,
                 'product_id' => $li['product_id'] ?? null,
                 'variation_id' => $li['variation_id'] ?? null,
                 'name' => $li['name'] ?? 'Product',
+                'size' => $itemSize,
+                'color' => $itemColor,
+                'variation' => implode(', ', $itemVarParts),
                 'quantity' => $qty,
                 'price' => (float) ($li['price'] ?? 0),
                 'total' => (float) ($li['total'] ?? 0),
                 'sku' => $li['sku'] ?? '',
                 'image_url' => $li['image']['src'] ?? null,
+                'meta_data' => $li['meta_data'] ?? [],
             ];
+        }
+
+        // Match local product if available
+        $localProduct = null;
+        if ($firstItemProductId) {
+            $localProduct = \App\Models\Product::where('wc_product_id', $firstItemProductId)->first();
         }
 
         // Map WooCommerce order status to NexFlow status
@@ -322,6 +361,9 @@ class WooCommerceService
             [
                 'order_number' => $orderNumber,
                 'customer_id' => $customer->id,
+                'product_id' => $localProduct?->id,
+                'size' => $firstItemSize,
+                'color' => $firstItemColor,
                 'order_source' => 'woocommerce',
                 'quantity' => $totalQuantity ?: 1,
                 'unit_price' => $firstItemPrice,
