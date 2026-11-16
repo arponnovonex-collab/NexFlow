@@ -796,13 +796,14 @@ class MetaWebhookController extends Controller
 
         try {
             $version = config('services.meta.graph_version', 'v19.0');
-            $res = Http::timeout(8)->get("https://graph.facebook.com/{$version}/{$post->platform_post_id}", [
-                'fields' => 'id,message,story,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}',
-                'access_token' => $account->access_token,
-            ]);
+            $postData = \App\Http\Controllers\Api\CommentAutomationController::fetchPostDetailsFromMeta(
+                $post->platform_post_id,
+                $account->access_token,
+                $version
+            );
 
-            if ($res->successful()) {
-                $extracted = \App\Http\Controllers\Api\CommentAutomationController::extractPostFields($res->json(), $post->platform_post_id);
+            if ($postData) {
+                $extracted = \App\Http\Controllers\Api\CommentAutomationController::extractPostFields($postData, $post->platform_post_id);
                 $post->update([
                     'message' => $extracted['message'],
                     'media_url' => $extracted['media_url'] ?: $post->media_url,

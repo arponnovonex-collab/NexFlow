@@ -114,6 +114,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/customers/{customer}', [LeadController::class, 'updateCustomer']);
 
     // Orders & Conversions
+    Route::get('/orders/cx-operations', [OrderController::class, 'cxOperations']);
+    Route::post('/orders/{order}/cx-action', [OrderController::class, 'cxAction']);
+    Route::put('/orders/{order}', [OrderController::class, 'update']);
     Route::get('/orders/summary', [OrderController::class, 'summary']);
     Route::get('/orders/returns', [OrderController::class, 'returns']);
     Route::post('/orders/sync-courier-status', [OrderController::class, 'syncCourierStatus']);

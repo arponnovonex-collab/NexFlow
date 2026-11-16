@@ -302,6 +302,317 @@ class OrderController extends Controller
     }
 
     /**
+     * Edit / Update an existing order (Customer details, product attributes, size, color, quantity, pricing).
+     */
+    public function update(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'quantity' => 'nullable|integer|min:1',
+            'size' => 'nullable|string|max:50',
+            'color' => 'nullable|string|max:50',
+            'unit_price' => 'nullable|numeric|min:0',
+            'delivery_charge' => 'nullable|numeric|min:0',
+            'total_amount' => 'nullable|numeric|min:0',
+            'customer_name' => 'nullable|string|max:255',
+            'customer_phone' => 'nullable|string|max:50',
+            'customer_address' => 'nullable|string',
+            'customer_email' => 'nullable|string|email|max:255',
+            'order_status' => 'nullable|string|in:draft,pending_confirmation,confirmed,processing,shipped,delivered,cancelled,returned',
+            'notes' => 'nullable|string',
+        ]);
+
+        $qty = $validated['quantity'] ?? $order->quantity;
+        $unitPrice = $validated['unit_price'] ?? $order->unit_price;
+        $delivery = $validated['delivery_charge'] ?? $order->delivery_charge;
+
+        if (! isset($validated['total_amount']) && (isset($validated['quantity']) || isset($validated['unit_price']) || isset($validated['delivery_charge']))) {
+            $validated['total_amount'] = ($qty * $unitPrice) + $delivery;
+        }
+
+        if (! empty($validated['customer_name']) && $order->customer) {
+            $order->customer->update(['name' => $validated['customer_name']]);
+        }
+
+        $order->update($validated);
+
+        if ($order->wc_order_id && ! empty($validated['order_status'])) {
+            try {
+                app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                    (int) $order->wc_order_id,
+                    $validated['order_status']
+                );
+            } catch (\Throwable $e) {}
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Order #{$order->order_number} updated successfully!",
+            'data' => $order->fresh(['customer', 'product', 'variant']),
+        ]);
+    }
+
+    /**
+     * CX Operations: Order Verification Desk for Duplicates & Multi-Quantity Orders.
+     */
+    public function cxOperations(Request $request): JsonResponse
+    {
+        $days = $request->integer('days', 10);
+        $tab = $request->query('tab', 'all');
+        $search = trim((string) $request->query('search', ''));
+
+        $startDate = Carbon::now()->subDays($days)->startOfDay();
+
+        $rawOrders = Order::with(['customer', 'product', 'variant', 'user:id,name'])
+            ->where('created_at', '>=', $startDate)
+            ->orderByDesc('created_at')
+            ->get();
+
+        $normalizePhone = function (?string $phone): string {
+            if (empty($phone)) return '';
+            $digits = preg_replace('/[^0-9]/', '', $phone);
+            if (str_starts_with($digits, '880') && strlen($digits) === 13) {
+                $digits = substr($digits, 2);
+            }
+            if (strlen($digits) === 10 && str_starts_with($digits, '1')) {
+                $digits = '0' . $digits;
+            }
+            return $digits;
+        };
+
+        // Group active (non-cancelled) orders by normalized phone + product
+        $activeOrders = $rawOrders->filter(function ($o) {
+            return $o->order_status !== 'cancelled';
+        });
+
+        $phoneProductGroups = [];
+        foreach ($activeOrders as $ord) {
+            $norm = $normalizePhone($ord->customer_phone ?: $ord->customer?->phone);
+            if (empty($norm)) continue;
+
+            $prodKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_' . Str::slug($ord->product?->name ?: ($ord->items_data[0]['name'] ?? 'product'));
+            $groupKey = $norm . '__' . $prodKey;
+
+            if (! isset($phoneProductGroups[$groupKey])) {
+                $phoneProductGroups[$groupKey] = [];
+            }
+            $phoneProductGroups[$groupKey][] = $ord;
+        }
+
+        $duplicateOrderIds = [];
+        $duplicateSiblingsMap = [];
+        foreach ($phoneProductGroups as $groupKey => $groupList) {
+            if (count($groupList) >= 2) {
+                foreach ($groupList as $ord) {
+                    $duplicateOrderIds[$ord->id] = true;
+                    $duplicateSiblingsMap[$ord->id] = array_values(array_filter(array_map(function ($s) {
+                        return [
+                            'id' => $s->id,
+                            'order_number' => $s->order_number,
+                            'created_at' => $s->created_at?->toISOString(),
+                            'size' => $s->size,
+                            'color' => $s->color,
+                            'quantity' => $s->quantity,
+                            'total_amount' => $s->total_amount,
+                            'order_status' => $s->order_status,
+                            'tracking_code' => $s->tracking_code,
+                        ];
+                    }, $groupList), fn($s) => $s['id'] !== $ord->id));
+                }
+            }
+        }
+
+        $flaggedList = [];
+        $duplicateCount = 0;
+        $multiQtyCount = 0;
+        $confirmedCount = 0;
+        $cancelledCount = 0;
+
+        foreach ($rawOrders as $order) {
+            $isDuplicate = isset($duplicateOrderIds[$order->id]);
+            $isMultiQty = ($order->quantity > 1);
+
+            if (! $isMultiQty && is_array($order->items_data) && ! empty($order->items_data)) {
+                foreach ($order->items_data as $item) {
+                    if (($item['quantity'] ?? 1) > 1) {
+                        $isMultiQty = true;
+                        break;
+                    }
+                }
+            }
+
+            $flagType = null;
+            if ($isDuplicate && $isMultiQty) {
+                $flagType = 'both';
+            } elseif ($isDuplicate) {
+                $flagType = 'duplicate';
+            } elseif ($isMultiQty) {
+                $flagType = 'multi_qty';
+            }
+
+            $order->cx_flag = $flagType;
+            $order->is_duplicate = $isDuplicate;
+            $order->is_multi_qty = $isMultiQty;
+            $order->duplicate_siblings = $duplicateSiblingsMap[$order->id] ?? [];
+            $order->normalized_phone = $normalizePhone($order->customer_phone ?: $order->customer?->phone);
+
+            if ($isDuplicate && $order->order_status !== 'cancelled') {
+                $duplicateCount++;
+            }
+            if ($isMultiQty && $order->order_status !== 'cancelled') {
+                $multiQtyCount++;
+            }
+            if ($order->order_status === 'confirmed' || str_contains((string) $order->notes, '[CX Verified') || str_contains((string) $order->notes, '[CX: Quantity adjusted')) {
+                $confirmedCount++;
+            }
+            if ($order->order_status === 'cancelled') {
+                $cancelledCount++;
+            }
+
+            // Search filter
+            if (! empty($search)) {
+                $searchLower = strtolower($search);
+                $phoneMatches = str_contains((string) $order->customer_phone, $search) || str_contains((string) $order->normalized_phone, $search);
+                $nameMatches = str_contains(strtolower((string) ($order->customer?->name ?: '')), $searchLower) || str_contains(strtolower((string) $order->customer_address), $searchLower);
+                $numMatches = str_contains(strtolower((string) $order->order_number), $searchLower) || str_contains((string) $order->wc_order_id, $search);
+                $prodMatches = str_contains(strtolower((string) ($order->product?->name ?: '')), $searchLower);
+
+                if (! ($phoneMatches || $nameMatches || $numMatches || $prodMatches)) {
+                    continue;
+                }
+            }
+
+            // Apply tab filters
+            if ($tab === 'duplicates') {
+                if ($isDuplicate && $order->order_status !== 'cancelled') {
+                    $flaggedList[] = $order;
+                }
+            } elseif ($tab === 'multi_qty') {
+                if ($isMultiQty && $order->order_status !== 'cancelled') {
+                    $flaggedList[] = $order;
+                }
+            } elseif ($tab === 'confirmed') {
+                if ($order->order_status === 'confirmed' || str_contains((string) $order->notes, '[CX Verified') || str_contains((string) $order->notes, '[CX: Quantity adjusted')) {
+                    $flaggedList[] = $order;
+                }
+            } elseif ($tab === 'cancelled') {
+                if ($order->order_status === 'cancelled') {
+                    $flaggedList[] = $order;
+                }
+            } else {
+                // Default 'all': All active orders requiring review (either duplicate or multi_qty and not cancelled/delivered)
+                if (($isDuplicate || $isMultiQty) && ! in_array($order->order_status, ['cancelled', 'delivered'])) {
+                    $flaggedList[] = $order;
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => array_values($flaggedList),
+            'meta' => [
+                'total_review_needed' => count(array_filter($rawOrders->toArray(), fn($o) => (isset($duplicateOrderIds[$o['id']]) || ($o['quantity'] > 1)) && ! in_array($o['order_status'], ['cancelled', 'delivered']))),
+                'duplicate_count' => $duplicateCount,
+                'multi_qty_count' => $multiQtyCount,
+                'confirmed_count' => $confirmedCount,
+                'cancelled_count' => $cancelledCount,
+                'days' => $days,
+            ],
+        ]);
+    }
+
+    /**
+     * Perform quick CX action (Confirm, Cancel, or Set Qty to 1).
+     */
+    public function cxAction(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => 'required|in:confirm,cancel,set_qty_one',
+            'reason' => 'nullable|string|max:255',
+            'note' => 'nullable|string',
+        ]);
+
+        $action = $validated['action'];
+        $user = $request->user();
+        $userName = $user ? $user->name : 'CX Agent';
+        $timeStr = now()->format('d M H:i');
+
+        if ($action === 'set_qty_one') {
+            $prevQty = $order->quantity;
+            $unitPrice = $order->unit_price ?: ($order->total_amount - $order->delivery_charge) / max(1, $prevQty);
+            $newTotal = ($unitPrice * 1) + $order->delivery_charge;
+
+            $cxNote = "[CX Review: Quantity adjusted from {$prevQty} to 1 by {$userName} on {$timeStr}]";
+            $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+            $order->update([
+                'quantity' => 1,
+                'total_amount' => $newTotal,
+                'order_status' => 'confirmed',
+                'notes' => $updatedNotes,
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Order #{$order->order_number} quantity adjusted to 1 and confirmed! Total: ৳{$newTotal}",
+                'data' => $order->fresh(['customer', 'product', 'variant']),
+            ]);
+        }
+
+        if ($action === 'confirm') {
+            $cxNote = "[CX Verified & Confirmed by {$userName} on {$timeStr}]";
+            $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+            $order->update([
+                'order_status' => 'confirmed',
+                'notes' => $updatedNotes,
+            ]);
+
+            if ($order->wc_order_id) {
+                try {
+                    app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                        (int) $order->wc_order_id,
+                        'processing'
+                    );
+                } catch (\Throwable $e) {}
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Order #{$order->order_number} confirmed successfully and ready for courier dispatch!",
+                'data' => $order->fresh(['customer', 'product', 'variant']),
+            ]);
+        }
+
+        if ($action === 'cancel') {
+            $reason = $validated['reason'] ?: 'Duplicate / customer cancelled during verification';
+            $cxNote = "[CX Cancelled: {$reason} (by {$userName} on {$timeStr})]";
+            $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+            $order->update([
+                'order_status' => 'cancelled',
+                'notes' => $updatedNotes,
+            ]);
+
+            if ($order->wc_order_id) {
+                try {
+                    app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                        (int) $order->wc_order_id,
+                        'cancelled'
+                    );
+                } catch (\Throwable $e) {}
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Order #{$order->order_number} has been cancelled.",
+                'data' => $order->fresh(['customer', 'product', 'variant']),
+            ]);
+        }
+
+        return response()->json(['status' => 'error', 'message' => 'Invalid action'], 400);
+    }
+
+    /**
      * Get Order Summary metrics, KPI counts, and trends by period & source.
      */
     public function summary(Request $request): JsonResponse

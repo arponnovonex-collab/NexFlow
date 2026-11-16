@@ -37,22 +37,19 @@ class CommentAutomationController extends Controller
 
         $posts = $query->orderByDesc('published_at')->paginate($request->integer('per_page', 50));
 
-        // On-the-fly enrichment for up to 6 incomplete posts on the active page
+        // On-the-fly enrichment for incomplete posts on the active page
         $version = config('services.meta.graph_version', 'v19.0');
         $incomplete = $posts->filter(function ($p) {
             return str_starts_with((string) $p->message, 'Facebook Post #') || empty($p->media_url);
-        })->take(6);
+        })->take(12);
 
         foreach ($incomplete as $p) {
             $account = $p->socialAccount;
             if ($account && ! empty($account->access_token) && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
                 try {
-                    $res = Http::timeout(4)->get("https://graph.facebook.com/{$version}/{$p->platform_post_id}", [
-                        'fields' => 'id,message,story,description,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}',
-                        'access_token' => $account->access_token,
-                    ]);
-                    if ($res->successful()) {
-                        $extracted = self::extractPostFields($res->json(), $p->platform_post_id);
+                    $postData = self::fetchPostDetailsFromMeta($p->platform_post_id, $account->access_token, $version);
+                    if ($postData) {
+                        $extracted = self::extractPostFields($postData, $p->platform_post_id);
                         $p->update([
                             'message' => $extracted['message'],
                             'media_url' => $extracted['media_url'] ?: $p->media_url,
@@ -71,6 +68,62 @@ class CommentAutomationController extends Controller
     }
 
     /**
+     * Resiliently fetch post/video/reel/photo details from Meta Graph API using multiple node-type fallbacks.
+     */
+    public static function fetchPostDetailsFromMeta(string $postId, string $token, string $version = 'v19.0'): ?array
+    {
+        // 1. Post node attempt (with attachments)
+        try {
+            $postFields = 'id,message,story,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}';
+            $res = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$postId}", [
+                'fields' => $postFields,
+                'access_token' => $token,
+            ]);
+            if ($res->successful()) {
+                return $res->json();
+            }
+        } catch (\Throwable $e) {}
+
+        // 2. Video node attempt (Reels & Page Videos do not support attachments/status_type)
+        try {
+            $res = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$postId}", [
+                'fields' => 'id,description,title,name,picture,source,permalink_url,created_time',
+                'access_token' => $token,
+            ]);
+            if ($res->successful()) {
+                return $res->json();
+            }
+        } catch (\Throwable $e) {}
+
+        // 3. Photo node attempt (Photos do not support attachments/message)
+        try {
+            $res = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$postId}", [
+                'fields' => 'id,name,picture,images,link,created_time',
+                'access_token' => $token,
+            ]);
+            if ($res->successful()) {
+                return $res->json();
+            }
+        } catch (\Throwable $e) {}
+
+        // 4. If ID has underscore ({page_id}_{post_id}), query the ID after underscore
+        if (str_contains($postId, '_')) {
+            $shortId = explode('_', $postId)[1];
+            try {
+                $res = Http::timeout(6)->get("https://graph.facebook.com/{$version}/{$shortId}", [
+                    'fields' => 'id,description,title,name,message,picture,source,full_picture,permalink_url,created_time',
+                    'access_token' => $token,
+                ]);
+                if ($res->successful()) {
+                    return $res->json();
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        return null;
+    }
+
+    /**
      * Extract rich post fields from Facebook Graph API payload (message, media_url, permalink, published_at).
      */
     public static function extractPostFields(array $item, ?string $fallbackId = null): array
@@ -79,19 +132,25 @@ class CommentAutomationController extends Controller
         $attachments = $item['attachments']['data'] ?? [];
         $firstAttachment = $attachments[0] ?? null;
 
-        // 1. Caption / Message extraction
+        // 1. Caption / Message extraction (handles Post, Video, Photo, and Reel schemas)
         $message = ! empty($item['message']) ? trim($item['message']) : null;
+        if (empty($message) && ! empty($item['description'])) {
+            $message = trim($item['description']);
+        }
+        if (empty($message) && ! empty($item['name'])) {
+            $message = trim($item['name']);
+        }
         if (empty($message) && ! empty($firstAttachment['description'])) {
             $message = trim($firstAttachment['description']);
         }
         if (empty($message) && ! empty($firstAttachment['title'])) {
             $message = trim($firstAttachment['title']);
         }
+        if (empty($message) && ! empty($item['title'])) {
+            $message = trim($item['title']);
+        }
         if (empty($message) && ! empty($item['story'])) {
             $message = trim($item['story']);
-        }
-        if (empty($message) && ! empty($item['description'])) {
-            $message = trim($item['description']);
         }
         if (empty($message)) {
             $message = 'Facebook Post #' . $id;
@@ -105,12 +164,18 @@ class CommentAutomationController extends Controller
         if (empty($mediaUrl) && ! empty($firstAttachment['subattachments']['data'][0]['media']['image']['src'])) {
             $mediaUrl = $firstAttachment['subattachments']['data'][0]['media']['image']['src'];
         }
+        if (empty($mediaUrl) && ! empty($item['images'][0]['source'])) {
+            $mediaUrl = $item['images'][0]['source'];
+        }
         if (empty($mediaUrl) && ! empty($item['picture'])) {
             $mediaUrl = $item['picture'];
         }
 
         // 3. Permalink extraction
         $permalink = $item['permalink_url'] ?? null;
+        if (empty($permalink) && ! empty($item['link'])) {
+            $permalink = $item['link'];
+        }
         if (empty($permalink) && ! empty($firstAttachment['url'])) {
             $permalink = $firstAttachment['url'];
         }
@@ -151,71 +216,81 @@ class CommentAutomationController extends Controller
 
             try {
                 $token = $account->access_token;
-                $endpointUrl = "https://graph.facebook.com/{$version}/{$account->account_id}/published_posts";
-                $postFields = 'id,message,story,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}';
-                $queryParams = [
-                    'fields' => $postFields,
-                    'limit' => 50,
-                    'access_token' => $token,
-                ];
+                $postFields = 'id,message,story,description,name,title,created_time,full_picture,picture,permalink_url,status_type,attachments{media,media_type,type,url,unshimmed_url,subattachments,title,description}';
 
-                $res = Http::timeout(12)->get($endpointUrl, $queryParams);
-
-                // Fallback if token was User token
-                if (! $res->successful() && ($res->status() === 400 || $res->status() === 403)) {
-                    $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
-                        'fields' => 'access_token',
+                // Helper to paginate an endpoint
+                $fetchEndpoint = function ($endpointUrl) use (&$token, &$syncedCount, $account, $postFields, $version) {
+                    $queryParams = [
+                        'fields' => $postFields,
+                        'limit' => 50,
                         'access_token' => $token,
-                    ]);
-                    if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
-                        $token = $pageRes->json('access_token');
-                        $account->update(['access_token' => $token]);
-                        $queryParams['access_token'] = $token;
-                        $res = Http::timeout(12)->get($endpointUrl, $queryParams);
-                    }
-                }
+                    ];
 
-                $pagesFetched = 0;
-                while ($endpointUrl && $pagesFetched < 10) {
-                    if ($pagesFetched > 0) {
-                        $res = Http::timeout(15)->get($endpointUrl, $queryParams);
-                    }
+                    $res = Http::timeout(12)->get($endpointUrl, $queryParams);
 
-                    if (! $res->successful()) {
-                        break;
+                    if (! $res->successful() && in_array($res->status(), [400, 403])) {
+                        $pageRes = Http::get("https://graph.facebook.com/{$version}/{$account->account_id}", [
+                            'fields' => 'access_token',
+                            'access_token' => $token,
+                        ]);
+                        if ($pageRes->successful() && ! empty($pageRes->json('access_token'))) {
+                            $token = $pageRes->json('access_token');
+                            $account->update(['access_token' => $token]);
+                            $queryParams['access_token'] = $token;
+                            $res = Http::timeout(12)->get($endpointUrl, $queryParams);
+                        }
                     }
 
-                    $items = $res->json('data') ?? [];
-                    if (empty($items)) {
-                        break;
+                    $pagesFetched = 0;
+                    while ($endpointUrl && $pagesFetched < 8) {
+                        if ($pagesFetched > 0) {
+                            $res = Http::timeout(15)->get($endpointUrl, $queryParams);
+                        }
+
+                        if (! $res->successful()) {
+                            break;
+                        }
+
+                        $items = $res->json('data') ?? [];
+                        if (empty($items)) {
+                            break;
+                        }
+
+                        foreach ($items as $item) {
+                            $extracted = self::extractPostFields($item);
+                            SocialPost::updateOrCreate(
+                                ['platform_post_id' => (string) $item['id']],
+                                [
+                                    'social_account_id' => $account->id,
+                                    'message' => $extracted['message'],
+                                    'media_url' => $extracted['media_url'],
+                                    'permalink' => $extracted['permalink'],
+                                    'published_at' => $extracted['published_at'],
+                                    'is_auto_reply_enabled' => true,
+                                ]
+                            );
+                            $syncedCount++;
+                        }
+
+                        $endpointUrl = $res->json('paging.next') ?? null;
+                        $queryParams = [];
+                        $pagesFetched++;
                     }
+                };
 
-                    foreach ($items as $item) {
-                        $extracted = self::extractPostFields($item);
-                        SocialPost::updateOrCreate(
-                            ['platform_post_id' => (string) $item['id']],
-                            [
-                                'social_account_id' => $account->id,
-                                'message' => $extracted['message'],
-                                'media_url' => $extracted['media_url'],
-                                'permalink' => $extracted['permalink'],
-                                'published_at' => $extracted['published_at'],
-                                'is_auto_reply_enabled' => true,
-                            ]
-                        );
-                        $syncedCount++;
-                    }
+                // 1. Sync published_posts
+                $fetchEndpoint("https://graph.facebook.com/{$version}/{$account->account_id}/published_posts");
 
-                    $endpointUrl = $res->json('paging.next') ?? null;
-                    $queryParams = []; // next URL already includes access token & pagination cursor
-                    $pagesFetched++;
-                }
+                // 2. Sync feed (captures shared posts, timeline posts, reels)
+                try {
+                    $fetchEndpoint("https://graph.facebook.com/{$version}/{$account->account_id}/feed");
+                } catch (\Throwable $feedEx) {}
 
-                // Also sync standalone Page Videos & Reels that may not appear in published_posts
+                // 3. Sync standalone Page Videos & Reels
                 try {
                     $vidRes = Http::timeout(12)->get("https://graph.facebook.com/{$version}/{$account->account_id}/videos", [
                         'fields' => 'id,description,title,picture,permalink_url,created_time',
-                        'limit' => 30,
+                        'limit' => 40,
                         'access_token' => $token,
                     ]);
                     if ($vidRes->successful()) {
@@ -245,24 +320,21 @@ class CommentAutomationController extends Controller
                     Log::warning("Video sync skipped for account {$account->id}: " . $vidEx->getMessage());
                 }
 
-                // Enrich any existing incomplete posts for this account
+                // 4. Enrich ALL existing incomplete posts for this account using resilient multi-node fetch
                 $incompletePosts = SocialPost::where('social_account_id', $account->id)
                     ->where(function ($q) {
                         $q->where('message', 'LIKE', 'Facebook Post #%')
                             ->orWhereNull('media_url')
                             ->orWhere('media_url', '');
                     })
-                    ->take(30)
+                    ->take(150)
                     ->get();
 
                 foreach ($incompletePosts as $incPost) {
                     try {
-                        $singleRes = Http::timeout(8)->get("https://graph.facebook.com/{$version}/{$incPost->platform_post_id}", [
-                            'fields' => $postFields,
-                            'access_token' => $token,
-                        ]);
-                        if ($singleRes->successful()) {
-                            $extracted = self::extractPostFields($singleRes->json(), $incPost->platform_post_id);
+                        $postData = self::fetchPostDetailsFromMeta($incPost->platform_post_id, $token, $version);
+                        if ($postData) {
+                            $extracted = self::extractPostFields($postData, $incPost->platform_post_id);
                             $incPost->update([
                                 'message' => $extracted['message'],
                                 'media_url' => $extracted['media_url'] ?: $incPost->media_url,
