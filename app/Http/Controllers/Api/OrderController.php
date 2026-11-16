@@ -445,6 +445,103 @@ class OrderController extends Controller
             }
         }
 
+        // Capture Before state for CX History & Audit Trail
+        $user = $request->user();
+        $userName = $user ? $user->name : 'Agent';
+        $timeStr = now()->format('d M Y, h:i A');
+
+        $prevItems = is_array($order->items_data) && ! empty($order->items_data)
+            ? $order->items_data
+            : [[
+                'name' => $order->product?->name ?: 'Product',
+                'size' => $order->size ?: '',
+                'color' => $order->color ?: '',
+                'quantity' => (int) ($order->quantity ?: 1),
+                'price' => (float) ($order->unit_price ?: 0),
+            ]];
+
+        $beforeState = [
+            'items' => array_map(function ($it) {
+                return [
+                    'name' => $it['name'] ?? 'Product',
+                    'size' => $it['size'] ?? '',
+                    'color' => $it['color'] ?? '',
+                    'quantity' => (int) ($it['quantity'] ?? 1),
+                    'price' => (float) ($it['price'] ?? 0),
+                ];
+            }, $prevItems),
+            'quantity' => (int) $order->quantity,
+            'size' => (string) $order->size,
+            'color' => (string) $order->color,
+            'unit_price' => (float) $order->unit_price,
+            'delivery_charge' => (float) $order->delivery_charge,
+            'total_amount' => (float) $order->total_amount,
+            'order_status' => (string) $order->order_status,
+            'customer_name' => (string) ($order->customer?->name ?: ''),
+            'customer_phone' => (string) ($order->customer_phone ?: $order->customer?->phone ?: ''),
+            'customer_address' => (string) ($order->customer_address ?: ''),
+        ];
+
+        $newItems = isset($validated['items_data']) && is_array($validated['items_data'])
+            ? $validated['items_data']
+            : $prevItems;
+
+        $targetStatus = $validated['order_status'] ?? ($order->order_status === 'cancelled' ? 'cancelled' : 'confirmed');
+
+        $afterState = [
+            'items' => array_map(function ($it) {
+                return [
+                    'name' => $it['name'] ?? 'Product',
+                    'size' => $it['size'] ?? '',
+                    'color' => $it['color'] ?? '',
+                    'quantity' => (int) ($it['quantity'] ?? 1),
+                    'price' => (float) ($it['price'] ?? 0),
+                ];
+            }, $newItems),
+            'quantity' => (int) ($validated['quantity'] ?? $order->quantity),
+            'size' => (string) ($validated['size'] ?? $order->size),
+            'color' => (string) ($validated['color'] ?? $order->color),
+            'unit_price' => (float) ($validated['unit_price'] ?? $order->unit_price),
+            'delivery_charge' => (float) ($validated['delivery_charge'] ?? $order->delivery_charge),
+            'total_amount' => (float) ($validated['total_amount'] ?? $order->total_amount),
+            'order_status' => (string) $targetStatus,
+            'customer_name' => (string) ($validated['customer_name'] ?? ($order->customer?->name ?: '')),
+            'customer_phone' => (string) ($validated['customer_phone'] ?? $order->customer_phone),
+            'customer_address' => (string) ($validated['customer_address'] ?? $order->customer_address),
+        ];
+
+        // Auto-resolve order and record History
+        $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+        $raw['is_cx_resolved'] = true;
+        $raw['cx_resolved_at'] = now()->toISOString();
+        $raw['cx_resolved_by'] = $userName;
+        $raw['cx_resolution_action'] = 'edited';
+
+        $historyEntry = [
+            'id' => (string) Str::uuid(),
+            'action' => 'edit',
+            'title' => 'অর্ডার এডিট ও আপডেট (Order Edited)',
+            'performed_by' => $userName,
+            'performed_at' => now()->toISOString(),
+            'formatted_time' => $timeStr,
+            'before' => $beforeState,
+            'after' => $afterState,
+            'note' => $validated['notes'] ?? null,
+        ];
+
+        $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+        $history[] = $historyEntry;
+        $raw['cx_history'] = $history;
+        $raw['cx_last_change'] = $historyEntry;
+
+        $validated['wc_raw_data'] = $raw;
+        $validated['order_status'] = $targetStatus;
+
+        $auditNote = "[CX Edit by {$userName} on " . now()->format('d M H:i') . "]";
+        if (! str_contains((string) ($order->notes ?? ''), $auditNote)) {
+            $validated['notes'] = trim(($validated['notes'] ?? $order->notes ?? '') . "\n" . $auditNote);
+        }
+
         $order->update($validated);
 
         if ($order->wc_order_id) {
@@ -502,7 +599,9 @@ class OrderController extends Controller
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
             $order->is_cx_resolved = ! empty($raw['is_cx_resolved']) 
                 || str_contains((string) $order->notes, '[CX Resolved') 
-                || str_contains((string) $order->notes, '[CX Review: Quantity adjusted');
+                || str_contains((string) $order->notes, '[CX Review: Quantity adjusted')
+                || str_contains((string) $order->notes, '[CX Verified')
+                || str_contains((string) $order->notes, '[CX Edit');
         }
 
         // Group orders by normalized phone + product
@@ -534,6 +633,9 @@ class OrderController extends Controller
                 $unresolvedActiveCount = 0;
                 $activeCount = 0;
                 $cancelledCount = 0;
+                $hasResolvedAction = false;
+                $resolvedBy = null;
+                $resolvedAt = null;
 
                 foreach ($groupList as $ord) {
                     if ($ord->order_status === 'cancelled') {
@@ -544,10 +646,19 @@ class OrderController extends Controller
                             $unresolvedActiveCount++;
                         }
                     }
+
+                    if ($ord->is_cx_resolved) {
+                        $hasResolvedAction = true;
+                        $raw = is_array($ord->wc_raw_data) ? $ord->wc_raw_data : [];
+                        if (! empty($raw['cx_resolved_by']) && empty($resolvedBy)) {
+                            $resolvedBy = $raw['cx_resolved_by'];
+                            $resolvedAt = $raw['cx_resolved_at'] ?? null;
+                        }
+                    }
                 }
 
-                // Group is resolved when no unresolved active orders remain
-                $isGroupResolved = ($unresolvedActiveCount === 0);
+                // Group is resolved when no unresolved active orders remain OR if any order in the group was confirmed/edited
+                $isGroupResolved = ($unresolvedActiveCount === 0) || $hasResolvedAction;
 
                 $firstOrder = $groupList[0];
                 $duplicateGroups[] = [
@@ -564,6 +675,8 @@ class OrderController extends Controller
                     'cancelled_order_count' => $cancelledCount,
                     'unresolved_order_count' => $unresolvedActiveCount,
                     'is_resolved' => $isGroupResolved,
+                    'resolved_by' => $resolvedBy,
+                    'resolved_at' => $resolvedAt,
                     'orders' => array_values($groupList),
                 ];
             }
@@ -712,7 +825,7 @@ class OrderController extends Controller
         $pendingMultiQtyCount = count(array_filter($standaloneMultiQtyOrders, fn($o) => ! $o->is_cx_resolved && $o->order_status !== 'cancelled'));
         $totalReviewNeeded = $pendingDuplicateGroupsCount + $pendingMultiQtyCount;
 
-        $resolvedTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => ! empty($o['wc_raw_data']['is_cx_resolved']) || str_contains((string) ($o['notes'] ?? ''), '[CX Resolved') || str_contains((string) ($o['notes'] ?? ''), '[CX Review: Quantity adjusted')));
+        $resolvedTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => ! empty($o['wc_raw_data']['is_cx_resolved']) || str_contains((string) ($o['notes'] ?? ''), '[CX Resolved') || str_contains((string) ($o['notes'] ?? ''), '[CX Review: Quantity adjusted') || str_contains((string) ($o['notes'] ?? ''), '[CX Verified') || str_contains((string) ($o['notes'] ?? ''), '[CX Edit')));
         $cancelledTotalCount = count(array_filter($rawOrders->toArray(), fn($o) => $o['order_status'] === 'cancelled'));
 
         return response()->json([
@@ -871,13 +984,51 @@ class OrderController extends Controller
             $raw['is_cx_resolved'] = true;
             $raw['cx_resolved_at'] = now()->toISOString();
             $raw['cx_resolved_by'] = $userName;
+            $raw['cx_resolution_action'] = 'set_qty_one';
 
-            $itemsPayload = $order->items_data;
+            $prevItems = is_array($order->items_data) && ! empty($order->items_data)
+                ? $order->items_data
+                : [[
+                    'name' => $order->product?->name ?: 'Product',
+                    'size' => $order->size ?: '',
+                    'color' => $order->color ?: '',
+                    'quantity' => (int) ($prevQty ?: 1),
+                    'price' => (float) ($unitPrice ?: 0),
+                ]];
+
+            $itemsPayload = $prevItems;
             if (is_array($itemsPayload) && ! empty($itemsPayload)) {
                 $itemsPayload[0]['quantity'] = 1;
                 $itemsPayload[0]['subtotal'] = (string) $unitPrice;
                 $itemsPayload[0]['total'] = (string) $unitPrice;
             }
+
+            $historyEntry = [
+                'id' => (string) Str::uuid(),
+                'action' => 'set_qty_one',
+                'title' => "কোয়ান্টিটি {$prevQty} থেকে ১ করা হয়েছে (Quantity Adjusted to 1)",
+                'performed_by' => $userName,
+                'performed_at' => now()->toISOString(),
+                'formatted_time' => now()->format('d M Y, h:i A'),
+                'before' => [
+                    'order_status' => $order->order_status,
+                    'items' => $prevItems,
+                    'quantity' => (int) $prevQty,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'after' => [
+                    'order_status' => 'confirmed',
+                    'items' => $itemsPayload,
+                    'quantity' => 1,
+                    'total_amount' => (float) $newTotal,
+                ],
+                'note' => $cxNote,
+            ];
+
+            $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+            $history[] = $historyEntry;
+            $raw['cx_history'] = $history;
+            $raw['cx_last_change'] = $historyEntry;
 
             $order->update([
                 'quantity' => 1,
@@ -917,6 +1068,44 @@ class OrderController extends Controller
             $raw['is_cx_resolved'] = true;
             $raw['cx_resolved_at'] = now()->toISOString();
             $raw['cx_resolved_by'] = $userName;
+            $raw['cx_resolution_action'] = 'confirmed';
+
+            $currentItems = is_array($order->items_data) && ! empty($order->items_data)
+                ? $order->items_data
+                : [[
+                    'name' => $order->product?->name ?: 'Product',
+                    'size' => $order->size ?: '',
+                    'color' => $order->color ?: '',
+                    'quantity' => (int) ($order->quantity ?: 1),
+                    'price' => (float) ($order->unit_price ?: 0),
+                ]];
+
+            $historyEntry = [
+                'id' => (string) Str::uuid(),
+                'action' => 'confirm',
+                'title' => 'অর্ডার কনফার্ম করা হয়েছে (Order Confirmed)',
+                'performed_by' => $userName,
+                'performed_at' => now()->toISOString(),
+                'formatted_time' => now()->format('d M Y, h:i A'),
+                'before' => [
+                    'order_status' => $order->order_status,
+                    'items' => $currentItems,
+                    'quantity' => (int) $order->quantity,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'after' => [
+                    'order_status' => 'confirmed',
+                    'items' => $currentItems,
+                    'quantity' => (int) $order->quantity,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'note' => $cxNote,
+            ];
+
+            $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+            $history[] = $historyEntry;
+            $raw['cx_history'] = $history;
+            $raw['cx_last_change'] = $historyEntry;
 
             $order->update([
                 'order_status' => 'confirmed',
@@ -951,6 +1140,43 @@ class OrderController extends Controller
             $raw['is_cx_resolved'] = true;
             $raw['cx_cancelled_at'] = now()->toISOString();
             $raw['cx_cancelled_by'] = $userName;
+            $raw['cx_resolved_by'] = $userName;
+            $raw['cx_resolution_action'] = 'cancelled';
+
+            $currentItems = is_array($order->items_data) && ! empty($order->items_data)
+                ? $order->items_data
+                : [[
+                    'name' => $order->product?->name ?: 'Product',
+                    'size' => $order->size ?: '',
+                    'color' => $order->color ?: '',
+                    'quantity' => (int) ($order->quantity ?: 1),
+                    'price' => (float) ($order->unit_price ?: 0),
+                ]];
+
+            $historyEntry = [
+                'id' => (string) Str::uuid(),
+                'action' => 'cancel',
+                'title' => 'অর্ডার বাতিল করা হয়েছে (Order Cancelled)',
+                'performed_by' => $userName,
+                'performed_at' => now()->toISOString(),
+                'formatted_time' => now()->format('d M Y, h:i A'),
+                'before' => [
+                    'order_status' => $order->order_status,
+                    'items' => $currentItems,
+                    'quantity' => (int) $order->quantity,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'after' => [
+                    'order_status' => 'cancelled',
+                    'reason' => $reason,
+                ],
+                'note' => $cxNote,
+            ];
+
+            $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+            $history[] = $historyEntry;
+            $raw['cx_history'] = $history;
+            $raw['cx_last_change'] = $historyEntry;
 
             $order->update([
                 'order_status' => 'cancelled',
@@ -1421,7 +1647,8 @@ class OrderController extends Controller
                 || str_contains((string) $order->notes, '[CX Resolved')
                 || str_contains((string) $order->notes, '[CX Problem Resolved')
                 || str_contains((string) $order->notes, '[CX Review: Quantity adjusted')
-                || str_contains((string) $order->notes, '[CX Verified');
+                || str_contains((string) $order->notes, '[CX Verified')
+                || str_contains((string) $order->notes, '[CX Edit');
 
             // Determine overall duplicate status
             if ($isDuplicate || $isMultiQty) {

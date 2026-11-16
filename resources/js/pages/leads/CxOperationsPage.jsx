@@ -25,6 +25,9 @@ import {
     Loader2,
     RotateCcw,
     Trash2,
+    History,
+    UserCheck,
+    Clock,
 } from 'lucide-react';
 
 /**
@@ -137,6 +140,24 @@ const OrderCard = ({
     const rawPhone = order.customer_phone || order.customer?.phone || '';
     const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
     const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
+
+    const rawData = order.wc_raw_data || {};
+    const lastChange = rawData.cx_last_change || (Array.isArray(rawData.cx_history) && rawData.cx_history.length > 0 ? rawData.cx_history[rawData.cx_history.length - 1] : null);
+    const historyList = Array.isArray(rawData.cx_history) ? rawData.cx_history : (lastChange ? [lastChange] : []);
+
+    const resolvedBy = lastChange?.performed_by || rawData.cx_resolved_by || (() => {
+        const m = (order.notes || '').match(/by\s+([^\]\n]+)\s+on/i);
+        return m ? m[1].trim() : (isResolved ? 'CX Agent' : null);
+    })();
+    const resolvedTime = lastChange?.formatted_time || (() => {
+        if (rawData.cx_resolved_at) {
+            return new Date(rawData.cx_resolved_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+        const m = (order.notes || '').match(/on\s+([0-9A-Za-z\s:,]+)\]/);
+        return m ? m[1].trim() : null;
+    })();
+
+    const hasHistory = !!(lastChange?.before && lastChange?.after) || isResolved;
 
     return (
         <div
@@ -313,6 +334,109 @@ const OrderCard = ({
                         </p>
                     )}
                 </div>
+
+                {/* Resolution & Audit Trail History Box */}
+                {hasHistory && (
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-emerald-500/30 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 flex-wrap gap-1">
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span className="text-xs font-extrabold text-emerald-300 flex items-center gap-1">
+                                    <History className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>সমাধান ও পরিবর্তন হিস্ট্রি</span>
+                                </span>
+                            </div>
+                            {resolvedBy && (
+                                <span className="text-[10px] font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1">
+                                    <UserCheck className="w-3 h-3 text-emerald-400" />
+                                    <span>সম্পাদনকারী: <strong className="text-emerald-400">{resolvedBy}</strong> {resolvedTime ? `(${resolvedTime})` : ''}</span>
+                                </span>
+                            )}
+                        </div>
+
+                        {lastChange?.before && lastChange?.after ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                {/* BEFORE ACTION */}
+                                <div className="p-2.5 rounded-lg bg-amber-950/15 border border-amber-500/25 space-y-1.5">
+                                    <div className="flex items-center justify-between text-amber-400 font-bold border-b border-amber-500/20 pb-1">
+                                        <span>আগের পণ্য ও অবস্থা (Before)</span>
+                                        <span className="text-[9px] text-amber-300/70 font-mono">পূর্বের হিসাব</span>
+                                    </div>
+                                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                                        {(lastChange.before.items || []).map((it, i) => (
+                                            <div key={i} className="flex justify-between items-start gap-1 text-slate-300 text-[10px]">
+                                                <div className="min-w-0">
+                                                    <span className="font-semibold block truncate text-slate-200">{it.name}</span>
+                                                    <div className="text-[9px] text-slate-400 font-mono">
+                                                        {it.size ? `Size: ${it.size} ` : ''}
+                                                        {it.color ? `Color: ${it.color} ` : ''}
+                                                        <span>(Qty: {it.quantity} × ৳{it.price})</span>
+                                                    </div>
+                                                </div>
+                                                <span className="font-mono text-slate-200 font-semibold shrink-0">৳{(it.quantity * it.price).toFixed(0)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="pt-1 border-t border-amber-500/20 flex justify-between font-mono font-bold text-amber-200 text-[10px]">
+                                        <span>মোট: {lastChange.before.quantity} পিস</span>
+                                        <span>৳{parseFloat(lastChange.before.total_amount).toFixed(0)}</span>
+                                    </div>
+                                </div>
+
+                                {/* AFTER ACTION */}
+                                <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1.5">
+                                    <div className="flex items-center justify-between text-emerald-400 font-bold border-b border-emerald-500/20 pb-1">
+                                        <span>কনফার্ম/এডিটের পর (After)</span>
+                                        <span className="text-[9px] text-emerald-300/70 font-mono capitalize">{lastChange.after.order_status || 'Confirmed'}</span>
+                                    </div>
+                                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                                        {(lastChange.after.items || []).map((it, i) => (
+                                            <div key={i} className="flex justify-between items-start gap-1 text-emerald-200 text-[10px]">
+                                                <div className="min-w-0">
+                                                    <span className="font-semibold block truncate text-emerald-100">{it.name}</span>
+                                                    <div className="text-[9px] text-emerald-300/80 font-mono">
+                                                        {it.size ? `Size: ${it.size} ` : ''}
+                                                        {it.color ? `Color: ${it.color} ` : ''}
+                                                        <span>(Qty: {it.quantity} × ৳{it.price})</span>
+                                                    </div>
+                                                </div>
+                                                <span className="font-mono font-bold text-emerald-300 shrink-0">৳{(it.quantity * it.price).toFixed(0)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="pt-1 border-t border-emerald-500/20 flex justify-between font-mono font-bold text-emerald-300 text-[10px]">
+                                        <span>মোট: {lastChange.after.quantity} পিস</span>
+                                        <span>৳{parseFloat(lastChange.after.total_amount).toFixed(0)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-center justify-between">
+                                <span>এই অর্ডারটি ভেরিফাই ও কনফার্ম করে সমাধান করা হয়েছে।</span>
+                                <span className="font-mono font-bold text-xs">৳{order.total_amount}</span>
+                            </div>
+                        )}
+
+                        {/* Detailed Timeline if multiple actions taken */}
+                        {historyList.length > 1 && (
+                            <details className="text-[10px] text-slate-400 pt-1 cursor-pointer">
+                                <summary className="hover:text-slate-200 font-semibold flex items-center gap-1">
+                                    <span>সম্পূর্ণ অ্যাকশন হিস্ট্রি দেখুন ({historyList.length}টি অ্যাকশন)</span>
+                                </summary>
+                                <div className="mt-2 space-y-1 pl-2 border-l-2 border-slate-800">
+                                    {historyList.map((h, idx) => (
+                                        <div key={idx} className="space-y-0.5 text-[10px]">
+                                            <div className="text-slate-200 font-medium">
+                                                #{idx + 1} <strong>{h.title || h.action}</strong> — <span className="text-emerald-400 font-bold">{h.performed_by}</span> ({h.formatted_time || ''})
+                                            </div>
+                                            {h.note && <div className="text-slate-400 italic text-[9px]">{h.note}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </details>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Actions Toolbar */}
@@ -371,20 +495,6 @@ const OrderCard = ({
                         >
                             <Check className="w-3.5 h-3.5" />
                             <span>কনফার্ম (Confirm)</span>
-                        </button>
-                    )}
-
-                    {/* Standalone Multi-Qty Card Only: Has its own Resolve button */}
-                    {!isDuplicateSubCard && !isCancelled && !isResolved && (
-                        <button
-                            type="button"
-                            disabled={isActionLoading}
-                            onClick={() => onResolve(order.id)}
-                            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
-                            title="অর্ডারটি সমাধান হয়েছে হিসেবে চিহ্নিত করুন"
-                        >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Resolve (সমাধান হয়েছে)</span>
                         </button>
                     )}
 
@@ -1003,46 +1113,46 @@ export const CxOperationsPage = () => {
                                                     </a>
                                                 )}
 
-                                                {/* ONE TOP RESOLVE BUTTON FOR THE ENTIRE PROBLEM */}
-                                                {!isGroupResolved ? (
-                                                    <button
-                                                        type="button"
-                                                        disabled={isGroupResolving}
-                                                        onClick={() => handleResolveGroup(group, false)}
-                                                        className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 border border-emerald-400/40 transition-all active:scale-95 cursor-pointer"
-                                                        title="একটি কনফার্ম ও একটি বাতিল করার পর (বা উভয় কনফার্মের পর) এই পুরো সমস্যাটি সমাধান করতে ক্লিক করুন"
-                                                    >
-                                                        {isGroupResolving ? (
-                                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                                        ) : (
-                                                            <CheckCircle2 className="w-4 h-4" />
-                                                        )}
-                                                        <span>Resolve (সমস্যার সমাধান হয়েছে)</span>
-                                                    </button>
-                                                ) : (
+                                                {/* RESOLUTION STATUS BADGE (AUTO-RESOLVED) */}
+                                                {isGroupResolved ? (
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/40 flex items-center gap-1.5">
-                                                            <Check className="w-4 h-4" /> সমাধানকৃত (Resolved)
+                                                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                                                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                                            <span>সমাধানকৃত (Resolved)</span>
+                                                            {group.resolved_by && (
+                                                                <span className="text-[10px] text-emerald-200 font-semibold ml-1">
+                                                                    • {group.resolved_by}
+                                                                </span>
+                                                            )}
                                                         </span>
                                                         <button
                                                             type="button"
                                                             disabled={isGroupResolving}
                                                             onClick={() => handleResolveGroup(group, true)}
-                                                            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
-                                                            title="পুনরায় পেন্ডিং করুন"
+                                                            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all cursor-pointer"
+                                                            title="পুনরায় পেন্ডিং রিভিউতে ফেরত পাঠান"
                                                         >
                                                             <RotateCcw className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
+                                                ) : (
+                                                    <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-3 py-1.5 rounded-xl border border-amber-500/30 flex items-center gap-1.5">
+                                                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                                        <span>রিভিউ বাকি (Pending)</span>
+                                                    </span>
                                                 )}
                                             </div>
                                         </div>
 
                                         {/* Actionable Notice Banner */}
-                                        <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
-                                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                                        <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${
+                                            isGroupResolved
+                                                ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                                                : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+                                        }`}>
+                                            <AlertTriangle className={`w-4 h-4 shrink-0 ${isGroupResolved ? 'text-emerald-400' : 'text-rose-400'}`} />
                                             <span>
-                                                <strong>সমস্যা বিশ্লেষণ:</strong> গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে উভয় অর্ডার থেকে কাঙ্ক্ষিত অর্ডারটি <strong>কনফার্ম</strong> ও অনাকাঙ্ক্ষিত অর্ডারটি <strong>বাতিল (Cancel)</strong> করুন (বা চাইলে উভয়টি কনফার্ম রাখুন), এরপর উপরে থাকা <strong>Resolve (সমস্যার সমাধান হয়েছে)</strong> বাটনে ক্লিক করলেই এটি পাশের <strong>Resolved</strong> ট্যাবে চলে যাবে।
+                                                <strong>সমস্যা বিশ্লেষণ:</strong> গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে যেকোনো একটি অর্ডার <strong>কনফার্ম</strong> অথবা <strong>Edit</strong> করে সেভ করলেই পুরো কেসটি স্বয়ংক্রিয়ভাবে <strong>Resolved</strong> ট্যাবে চলে যাবে এবং পরিবর্তন হিস্ট্রি সংরক্ষিত থাকবে। অনাকাঙ্ক্ষিত অর্ডারটি <strong>বাতিল (Cancel)</strong> করতে পারেন।
                                             </span>
                                         </div>
 
@@ -1087,7 +1197,6 @@ export const CxOperationsPage = () => {
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
                                         onConfirm={(id) => handleQuickAction(id, 'confirm')}
-                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         actionLoadingId={actionLoadingId}
@@ -1115,7 +1224,6 @@ export const CxOperationsPage = () => {
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
                                         onConfirm={(id) => handleQuickAction(id, 'confirm')}
-                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         actionLoadingId={actionLoadingId}
@@ -1143,7 +1251,6 @@ export const CxOperationsPage = () => {
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
                                         onConfirm={(id) => handleQuickAction(id, 'confirm')}
-                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         actionLoadingId={actionLoadingId}

@@ -31,6 +31,8 @@ import {
     Trash2,
     AlertTriangle,
     Edit,
+    History,
+    UserCheck,
 } from 'lucide-react';
 
 /**
@@ -1409,6 +1411,75 @@ export const WebsiteOrdersPage = () => {
                                 </span>
                             </div>
                         )}
+
+                        {/* Audit & Change History if order was edited or confirmed */}
+                        {(() => {
+                            const rawData = selectedOrder.wc_raw_data || {};
+                            const lastChange = rawData.cx_last_change || (Array.isArray(rawData.cx_history) && rawData.cx_history.length > 0 ? rawData.cx_history[rawData.cx_history.length - 1] : null);
+                            const historyList = Array.isArray(rawData.cx_history) ? rawData.cx_history : (lastChange ? [lastChange] : []);
+
+                            const resolvedBy = lastChange?.performed_by || rawData.cx_resolved_by;
+                            const resolvedTime = lastChange?.formatted_time;
+
+                            if (!lastChange?.before || !lastChange?.after) return null;
+
+                            return (
+                                <div className="p-3 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2.5">
+                                    <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-1">
+                                        <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                                            <History className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span>পরিবর্তন ও সিঙ্ক হিস্ট্রি (Audit Log)</span>
+                                        </span>
+                                        {resolvedBy && (
+                                            <span className="text-[10px] text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1">
+                                                <UserCheck className="w-3 h-3 text-emerald-400" />
+                                                <span>সম্পাদনকারী: <strong className="text-emerald-400">{resolvedBy}</strong> {resolvedTime ? `(${resolvedTime})` : ''}</span>
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                        {/* BEFORE */}
+                                        <div className="p-2.5 rounded-lg bg-amber-950/15 border border-amber-500/20 space-y-1">
+                                            <span className="text-amber-400 font-bold block border-b border-amber-500/20 pb-1">
+                                                আগের অবস্থা (Before Edit)
+                                            </span>
+                                            <div className="space-y-1">
+                                                {(lastChange.before.items || []).map((it, i) => (
+                                                    <div key={i} className="flex justify-between text-[10px] text-slate-300">
+                                                        <span>{it.name} (Qty: {it.quantity})</span>
+                                                        <span className="font-mono">৳{(it.quantity * it.price).toFixed(0)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pt-1 border-t border-amber-500/20 flex justify-between font-mono font-bold text-amber-200 text-[10px]">
+                                                <span>মোট: {lastChange.before.quantity} পিস</span>
+                                                <span>৳{parseFloat(lastChange.before.total_amount).toFixed(0)}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* AFTER */}
+                                        <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1">
+                                            <span className="text-emerald-400 font-bold block border-b border-emerald-500/20 pb-1">
+                                                বর্তমান অবস্থা (After Edit / Sync)
+                                            </span>
+                                            <div className="space-y-1">
+                                                {(lastChange.after.items || []).map((it, i) => (
+                                                    <div key={i} className="flex justify-between text-[10px] text-emerald-200">
+                                                        <span>{it.name} (Qty: {it.quantity})</span>
+                                                        <span className="font-mono">৳{(it.quantity * it.price).toFixed(0)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="pt-1 border-t border-emerald-500/20 flex justify-between font-mono font-bold text-emerald-300 text-[10px]">
+                                                <span>মোট: {lastChange.after.quantity} পিস</span>
+                                                <span>৳{parseFloat(lastChange.after.total_amount).toFixed(0)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         <div className="flex justify-between items-center pt-2">
                             <Button

@@ -921,7 +921,13 @@ class WooCommerceService
                         ]);
                 } catch (\Throwable $e) {}
 
-                // Update wc_raw_data with fresh response from WooCommerce
+                // Update wc_raw_data with fresh response from WooCommerce while preserving CX flags & history
+                $existingRaw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+                foreach (['is_cx_resolved', 'cx_resolved_at', 'cx_resolved_by', 'cx_resolution_action', 'cx_history', 'cx_last_change', 'cx_cancelled_at', 'cx_cancelled_by'] as $k) {
+                    if (isset($existingRaw[$k])) {
+                        $updatedWcData[$k] = $existingRaw[$k];
+                    }
+                }
                 $order->update(['wc_raw_data' => $updatedWcData]);
 
                 return [
