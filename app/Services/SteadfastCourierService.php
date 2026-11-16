@@ -181,6 +181,51 @@ class SteadfastCourierService
     }
 
     /**
+     * Format a clean invoice string strictly satisfying Steadfast's alpha_dash requirement:
+     * Allowed characters: letters, numbers, dashes (-), and underscores (_).
+     * Replaces ' | ' with '-', spaces with '_', strips forbidden punctuation, and appends unique order suffix.
+     */
+    public function formatSteadfastInvoice(Order $order, string $rawDescription): string
+    {
+        // 1. Replace item separator ' | ' with '-'
+        $clean = str_replace(' | ', '-', $rawDescription);
+
+        // 2. Remove punctuation that violates alpha_dash (colons, commas, slashes, brackets, quotes, etc.)
+        $clean = str_replace([':', ';', ',', '(', ')', '[', ']', '{', '}', '/', '\\', '#', '@', '!', '?', '"', "'", '`'], '', $clean);
+
+        // 3. Replace whitespace with '_'
+        $clean = preg_replace('/\s+/', '_', $clean);
+
+        // 4. Remove any remaining characters not in [A-Za-z0-9_-]
+        $clean = preg_replace('/[^A-Za-z0-9_-]/', '', $clean);
+
+        // 5. Deduplicate separators
+        $clean = preg_replace('/-+/', '-', $clean);
+        $clean = preg_replace('/_+/', '_', $clean);
+        $clean = trim($clean, '-_');
+
+        // 6. Ensure uniqueness with sanitized order number / order id
+        $orderSuffix = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $order->order_number);
+        if (empty($orderSuffix)) {
+            $orderSuffix = (string) $order->id;
+        }
+
+        if (! empty($clean)) {
+            if (! str_contains($clean, $orderSuffix)) {
+                if (mb_strlen($clean) + mb_strlen($orderSuffix) + 1 > 100) {
+                    $clean = mb_substr($clean, 0, 99 - mb_strlen($orderSuffix));
+                    $clean = trim($clean, '-_');
+                }
+                $clean .= '_' . $orderSuffix;
+            }
+        } else {
+            $clean = 'ORD-' . $orderSuffix;
+        }
+
+        return mb_substr($clean, 0, 100);
+    }
+
+    /**
      * Check Steadfast account balance.
      */
     public function checkBalance(): array
@@ -281,16 +326,17 @@ class SteadfastCourierService
             $noteContent .= " | Note: {$order->notes}";
         }
 
-        $invoicePayload = mb_substr($invoiceDescription, 0, 250);
+        // Generate alpha_dash compliant invoice string for Steadfast API: [A-Za-z0-9_-]
+        $cleanInvoice = $this->formatSteadfastInvoice($order, $invoiceDescription);
 
         $payload = [
-            'invoice' => $invoicePayload,
+            'invoice' => $cleanInvoice,
             'recipient_name' => $customerName,
             'recipient_phone' => $phone,
             'recipient_address' => $order->customer_address,
             'cod_amount' => (float) $order->total_amount,
             'note' => $noteContent,
-            'item_description' => $invoicePayload,
+            'item_description' => mb_substr($invoiceDescription, 0, 250),
             'total_lot' => (int) ($order->quantity ?: 1),
             'delivery_type' => $deliveryTypeInt,
         ];
