@@ -24,7 +24,93 @@ import {
     ShoppingBag,
     Loader2,
     RotateCcw,
+    Trash2,
 } from 'lucide-react';
+
+/**
+ * Helper to robustly extract order items with Name, Size, Color, Quantity, and Price.
+ */
+const extractOrderItems = (order) => {
+    let rawItems = order.items_data;
+    if ((!rawItems || rawItems.length === 0) && order.wc_raw_data?.line_items) {
+        rawItems = order.wc_raw_data.line_items;
+    }
+
+    if (Array.isArray(rawItems) && rawItems.length > 0) {
+        return rawItems.map((item, idx) => {
+            let name = item.name || item.product_name || order.product?.name || `Product #${idx + 1}`;
+            let size = item.size || '';
+            let color = item.color || '';
+            let qty = parseInt(item.quantity || item.qty, 10) || 1;
+            let price = parseFloat(item.price || item.unit_price) || 0;
+
+            // 1. Check meta_data if size/color empty
+            if ((!size || !color) && Array.isArray(item.meta_data)) {
+                for (const m of item.meta_data) {
+                    const k = String(m.key || m.display_key || '').toLowerCase();
+                    const v = String(m.value || m.display_value || '').trim();
+                    if (!v || typeof m.value === 'object') continue;
+                    if (!size && (k.includes('size') || k.includes('সাইজ'))) {
+                        size = v;
+                    }
+                    if (!color && (k.includes('color') || k.includes('colour') || k.includes('কালার'))) {
+                        color = v;
+                    }
+                }
+            }
+
+            // 2. Check variation string if size/color empty
+            if ((!size || !color) && item.variation) {
+                const varStr = String(item.variation);
+                const sizeMatch = varStr.match(/size:\s*([^,;]+)/i);
+                if (!size && sizeMatch) size = sizeMatch[1].trim();
+                const colorMatch = varStr.match(/colou?r:\s*([^,;]+)/i);
+                if (!color && colorMatch) color = colorMatch[1].trim();
+            }
+
+            // 3. If product name has " - Variation" appended (e.g. "Luna Ruby - 2-3 YEAR, Red")
+            if ((!size || !color) && name.includes(' - ')) {
+                const parts = name.split(' - ');
+                const possibleVar = parts.slice(1).join(' - ').trim();
+                name = parts[0].trim();
+                if (possibleVar) {
+                    if (possibleVar.includes(',')) {
+                        const [s, c] = possibleVar.split(',').map((x) => x.trim());
+                        if (!size) size = s;
+                        if (!color && c) color = c;
+                    } else {
+                        if (!size) size = possibleVar;
+                    }
+                }
+            }
+
+            // 4. Fallback for single item order attributes
+            if (!size && rawItems.length === 1 && order.size) size = order.size;
+            if (!color && rawItems.length === 1 && order.color) color = order.color;
+
+            return {
+                id: item.id || idx,
+                product_id: item.product_id || null,
+                name: name,
+                size: size,
+                color: color,
+                quantity: qty,
+                price: price,
+            };
+        });
+    }
+
+    return [
+        {
+            id: 1,
+            name: order.product?.name || 'Product',
+            size: order.size || '',
+            color: order.color || '',
+            quantity: order.quantity || 1,
+            price: parseFloat(order.unit_price) || 0,
+        },
+    ];
+};
 
 /**
  * Individual Order Card (used inside Duplicate Groups and Standalone Multi-Qty).
@@ -147,42 +233,50 @@ const OrderCard = ({
                 )}
 
                 {/* Product & Attribute Specs */}
-                <div className="flex items-center gap-3 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
-                    <div className="w-12 h-12 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0">
-                        {order.product?.primary_image_url ? (
-                            <img
-                                src={order.product.primary_image_url}
-                                alt=""
-                                className="w-full h-full object-cover"
-                            />
-                        ) : (
-                            <ShoppingBag className="w-5 h-5 text-indigo-400" />
-                        )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-white truncate">
-                            {order.product?.name || order.items_data?.[0]?.name || 'Product'}
-                        </p>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {order.size ? (
-                                <span className="text-[11px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/40">
-                                    Size: {order.size}
-                                </span>
-                            ) : (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-slate-800 text-slate-400">
-                                    No Size
-                                </span>
-                            )}
-                            {order.color ? (
-                                <span className="text-[11px] px-2 py-0.5 rounded font-mono font-bold bg-purple-500/20 text-purple-200 border border-purple-500/40">
-                                    Color: {order.color}
-                                </span>
-                            ) : null}
-                            <span className={`text-[11px] px-2 py-0.5 rounded font-mono font-bold ${order.quantity > 1 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-800 text-slate-300'}`}>
-                                Qty: {order.quantity}
-                            </span>
-                        </div>
-                    </div>
+                <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-2">
+                    {(() => {
+                        const items = extractOrderItems(order);
+                        return items.map((it, idx) => (
+                            <div key={idx} className="flex items-start gap-2.5 pb-2 border-b border-slate-850/60 last:border-0 last:pb-0">
+                                <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center shrink-0 mt-0.5">
+                                    {order.product?.primary_image_url ? (
+                                        <img src={order.product.primary_image_url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <ShoppingBag className="w-4 h-4 text-indigo-400" />
+                                    )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-bold text-white truncate" title={it.name}>
+                                        {it.name}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                        {it.size ? (
+                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/30">
+                                                Size: {it.size}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[9px] px-1 py-0.2 rounded font-mono bg-slate-800 text-slate-400">
+                                                No Size
+                                            </span>
+                                        )}
+                                        {it.color ? (
+                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                                                Color: {it.color}
+                                            </span>
+                                        ) : null}
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${it.quantity > 1 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-slate-800 text-slate-300'}`}>
+                                            Qty: {it.quantity}
+                                        </span>
+                                        {it.price > 0 && (
+                                            <span className="text-[10px] text-slate-400 font-mono">
+                                                ৳{it.price}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ));
+                    })()}
                 </div>
 
                 {/* Pricing Breakdown */}
@@ -442,13 +536,17 @@ export const CxOperationsPage = () => {
     // Open Edit Order Modal
     const openEditModal = (order) => {
         setEditingOrder(order);
+        const parsedItems = extractOrderItems(order);
+        const totalQty = parsedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+        const itemsTotal = parsedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+        const delivery = parseFloat(order.delivery_charge) || 0;
+        const totalAmount = parseFloat(order.total_amount) || (itemsTotal + delivery);
+
         setEditForm({
-            quantity: order.quantity || 1,
-            size: order.size || '',
-            color: order.color || '',
-            unit_price: parseFloat(order.unit_price) || 0,
-            delivery_charge: parseFloat(order.delivery_charge) || 0,
-            total_amount: parseFloat(order.total_amount) || 0,
+            items: parsedItems,
+            quantity: totalQty || order.quantity || 1,
+            delivery_charge: delivery,
+            total_amount: totalAmount,
             customer_name: order.customer?.name || '',
             customer_phone: order.customer_phone || order.customer?.phone || '',
             customer_address: order.customer_address || '',
@@ -459,18 +557,65 @@ export const CxOperationsPage = () => {
         setEditModalOpen(true);
     };
 
-    // Handle Edit Form Change with live total recalculation
-    const handleEditFormChange = (field, value) => {
+    // Update single item attribute in editForm
+    const handleItemChange = (idx, field, value) => {
         setEditForm((prev) => {
-            const next = { ...prev, [field]: value };
-            if (field === 'quantity' || field === 'unit_price' || field === 'delivery_charge') {
-                const qty = parseInt(field === 'quantity' ? value : next.quantity, 10) || 1;
-                const price = parseFloat(field === 'unit_price' ? value : next.unit_price) || 0;
-                const delivery = parseFloat(field === 'delivery_charge' ? value : next.delivery_charge) || 0;
-                next.total_amount = (qty * price) + delivery;
-            }
-            return next;
+            const updatedItems = [...prev.items];
+            updatedItems[idx] = { ...updatedItems[idx], [field]: value };
+
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
         });
+    };
+
+    // Remove an item from the order
+    const handleRemoveItem = (idx) => {
+        setEditForm((prev) => {
+            if (prev.items.length <= 1) {
+                alert('অন্তত একটি পণ্য অর্ডারে থাকতে হবে।');
+                return prev;
+            }
+            const updatedItems = prev.items.filter((_, i) => i !== idx);
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    // Delivery charge change
+    const handleDeliveryChargeChange = (value) => {
+        setEditForm((prev) => {
+            const delivery = parseFloat(value) || 0;
+            const itemsTotal = prev.items.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            return {
+                ...prev,
+                delivery_charge: delivery,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    // Handle Edit Form basic field changes
+    const handleEditFormChange = (field, value) => {
+        setEditForm((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
     };
 
     // Save Edit Form
@@ -480,7 +625,23 @@ export const CxOperationsPage = () => {
 
         try {
             setSavingEdit(true);
-            const res = await api.put(`/orders/${editingOrder.id}`, editForm);
+            const payload = {
+                items_data: editForm.items,
+                quantity: editForm.quantity,
+                size: editForm.items[0]?.size || '',
+                color: editForm.items[0]?.color || '',
+                unit_price: editForm.items[0]?.price || 0,
+                delivery_charge: editForm.delivery_charge,
+                total_amount: editForm.total_amount,
+                customer_name: editForm.customer_name,
+                customer_phone: editForm.customer_phone,
+                customer_address: editForm.customer_address,
+                customer_email: editForm.customer_email,
+                notes: editForm.notes,
+                order_status: editForm.order_status,
+            };
+
+            const res = await api.put(`/orders/${editingOrder.id}`, payload);
             if (res.data.status === 'success') {
                 alert(`✅ Order #${editingOrder.order_number} updated successfully!`);
                 setEditModalOpen(false);
@@ -1000,7 +1161,7 @@ export const CxOperationsPage = () => {
                 <Modal
                     isOpen={editModalOpen}
                     onClose={() => setEditModalOpen(false)}
-                    title={`✏️ Edit Order #${editingOrder.order_number}`}
+                    title={`✏️ Edit Order ${editingOrder.order_number?.startsWith('#') ? '' : '#'}${editingOrder.order_number}`}
                 >
                     <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
                         {/* Customer Information */}
@@ -1039,42 +1200,108 @@ export const CxOperationsPage = () => {
                             </div>
                         </div>
 
-                        {/* Product & Attribute Information */}
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
-                                <Package className="w-3.5 h-3.5 text-indigo-400" /> সাইজ, কালার ও কোয়ান্টিটি
-                            </h4>
-                            <div className="grid grid-cols-3 gap-2.5">
-                                <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Size (সাইজ)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. M, L, XL"
-                                        value={editForm.size}
-                                        onChange={(e) => handleEditFormChange('size', e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Color (কালার)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Black, Blue"
-                                        value={editForm.color}
-                                        onChange={(e) => handleEditFormChange('color', e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Quantity (পিস)</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={editForm.quantity}
-                                        onChange={(e) => handleEditFormChange('quantity', e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold font-mono"
-                                    />
-                                </div>
+                        {/* Ordered Products Section */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                                <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+                                    <Package className="w-4 h-4 text-cyan-400" />
+                                    <span>অর্ডারকৃত পণ্যসমূহ ({editForm.items?.length || 1}টি আইটেম)</span>
+                                </h4>
+                                <span className="text-[11px] font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 font-bold">
+                                    মোট কোয়ান্টিটি: {editForm.quantity} পিস
+                                </span>
+                            </div>
+
+                            <div className="space-y-3">
+                                {editForm.items && editForm.items.map((item, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 relative group hover:border-slate-700 transition-colors"
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center text-[10px] font-black shrink-0">
+                                                    #{idx + 1}
+                                                </span>
+                                                <span className="text-[11px] text-slate-300 font-bold">
+                                                    আইটেম {idx + 1}
+                                                </span>
+                                            </div>
+                                            {editForm.items.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveItem(idx)}
+                                                    className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold flex items-center gap-1 p-1 rounded hover:bg-rose-500/10 cursor-pointer"
+                                                    title="এই পণ্যটি অর্ডার থেকে মুছে ফেলুন"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                    <span>মুছুন</span>
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Product Name Input */}
+                                        <div>
+                                            <label className="block text-[11px] text-slate-400 mb-1 font-medium">পণ্যের নাম (Product Name)</label>
+                                            <input
+                                                type="text"
+                                                value={item.name}
+                                                onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:border-cyan-500"
+                                                placeholder="Product Name"
+                                            />
+                                        </div>
+
+                                        {/* Attributes: Size, Color, Quantity, Unit Price */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Size (সাইজ)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. 8-9-year, M, L"
+                                                    value={item.size}
+                                                    onChange={(e) => handleItemChange(idx, 'size', e.target.value)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-indigo-200 font-mono focus:border-indigo-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Color (কালার)</label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. Red, Blue"
+                                                    value={item.color}
+                                                    onChange={(e) => handleItemChange(idx, 'color', e.target.value)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-purple-200 font-mono focus:border-purple-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Quantity (পিস)</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity}
+                                                    onChange={(e) => handleItemChange(idx, 'quantity', parseInt(e.target.value, 10) || 1)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-cyan-300 font-bold font-mono focus:border-cyan-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] text-slate-400 mb-1 font-medium">Unit Price (৳)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="any"
+                                                    value={item.price}
+                                                    onChange={(e) => handleItemChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-200 font-mono focus:border-cyan-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="text-right text-[11px] text-slate-400 font-mono pt-0.5">
+                                            আইটেম সাবটোটাল: <strong className="text-slate-200">৳{((item.quantity || 1) * (item.price || 0)).toFixed(0)}</strong>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
@@ -1085,14 +1312,10 @@ export const CxOperationsPage = () => {
                             </h4>
                             <div className="grid grid-cols-3 gap-2.5">
                                 <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Unit Price (৳)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={editForm.unit_price}
-                                        onChange={(e) => handleEditFormChange('unit_price', e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
-                                    />
+                                    <label className="block text-[11px] text-slate-400 mb-1">মোট আইটেম কোয়ান্টিটি</label>
+                                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-bold font-mono">
+                                        {editForm.quantity} পিস
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-[11px] text-slate-400 mb-1">Delivery Charge (৳)</label>
@@ -1100,7 +1323,7 @@ export const CxOperationsPage = () => {
                                         type="number"
                                         min="0"
                                         value={editForm.delivery_charge}
-                                        onChange={(e) => handleEditFormChange('delivery_charge', e.target.value)}
+                                        onChange={(e) => handleDeliveryChargeChange(e.target.value)}
                                         className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
                                     />
                                 </div>
@@ -1110,7 +1333,7 @@ export const CxOperationsPage = () => {
                                         type="number"
                                         min="0"
                                         value={editForm.total_amount}
-                                        onChange={(e) => handleEditFormChange('total_amount', e.target.value)}
+                                        onChange={(e) => setEditForm({ ...editForm, total_amount: parseFloat(e.target.value) || 0 })}
                                         className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold font-mono"
                                     />
                                 </div>

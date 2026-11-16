@@ -398,7 +398,33 @@ class OrderController extends Controller
             'customer_email' => 'nullable|string|email|max:255',
             'order_status' => 'nullable|string|in:draft,pending_confirmation,confirmed,processing,shipped,delivered,cancelled,returned',
             'notes' => 'nullable|string',
+            'items_data' => 'nullable|array',
         ]);
+
+        if (isset($validated['items_data']) && is_array($validated['items_data'])) {
+            $totalQty = 0;
+            $itemsTotal = 0;
+            foreach ($validated['items_data'] as $it) {
+                $q = (int) ($it['quantity'] ?? 1);
+                $p = (float) ($it['price'] ?? 0);
+                $totalQty += $q;
+                $itemsTotal += ($q * $p);
+            }
+            if ($totalQty > 0) {
+                $validated['quantity'] = $totalQty;
+            }
+            if (! isset($validated['total_amount']) && $itemsTotal > 0) {
+                $delivery = $validated['delivery_charge'] ?? $order->delivery_charge ?? 0;
+                $validated['total_amount'] = $itemsTotal + $delivery;
+            }
+
+            if (! empty($validated['items_data'][0]['size']) && empty($validated['size'])) {
+                $validated['size'] = $validated['items_data'][0]['size'];
+            }
+            if (! empty($validated['items_data'][0]['color']) && empty($validated['color'])) {
+                $validated['color'] = $validated['items_data'][0]['color'];
+            }
+        }
 
         $qty = $validated['quantity'] ?? $order->quantity;
         $unitPrice = $validated['unit_price'] ?? $order->unit_price;
@@ -408,8 +434,15 @@ class OrderController extends Controller
             $validated['total_amount'] = ($qty * $unitPrice) + $delivery;
         }
 
-        if (! empty($validated['customer_name']) && $order->customer) {
-            $order->customer->update(['name' => $validated['customer_name']]);
+        if ($order->customer) {
+            $custUpdates = [];
+            if (! empty($validated['customer_name'])) $custUpdates['name'] = $validated['customer_name'];
+            if (! empty($validated['customer_phone'])) $custUpdates['phone'] = $validated['customer_phone'];
+            if (! empty($validated['customer_address'])) $custUpdates['address'] = $validated['customer_address'];
+            if (! empty($validated['customer_email'])) $custUpdates['email'] = $validated['customer_email'];
+            if (! empty($custUpdates)) {
+                $order->customer->update($custUpdates);
+            }
         }
 
         $order->update($validated);

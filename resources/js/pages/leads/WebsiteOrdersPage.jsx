@@ -709,25 +709,45 @@ export const WebsiteOrdersPage = () => {
                                             </td>
 
                                             {/* Products & Items */}
-                                            <td className="p-3 max-w-[220px]">
+                                            <td className="p-3 max-w-[240px]">
                                                 {items.length > 0 ? (
-                                                    <div className="space-y-1">
-                                                        <div className="font-medium text-slate-200 truncate" title={items[0]?.name}>
-                                                            {items[0]?.name}
-                                                        </div>
-                                                        <div className="text-[10px] text-slate-400 flex items-center gap-2">
-                                                            <span>Qty: {items[0]?.quantity}</span>
-                                                            <span>৳{items[0]?.price}</span>
-                                                            {items.length > 1 && (
-                                                                <span className="text-cyan-400 font-bold bg-cyan-500/10 px-1 rounded">
-                                                                    +{items.length - 1} more items
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                    <div className="space-y-1.5">
+                                                        {items.map((it, idx) => (
+                                                            <div key={idx} className="pb-1 border-b border-slate-800/40 last:border-0 last:pb-0">
+                                                                <div className="font-medium text-slate-200 truncate" title={it.name}>
+                                                                    {it.name}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                                                    {it.size && (
+                                                                        <span className="px-1.5 py-0.2 rounded font-mono font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/30">
+                                                                            Size: {it.size}
+                                                                        </span>
+                                                                    )}
+                                                                    {it.color && (
+                                                                        <span className="px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                                                                            Color: {it.color}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="font-bold text-cyan-300 font-mono">
+                                                                        Qty: {it.quantity}
+                                                                    </span>
+                                                                    {it.price > 0 && (
+                                                                        <span className="font-mono text-slate-400">
+                                                                            ৳{it.price}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 ) : (
                                                     <div className="text-slate-400">
-                                                        <span>Product Qty: {order.quantity}</span>
+                                                        <div className="font-medium text-slate-200">{order.product?.name || 'Product'}</div>
+                                                        <div className="text-[10px] flex items-center gap-1.5 mt-0.5">
+                                                            {order.size && <span className="text-indigo-300 font-mono">Size: {order.size}</span>}
+                                                            {order.color && <span className="text-purple-300 font-mono">Color: {order.color}</span>}
+                                                            <span>Qty: {order.quantity}</span>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </td>
@@ -1097,14 +1117,26 @@ export const WebsiteOrdersPage = () => {
                             <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                 {(selectedOrder.items_data && selectedOrder.items_data.length > 0) ? (
                                     selectedOrder.items_data.map((item, idx) => (
-                                        <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between">
+                                        <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
                                             <div>
                                                 <span className="font-semibold text-slate-200 block text-xs">{item.name}</span>
-                                                <span className="text-[10px] text-slate-400 font-mono">
-                                                    Qty: {item.quantity} × ৳{item.price} {item.sku ? `· SKU: ${item.sku}` : ''}
-                                                </span>
+                                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 flex-wrap">
+                                                    {item.size && (
+                                                        <span className="px-1.5 py-0.2 rounded font-mono font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/30">
+                                                            Size: {item.size}
+                                                        </span>
+                                                    )}
+                                                    {item.color && (
+                                                        <span className="px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-200 border border-purple-500/30">
+                                                            Color: {item.color}
+                                                        </span>
+                                                    )}
+                                                    <span className="font-mono text-slate-300">
+                                                        Qty: {item.quantity} × ৳{item.price} {item.sku ? `· SKU: ${item.sku}` : ''}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <span className="font-bold text-slate-100 font-mono text-xs">
+                                            <span className="font-bold text-slate-100 font-mono text-xs shrink-0">
                                                 ৳{(item.quantity * item.price).toFixed(0)}
                                             </span>
                                         </div>
