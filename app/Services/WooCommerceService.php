@@ -356,30 +356,41 @@ class WooCommerceService
         $deliveryCharge = (float) ($wcOrder['shipping_total'] ?? 0);
         $firstItemPrice = count($lineItems) > 0 ? $lineItems[0]['price'] : $totalAmount;
 
-        return Order::updateOrCreate(
-            ['wc_order_id' => $wcId],
-            [
-                'order_number' => $orderNumber,
-                'customer_id' => $customer->id,
-                'product_id' => $localProduct?->id,
-                'size' => $firstItemSize,
-                'color' => $firstItemColor,
-                'order_source' => 'woocommerce',
-                'quantity' => $totalQuantity ?: 1,
-                'unit_price' => $firstItemPrice,
-                'delivery_charge' => $deliveryCharge,
-                'total_amount' => $totalAmount,
-                'order_status' => $orderStatus,
-                'payment_status' => $paymentStatus,
-                'payment_method_title' => $paymentMethodTitle,
-                'shipping_method_title' => $shippingMethodTitle,
-                'customer_address' => $customerAddress,
-                'customer_phone' => $cleanPhone,
-                'items_data' => $lineItems,
-                'notes' => $wcOrder['customer_note'] ?? null,
-                'wc_raw_data' => $wcOrder,
-            ]
-        );
+        $orderDate = ! empty($wcOrder['date_created'])
+            ? \Carbon\Carbon::parse($wcOrder['date_created'])
+            : (! empty($wcOrder['date_created_gmt']) ? \Carbon\Carbon::parse($wcOrder['date_created_gmt']) : now());
+
+        $order = Order::where('wc_order_id', $wcId)->first();
+        $orderAttributes = [
+            'order_number' => $orderNumber,
+            'customer_id' => $customer->id,
+            'product_id' => $localProduct?->id,
+            'size' => $firstItemSize,
+            'color' => $firstItemColor,
+            'order_source' => 'woocommerce',
+            'quantity' => $totalQuantity ?: 1,
+            'unit_price' => $firstItemPrice,
+            'delivery_charge' => $deliveryCharge,
+            'total_amount' => $totalAmount,
+            'order_status' => $orderStatus,
+            'payment_status' => $paymentStatus,
+            'payment_method_title' => $paymentMethodTitle,
+            'shipping_method_title' => $shippingMethodTitle,
+            'customer_address' => $customerAddress,
+            'customer_phone' => $cleanPhone,
+            'items_data' => $lineItems,
+            'notes' => $wcOrder['customer_note'] ?? null,
+            'wc_raw_data' => $wcOrder,
+            'created_at' => $orderDate,
+        ];
+
+        if ($order) {
+            $order->update($orderAttributes);
+        } else {
+            $order = Order::create(array_merge(['wc_order_id' => $wcId], $orderAttributes));
+        }
+
+        return $order;
     }
 
     /**

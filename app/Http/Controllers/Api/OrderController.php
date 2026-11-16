@@ -89,7 +89,15 @@ class OrderController extends Controller
             $perPage = 250;
         }
 
-        $orders = $query->orderByDesc('created_at')->paginate($perPage);
+        // For website / WooCommerce orders, strictly sequence by WooCommerce Order ID (wc_order_id DESC)
+        // so that the order sequence perfectly matches the WooCommerce store admin.
+        if ($request->query('source') === 'website') {
+            $query->orderByDesc('wc_order_id')->orderByDesc('created_at');
+        } else {
+            $query->orderByDesc('created_at')->orderByDesc('id');
+        }
+
+        $orders = $query->paginate($perPage);
 
         return response()->json([
             'status' => 'success',
