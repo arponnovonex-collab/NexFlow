@@ -468,6 +468,20 @@ export const SipPhoneProvider = ({ children }) => {
         setActiveSession(null);
         setIncomingCall(null);
 
+        if (errorMsg) {
+            let userFriendlyMsg = errorMsg;
+            if (errorMsg.includes('User Denied Media Access') || errorMsg.includes('NotAllowedError')) {
+                userFriendlyMsg = 'মাইক্রোফোন পারমিশন এলাউ (Allow) করা নেই। ব্রাউজারে মাইক্রোফোন পারমিশন দিন।';
+            } else if (errorMsg.includes('Busy')) {
+                userFriendlyMsg = 'গ্রাহক ব্যস্ত রয়েছে (Busy)।';
+            } else if (errorMsg.includes('Not Found') || errorMsg.includes('Unavailable')) {
+                userFriendlyMsg = 'নম্বরটি সংযোগ করা যায়নি বা ভুল নম্বর।';
+            }
+            setStatusMessage(`কল শেষ: ${userFriendlyMsg}`);
+        } else {
+            setStatusMessage('কল সমাপ্ত হয়েছে');
+        }
+
         // Calculate accurate duration directly from sessionStartTimeRef
         let durationSecs = 0;
         if (sessionStartTimeRef.current) {
@@ -506,6 +520,9 @@ export const SipPhoneProvider = ({ children }) => {
         let clean = targetNumber.replace(/[^0-9]/g, '');
         if (clean.startsWith('880') && clean.length === 13) {
             clean = clean.substring(2);
+        }
+        if (clean.length === 10 && clean.startsWith('1')) {
+            clean = '0' + clean;
         }
 
         if (clean.length < 3) {

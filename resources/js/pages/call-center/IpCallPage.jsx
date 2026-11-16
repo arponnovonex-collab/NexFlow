@@ -60,6 +60,7 @@ export const IpCallPage = () => {
     } = useSipPhone();
 
     const location = useLocation();
+    const isOnline = sipStatus === 'registered';
 
     // Local dialer input
     const [phoneNumber, setPhoneNumber] = useState('');
@@ -67,6 +68,7 @@ export const IpCallPage = () => {
     const [customerMatch, setCustomerMatch] = useState(null);
     const [lookupLoading, setLookupLoading] = useState(false);
     const [copiedPass, setCopiedPass] = useState(false);
+    const [originatingCall, setOriginatingCall] = useState(false);
 
     // Call notes and disposition
     const [callNotes, setCallNotes] = useState('');
@@ -256,6 +258,30 @@ export const IpCallPage = () => {
         makeCall(clean);
     };
 
+    // Trigger Server Click-to-Call (ePBX Originate)
+    const handleServerOriginateCall = async (targetPhone = null) => {
+        const numberToCall = targetPhone || phoneNumber;
+        const clean = numberToCall.replace(/[^0-9]/g, '');
+        if (clean.length < 5) {
+            alert('Please enter a valid phone number.');
+            return;
+        }
+
+        setOriginatingCall(true);
+        try {
+            const res = await api.post('/call-center/originate', {
+                phone: clean,
+                extension: credentials.extension,
+            });
+            alert(res.data?.message || `Call initiated to ${clean} via Extension ${credentials.extension}!`);
+            setTimeout(fetchCallLogs, 2000);
+        } catch (err) {
+            alert(err.response?.data?.message || 'Failed to originate call via ePBX server.');
+        } finally {
+            setOriginatingCall(false);
+        }
+    };
+
     const handleEndCall = () => {
         hangupCall();
         setTimeout(fetchCallLogs, 1500);
@@ -321,8 +347,6 @@ export const IpCallPage = () => {
             }
         }
     };
-
-    const isOnline = sipStatus === 'registered';
 
     return (
         <div className="space-y-6">
@@ -638,17 +662,39 @@ export const IpCallPage = () => {
                         </div>
 
                         {/* Call Action Button */}
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex flex-col gap-2.5">
                             {sipCallState === 'idle' ? (
-                                <button
-                                    type="button"
-                                    onClick={() => handleStartCall()}
-                                    disabled={!phoneNumber.trim() || !isOnline}
-                                    className="w-full h-12 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                                >
-                                    <PhoneCall className="w-5 h-5" />
-                                    <span>{isOnline ? 'কল দিন (Direct In-Browser Call)' : 'Connecting SIP...'}</span>
-                                </button>
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleStartCall()}
+                                        disabled={!phoneNumber.trim() || !isOnline}
+                                        className="w-full h-12 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all duration-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                                    >
+                                        <PhoneCall className="w-5 h-5" />
+                                        <span>{isOnline ? 'কল দিন (Direct In-Browser Call)' : 'Connecting SIP...'}</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleServerOriginateCall()}
+                                        disabled={!phoneNumber.trim() || originatingCall}
+                                        className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-300 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40"
+                                        title="ePBX সার্ভার থেকে গ্রাহক এবং এক্সটেনশনে সরাসরি কল কানেক্ট করুন"
+                                    >
+                                        {originatingCall ? (
+                                            <>
+                                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                                                <span>Connecting server call...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <PhoneForwarded className="w-3.5 h-3.5 text-indigo-400" />
+                                                <span>Server Originate (বিকল্প ক্লিক-টু-কল)</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </>
                             ) : (
                                 <button
                                     type="button"
