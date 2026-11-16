@@ -28,6 +28,8 @@ import {
     Copy,
     ChevronLeft,
     ChevronRight,
+    Trash2,
+    AlertTriangle,
 } from 'lucide-react';
 
 export const WebsiteOrdersPage = () => {
@@ -67,10 +69,17 @@ export const WebsiteOrdersPage = () => {
     const [syncMessage, setSyncMessage] = useState(null);
     const [copiedWebhook, setCopiedWebhook] = useState(false);
 
-    // Steadfast Courier State
+    // Steadfast Courier & Bulk Actions State
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+    const [bulkAction, setBulkAction] = useState('');
+    const [bulkActionLoading, setBulkActionLoading] = useState(false);
     const [sendingBulkSteadfast, setSendingBulkSteadfast] = useState(false);
     const [sendingOrderId, setSendingOrderId] = useState(null);
+
+    // Problem Orders Confirmation Modal State
+    const [problemModalOpen, setProblemModalOpen] = useState(false);
+    const [problemOrdersWarningList, setProblemOrdersWarningList] = useState([]);
+    const [pendingSingleOrderId, setPendingSingleOrderId] = useState(null);
 
     const fetchOrders = async (targetPage = page, targetPerPage = perPage) => {
         try {
@@ -205,7 +214,15 @@ export const WebsiteOrdersPage = () => {
     };
 
     // Steadfast Courier Dispatch
-    const handleSendSingleSteadfast = async (order) => {
+    const handleSendSingleSteadfast = async (order, force = false) => {
+        // If unresolved duplicate/double order problem, warn first
+        if (!force && order.duplicate_status === 'problem_found') {
+            setProblemOrdersWarningList([order]);
+            setPendingSingleOrderId(order.id);
+            setProblemModalOpen(true);
+            return;
+        }
+
         try {
             setSendingOrderId(order.id);
             const res = await api.post(`/courier/steadfast/send-order/${order.id}`);
@@ -230,23 +247,105 @@ export const WebsiteOrdersPage = () => {
             alert(`❌ Error sending to Steadfast: ${err.response?.data?.message || err.message}`);
         } finally {
             setSendingOrderId(null);
+            setPendingSingleOrderId(null);
         }
     };
 
-    const handleSendBulkSteadfast = async () => {
-        if (selectedOrderIds.length === 0) return;
+    const executeSendBulkSteadfast = async (ids) => {
+        if (!ids || ids.length === 0) return;
         try {
             setSendingBulkSteadfast(true);
             const res = await api.post('/courier/steadfast/send-bulk', {
-                order_ids: selectedOrderIds,
+                order_ids: ids,
             });
-            alert(`✅ Bulk Dispatch Complete! Sent: ${res.data.data?.successful?.length || 0}, Failed: ${res.data.data?.failed?.length || 0}`);
+            const successCount = res.data.data?.success_count ?? res.data.data?.successful?.length ?? 0;
+            const failedCount = res.data.data?.failed_count ?? res.data.data?.failed?.length ?? 0;
+            alert(`✅ Steadfast Bulk Dispatch সম্পন্ন!\nসফল: ${successCount} টি, ব্যর্থ: ${failedCount} টি`);
             fetchOrders(page, perPage);
             setSelectedOrderIds([]);
+            setBulkAction('');
         } catch (err) {
-            alert(`❌ Error in bulk dispatch: ${err.response?.data?.message || err.message}`);
+            alert(`❌ Steadfast বাল্ক অর্ডারে সমস্যা হয়েছে: ${err.response?.data?.message || err.message}`);
         } finally {
             setSendingBulkSteadfast(false);
+        }
+    };
+
+    const handleApplyBulkAction = async () => {
+        if (!bulkAction) {
+            alert('অনুগ্রহ করে একটি বাল্ক অ্যাকশন নির্বাচন করুন।');
+            return;
+        }
+        if (selectedOrderIds.length === 0) {
+            alert('অনুগ্রহ করে প্রথমে অর্ডার নির্বাচন করুন।');
+            return;
+        }
+
+        // 1. Send to Steadfast
+        if (bulkAction === 'send_steadfast') {
+            const selectedOrders = orders.filter((o) => selectedOrderIds.includes(o.id));
+            const problemOrders = selectedOrders.filter((o) => o.duplicate_status === 'problem_found');
+
+            if (problemOrders.length > 0) {
+                // There are unresolved problem orders! Show confirmation modal
+                setProblemOrdersWarningList(problemOrders);
+                setPendingSingleOrderId(null);
+                setProblemModalOpen(true);
+                return;
+            }
+
+            // All selected orders are either normal or already resolved from CX operation
+            await executeSendBulkSteadfast(selectedOrderIds);
+            return;
+        }
+
+        // 2. Delete selected orders
+        if (bulkAction === 'delete') {
+            if (window.confirm(`⚠️ আপনি কি নিশ্চিতভাবে নির্বাচিত ${selectedOrderIds.length}টি অর্ডার মুছে (Delete) ফেলতে চান?\nএই কাজ পূর্বাবস্থায় ফেরানো যাবে না!`)) {
+                try {
+                    setBulkActionLoading(true);
+                    const res = await api.post('/orders/bulk-delete', { order_ids: selectedOrderIds });
+                    alert(`✅ ${res.data.message || 'Orders deleted successfully'}`);
+                    fetchOrders(page, perPage);
+                    setSelectedOrderIds([]);
+                    setBulkAction('');
+                } catch (err) {
+                    alert(`❌ অর্ডার ডিলিট ব্যর্থ হয়েছে: ${err.response?.data?.message || err.message}`);
+                } finally {
+                    setBulkActionLoading(false);
+                }
+            }
+            return;
+        }
+
+        // 3. Status changes (Processing, Delivered/Completed, Cancelled)
+        if (bulkAction.startsWith('status_')) {
+            const statusTarget = bulkAction.replace('status_', '');
+            const statusNames = {
+                processing: 'Processing (প্রসেসিং)',
+                delivered: 'Delivered (ডেলিভার্ড / Completed)',
+                cancelled: 'Cancelled (বাতিল)',
+            };
+            const label = statusNames[statusTarget] || statusTarget;
+
+            if (window.confirm(`আপনি কি নিশ্চিতভাবে নির্বাচিত ${selectedOrderIds.length}টি অর্ডারের স্ট্যাটাস "${label}"-এ পরিবর্তন করতে চান?`)) {
+                try {
+                    setBulkActionLoading(true);
+                    const res = await api.post('/orders/bulk-status', {
+                        order_ids: selectedOrderIds,
+                        order_status: statusTarget,
+                    });
+                    alert(`✅ ${res.data.message || 'Status updated successfully'}`);
+                    fetchOrders(page, perPage);
+                    setSelectedOrderIds([]);
+                    setBulkAction('');
+                } catch (err) {
+                    alert(`❌ স্ট্যাটাস পরিবর্তন ব্যর্থ হয়েছে: ${err.response?.data?.message || err.message}`);
+                } finally {
+                    setBulkActionLoading(false);
+                }
+            }
+            return;
         }
     };
 
@@ -439,26 +538,50 @@ export const WebsiteOrdersPage = () => {
 
             {/* Bulk Action Bar */}
             {selectedOrderIds.length > 0 && (
-                <div className="bg-slate-800/95 border border-cyan-500/30 rounded-xl p-3 flex items-center justify-between shadow-xl animate-fade-in">
-                    <div className="flex items-center gap-2 text-xs text-slate-200">
-                        <CheckSquare className="w-4 h-4 text-cyan-400" />
-                        <span><strong>{selectedOrderIds.length}</strong> orders selected</span>
+                <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border border-cyan-500/40 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xl animate-fade-in ring-1 ring-cyan-500/20">
+                    <div className="flex items-center gap-2.5 text-xs text-slate-200">
+                        <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold">
+                            {selectedOrderIds.length}
+                        </div>
+                        <div>
+                            <span className="font-bold text-white">{selectedOrderIds.length} Orders Selected</span>
+                            <span className="text-[11px] text-slate-400 block">বাল্ক অ্যাকশন বেছে নিয়ে প্রয়োগ করুন</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
+
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <select
+                            value={bulkAction}
+                            onChange={(e) => setBulkAction(e.target.value)}
+                            className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-cyan-500 font-medium"
+                        >
+                            <option value="">-- বাল্ক অ্যাকশন নির্বাচন করুন --</option>
+                            <option value="send_steadfast">🚀 Steadfast-এ পাঠান (Send to Steadfast)</option>
+                            <option value="status_processing">🔄 স্ট্যাটাস পরিবর্তন: Processing</option>
+                            <option value="status_delivered">✅ স্ট্যাটাস পরিবর্তন: Delivered (Completed)</option>
+                            <option value="status_cancelled">❌ স্ট্যাটাস পরিবর্তন: Cancelled</option>
+                            <option value="delete">🗑️ নির্বাচিত অর্ডার ডিলিট করুন (Delete)</option>
+                        </select>
+
                         <Button
                             variant="primary"
                             size="sm"
-                            loading={sendingBulkSteadfast}
-                            onClick={handleSendBulkSteadfast}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-md"
+                            disabled={!bulkAction || bulkActionLoading || sendingBulkSteadfast}
+                            loading={bulkActionLoading || sendingBulkSteadfast}
+                            onClick={handleApplyBulkAction}
+                            className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4"
                         >
-                            Send Selected to Steadfast ({selectedOrderIds.length})
+                            Apply (প্রয়োগ করুন)
                         </Button>
+
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedOrderIds([])}
-                            className="text-slate-400 hover:text-white"
+                            onClick={() => {
+                                setSelectedOrderIds([]);
+                                setBulkAction('');
+                            }}
+                            className="text-slate-400 hover:text-white hover:bg-slate-800 text-xs"
                         >
                             Deselect All
                         </Button>
@@ -483,6 +606,7 @@ export const WebsiteOrdersPage = () => {
                                 <th className="p-3">Order Info</th>
                                 <th className="p-3">Customer Details</th>
                                 <th className="p-3">Products & Items</th>
+                                <th className="p-3">Duplicate / Double Order</th>
                                 <th className="p-3">Amount & Payment</th>
                                 <th className="p-3">Order Status</th>
                                 <th className="p-3">Courier Dispatch</th>
@@ -492,14 +616,14 @@ export const WebsiteOrdersPage = () => {
                         <tbody className="divide-y divide-slate-800/60">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="8" className="p-8 text-center text-slate-500">
+                                    <td colSpan="9" className="p-8 text-center text-slate-500">
                                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-500" />
                                         Loading website orders...
                                     </td>
                                 </tr>
                             ) : orders.length === 0 ? (
                                 <tr>
-                                    <td colSpan="8" className="p-12 text-center text-slate-500">
+                                    <td colSpan="9" className="p-12 text-center text-slate-500">
                                         <Globe className="w-8 h-8 mx-auto mb-2 opacity-40 text-cyan-400" />
                                         <p className="font-semibold text-slate-300">
                                             {search ? `No orders found for "${search}"` : 'No website orders found'}
@@ -605,6 +729,40 @@ export const WebsiteOrdersPage = () => {
                                                     <div className="text-slate-400">
                                                         <span>Product Qty: {order.quantity}</span>
                                                     </div>
+                                                )}
+                                            </td>
+
+                                            {/* Duplicate / Double Order Check */}
+                                            <td className="p-3">
+                                                {order.duplicate_status === 'problem_found' ? (
+                                                    <div className="space-y-1">
+                                                        <Link
+                                                            to="/cx-operations"
+                                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-rose-500/15 text-rose-400 border border-rose-500/40 hover:bg-rose-500/25 transition-all shadow-sm"
+                                                            title={`${order.duplicate_reason || 'Duplicate / Double Order Found'} — CX Operations-এ সমাধান করতে ক্লিক করুন`}
+                                                        >
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                                                            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                                            <span>Problem Found</span>
+                                                        </Link>
+                                                        <div className="text-[10px] text-rose-300/80 font-medium truncate max-w-[140px]" title={order.duplicate_reason}>
+                                                            {order.duplicate_reason || 'Duplicate detected'}
+                                                        </div>
+                                                    </div>
+                                                ) : order.duplicate_status === 'resolved' ? (
+                                                    <div className="space-y-0.5">
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                                            <span>Resolved</span>
+                                                        </span>
+                                                        <div className="text-[9px] text-slate-500">CX Verified</div>
+                                                    </div>
+                                                ) : order.duplicate_status === 'cancelled' ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                                                        Cancelled
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-600 text-xs">—</span>
                                                 )}
                                             </td>
 
@@ -1000,6 +1158,104 @@ export const WebsiteOrdersPage = () => {
                         </div>
                     </div>
                 )}
+            </Modal>
+
+            {/* Problem Found Warning Confirmation Modal */}
+            <Modal
+                isOpen={problemModalOpen}
+                onClose={() => {
+                    setProblemModalOpen(false);
+                    setPendingSingleOrderId(null);
+                }}
+                title={
+                    <div className="flex items-center gap-2 text-rose-400 font-bold text-base">
+                        <AlertTriangle className="w-5 h-5 text-rose-500" />
+                        <span>সতর্কবার্তা: সমস্যাযুক্ত অর্ডার পাওয়া গেছে (Problem Found)!</span>
+                    </div>
+                }
+            >
+                <div className="space-y-4 text-xs">
+                    <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 space-y-1.5">
+                        <p className="font-bold text-sm text-rose-300">
+                            ⚠️ আপনার নির্বাচিত {pendingSingleOrderId ? '১টি' : `${selectedOrderIds.length}টি`} অর্ডারের মধ্যে {problemOrdersWarningList.length}টি অর্ডারে সমস্যা রয়েছে!
+                        </p>
+                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                            এই অর্ডারগুলো ডুপ্লিকেট (একই কাস্টমারের একাধিক অর্ডার) অথবা ডাবল কার্ট আইটেম যুক্ত অর্ডার, যা এখনও <strong>CX Operation</strong> থেকে সমাধান (Resolved) করা হয়নি।
+                        </p>
+                    </div>
+
+                    {/* List of problem orders */}
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                            সমস্যাযুক্ত অর্ডারসমূহ ({problemOrdersWarningList.length}):
+                        </span>
+                        {problemOrdersWarningList.map((ord) => (
+                            <div
+                                key={ord.id}
+                                className="p-2.5 rounded-lg bg-slate-900 border border-rose-500/20 flex items-center justify-between gap-3"
+                            >
+                                <div className="space-y-0.5">
+                                    <div className="font-mono font-bold text-rose-400 flex items-center gap-2">
+                                        <span>{ord.order_number}</span>
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                            {ord.duplicate_reason || 'Problem Found'}
+                                        </span>
+                                    </div>
+                                    <div className="text-slate-300 text-[11px] font-medium">
+                                        {ord.customer?.name || 'Customer'} • {ord.customer_phone}
+                                    </div>
+                                    <div className="text-slate-400 text-[10px] truncate max-w-[280px]">
+                                        {ord.items_data?.[0]?.name || ord.product?.name || 'Product'} (Qty: {ord.quantity})
+                                    </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                    <div className="font-bold text-slate-200 font-mono">
+                                        ৳{parseFloat(ord.total_amount).toFixed(0)}
+                                    </div>
+                                    <span className="text-[10px] text-rose-400 font-bold block">
+                                        অমীমাংসিত
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-300 text-[11px]">
+                        আপনি কি নিশ্চিতভাবে এই সমস্যাযুক্ত অর্ডারগুলো সহ <strong>Steadfast-এ পাঠাতে চান?</strong>
+                    </div>
+
+                    {/* Modal Actions */}
+                    <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                setProblemModalOpen(false);
+                                setPendingSingleOrderId(null);
+                            }}
+                            className="text-slate-400 hover:text-white cursor-pointer"
+                        >
+                            না, বাতিল করুন (No, Cancel)
+                        </Button>
+                        <Button
+                            variant="danger"
+                            loading={sendingBulkSteadfast || !!sendingOrderId}
+                            onClick={async () => {
+                                setProblemModalOpen(false);
+                                if (pendingSingleOrderId) {
+                                    const targetOrder = orders.find((o) => o.id === pendingSingleOrderId);
+                                    if (targetOrder) {
+                                        await handleSendSingleSteadfast(targetOrder, true);
+                                    }
+                                } else {
+                                    await executeSendBulkSteadfast(selectedOrderIds);
+                                }
+                            }}
+                            className="bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer"
+                        >
+                            হ্যাঁ, পাঠান (Yes, Send Anyway)
+                        </Button>
+                    </div>
+                </div>
             </Modal>
         </div>
     );

@@ -123,8 +123,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/sync-courier-status', [OrderController::class, 'syncCourierStatus']);
     Route::post('/orders/{order}/return-reason', [OrderController::class, 'updateReturnReason']);
     Route::post('/orders/{order}/sync-courier-status', [OrderController::class, 'checkSingleCourierStatus']);
-    Route::apiResource('orders', OrderController::class)->only(['index', 'store']);
+    Route::apiResource('orders', OrderController::class)->only(['index', 'store', 'destroy']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+    Route::post('/orders/bulk-status', [OrderController::class, 'bulkUpdateStatus']);
+    Route::post('/orders/bulk-delete', [OrderController::class, 'bulkDelete']);
 
     // SMS Gateway, Marketing & Auto-SMS
     Route::get('/sms/gateway', [SmsController::class, 'getGatewayConfig']);

@@ -99,6 +99,9 @@ class OrderController extends Controller
 
         $orders = $query->paginate($perPage);
 
+        // Attach Duplicate / Double Order detection & CX resolution status
+        $this->attachDuplicateStatus($orders);
+
         return response()->json([
             'status' => 'success',
             'data' => $orders,
@@ -306,6 +309,74 @@ class OrderController extends Controller
             'status' => 'success',
             'message' => 'Order status updated successfully',
             'data' => $order,
+        ]);
+    }
+
+    /**
+     * Bulk update order status.
+     */
+    public function bulkUpdateStatus(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_ids' => 'required|array|min:1',
+            'order_ids.*' => 'integer|exists:orders,id',
+            'order_status' => 'required|in:draft,pending_confirmation,confirmed,processing,shipped,delivered,cancelled,returned',
+        ]);
+
+        $orders = Order::whereIn('id', $validated['order_ids'])->get();
+        $newStatus = $validated['order_status'];
+        $updatedCount = 0;
+        $wcService = app(\App\Services\WooCommerceService::class);
+
+        foreach ($orders as $order) {
+            $order->update(['order_status' => $newStatus]);
+            $updatedCount++;
+
+            if ($order->wc_order_id) {
+                try {
+                    $wcService->updateOrderStatusInWooCommerce((int) $order->wc_order_id, $newStatus);
+                } catch (\Throwable $e) {
+                    // Silently continue
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "{$updatedCount} orders updated to {$newStatus} successfully.",
+            'updated_count' => $updatedCount,
+        ]);
+    }
+
+    /**
+     * Bulk delete orders.
+     */
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_ids' => 'required|array|min:1',
+            'order_ids.*' => 'integer|exists:orders,id',
+        ]);
+
+        $deletedCount = Order::whereIn('id', $validated['order_ids'])->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "{$deletedCount} orders deleted successfully.",
+            'deleted_count' => $deletedCount,
+        ]);
+    }
+
+    /**
+     * Delete a single order.
+     */
+    public function destroy(Order $order): JsonResponse
+    {
+        $order->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Order #{$order->order_number} deleted successfully.",
         ]);
     }
 
@@ -1180,6 +1251,142 @@ class OrderController extends Controller
             'message' => $result['message'],
             'data' => $order->fresh(['customer', 'product', 'variant']),
         ]);
+    }
+
+    /**
+     * Attach Duplicate / Double Order detection & CX resolution status to orders.
+     */
+    protected function attachDuplicateStatus($paginatedOrders): void
+    {
+        $orders = $paginatedOrders->getCollection();
+        if ($orders->isEmpty()) {
+            return;
+        }
+
+        $normalizePhone = function (?string $phone): string {
+            if (empty($phone)) return '';
+            $digits = preg_replace('/[^0-9]/', '', $phone);
+            if (str_starts_with($digits, '880') && strlen($digits) === 13) {
+                $digits = substr($digits, 2);
+            }
+            if (strlen($digits) === 10 && str_starts_with($digits, '1')) {
+                $digits = '0' . $digits;
+            }
+            return $digits;
+        };
+
+        // Extract normalized phones and customer IDs from the current page
+        $phones = [];
+        $customerIds = [];
+        foreach ($orders as $order) {
+            $norm = $normalizePhone($order->customer_phone ?: $order->customer?->phone);
+            if (! empty($norm)) {
+                $phones[] = $norm;
+            }
+            if ($order->customer_id) {
+                $customerIds[] = $order->customer_id;
+            }
+        }
+
+        $phones = array_values(array_unique($phones));
+        $customerIds = array_values(array_unique($customerIds));
+
+        // Query related orders within 15 days to detect duplicates
+        $duplicateMap = [];
+        if (! empty($phones) || ! empty($customerIds)) {
+            $startDate = Carbon::now()->subDays(15)->startOfDay();
+            $relQuery = Order::query()
+                ->where('created_at', '>=', $startDate)
+                ->where(function ($q) use ($phones, $customerIds) {
+                    if (! empty($customerIds)) {
+                        $q->whereIn('customer_id', $customerIds);
+                    }
+                    if (! empty($phones)) {
+                        $q->orWhere(function ($sub) use ($phones) {
+                            foreach ($phones as $p) {
+                                $last10 = strlen($p) >= 10 ? substr($p, -10) : $p;
+                                $sub->orWhere('customer_phone', 'like', "%{$last10}%");
+                            }
+                        });
+                    }
+                });
+
+            $relatedOrders = $relQuery->get(['id', 'customer_id', 'customer_phone', 'product_id', 'quantity', 'items_data', 'wc_raw_data', 'notes', 'order_status', 'created_at']);
+
+            $groups = [];
+            foreach ($relatedOrders as $ord) {
+                $norm = $normalizePhone($ord->customer_phone);
+                if (empty($norm)) continue;
+                $pKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_' . Str::slug($ord->items_data[0]['name'] ?? 'product');
+                $k = $norm . '__' . $pKey;
+                if (! isset($groups[$k])) {
+                    $groups[$k] = [];
+                }
+                $groups[$k][] = $ord;
+            }
+
+            foreach ($groups as $group) {
+                if (count($group) >= 2) {
+                    foreach ($group as $gOrd) {
+                        $duplicateMap[$gOrd->id] = count($group);
+                    }
+                }
+            }
+        }
+
+        // Decorate each order in the collection
+        foreach ($orders as $order) {
+            $isDuplicate = isset($duplicateMap[$order->id]);
+
+            // Check multi-quantity (double or multiple quantity in same order)
+            $isMultiQty = ($order->quantity > 1);
+            if (! $isMultiQty && is_array($order->items_data) && ! empty($order->items_data)) {
+                foreach ($order->items_data as $item) {
+                    if (($item['quantity'] ?? 1) > 1) {
+                        $isMultiQty = true;
+                        break;
+                    }
+                }
+            }
+
+            // Check if resolved by CX Operation
+            $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
+            $isResolved = ! empty($raw['is_cx_resolved'])
+                || str_contains((string) $order->notes, '[CX Resolved')
+                || str_contains((string) $order->notes, '[CX Problem Resolved')
+                || str_contains((string) $order->notes, '[CX Review: Quantity adjusted')
+                || str_contains((string) $order->notes, '[CX Verified');
+
+            // Determine overall duplicate status
+            if ($isDuplicate || $isMultiQty) {
+                if ($isResolved) {
+                    $dupStatus = 'resolved';
+                } elseif ($order->order_status === 'cancelled') {
+                    $dupStatus = 'cancelled';
+                } else {
+                    $dupStatus = 'problem_found';
+                }
+            } else {
+                $dupStatus = 'none';
+            }
+
+            // Reason label
+            $reason = null;
+            if ($isDuplicate && $isMultiQty) {
+                $reason = 'ডুপ্লিকেট ও একাধিক আইটেম অর্ডার';
+            } elseif ($isDuplicate) {
+                $reason = 'একই কাস্টমারের ডুপ্লিকেট অর্ডার';
+            } elseif ($isMultiQty) {
+                $reason = 'একাধিক কোয়ান্টিটি অর্ডার';
+            }
+
+            $order->setAttribute('duplicate_status', $dupStatus);
+            $order->setAttribute('duplicate_reason', $reason);
+            $order->setAttribute('duplicate_count', $duplicateMap[$order->id] ?? ($isMultiQty ? $order->quantity : 1));
+            $order->setAttribute('is_duplicate', $isDuplicate);
+            $order->setAttribute('is_multi_qty', $isMultiQty);
+            $order->setAttribute('is_cx_resolved', $isResolved);
+        }
     }
 }
 
