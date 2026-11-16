@@ -910,6 +910,7 @@ class ConversationController extends Controller
             str_contains($allText, 'allowed window') ||
             str_contains($allText, 'human_agent') ||
             str_contains($allText, 'deprecated message tag') ||
+            str_contains($allText, 'invalid parameter') ||
             str_contains($allText, 'prior approval') ||
             str_contains($allText, 'policy-overview') ||
             str_contains($allText, '2018278') ||
