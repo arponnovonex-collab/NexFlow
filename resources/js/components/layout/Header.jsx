@@ -136,24 +136,8 @@ export const Header = ({ onMenuClick }) => {
                 </div>
             </div>
 
-            {/* Right Section: Channels status, notifications, profile */}
+            {/* Right Section: notifications, theme, profile */}
             <div className="flex items-center gap-3 md:gap-4">
-                {/* Active Channels Quick Status */}
-                <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-900 border border-slate-800/80 rounded-full text-xs">
-                    <span className="text-[11px] font-medium text-slate-400 mr-1">Live Channels:</span>
-                    <span className="flex items-center gap-1 text-[11px] text-blue-400">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> FB Page
-                    </span>
-                    <span className="text-slate-600">|</span>
-                    <span className="flex items-center gap-1 text-[11px] text-pink-400">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Instagram
-                    </span>
-                    <span className="text-slate-600">|</span>
-                    <span className="flex items-center gap-1 text-[11px] text-emerald-400">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> WhatsApp
-                    </span>
-                </div>
-
                 {/* Dark / Light Theme Toggle */}
                 <ThemeToggle size="md" />
 
