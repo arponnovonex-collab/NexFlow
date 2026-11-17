@@ -350,6 +350,42 @@ export const WebsiteOrdersPage = () => {
         fetchSettings();
     }, []);
 
+    // Automatic periodic background sync and live refresh
+    useEffect(() => {
+        // 1. Live refresh local orders list every 30s
+        const pollInterval = setInterval(() => {
+            if (!document.hidden && !syncingOrders && !loading) {
+                fetchOrders(page, perPage);
+            }
+        }, 30000);
+
+        // 2. Background sync newest orders from WooCommerce every 60s
+        const syncInterval = setInterval(async () => {
+            if (!document.hidden && wcSettings?.is_enabled && wcSettings?.auto_sync_orders && !syncingOrders) {
+                try {
+                    await api.post('/woocommerce/sync', { pages: 1 });
+                    fetchOrders(page, perPage);
+                } catch {
+                    // Silent background sync
+                }
+            }
+        }, 60000);
+
+        // 3. Refresh when user focuses/switches back to this tab
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                fetchOrders(page, perPage);
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(pollInterval);
+            clearInterval(syncInterval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [page, perPage, wcSettings?.is_enabled, wcSettings?.auto_sync_orders, syncingOrders, loading]);
+
     const handleSaveSettings = async (e) => {
         e.preventDefault();
         try {

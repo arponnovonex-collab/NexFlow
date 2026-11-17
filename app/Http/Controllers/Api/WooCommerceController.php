@@ -93,6 +93,9 @@ class WooCommerceController extends Controller
                     'sync_status' => 'idle',
                     'last_error' => null,
                 ]);
+
+                // Automatically ensure real-time webhooks are active in WooCommerce
+                $this->wcService->ensureWebhooksRegistered($settings);
             }
         }
 
@@ -106,9 +109,10 @@ class WooCommerceController extends Controller
     /**
      * Manual Trigger Sync Orders.
      */
-    public function syncNow(): JsonResponse
+    public function syncNow(Request $request): JsonResponse
     {
-        $result = $this->wcService->syncOrders();
+        $pages = $request->integer('pages', 20);
+        $result = $this->wcService->syncOrders($pages);
 
         return response()->json([
             'status' => $result['success'] ? 'success' : 'error',
@@ -140,6 +144,11 @@ class WooCommerceController extends Controller
         $topic = $request->header('X-WC-Webhook-Topic', 'order.created');
 
         Log::info("WooCommerce Webhook [{$topic}] received", ['id' => $payload['id'] ?? null]);
+
+        // Acknowledge webhook delivery test or ping
+        if (str_starts_with($topic, 'action.') || empty($payload['id'])) {
+            return response('OK', 200);
+        }
 
         if (! empty($payload['id']) && is_array($payload)) {
             try {

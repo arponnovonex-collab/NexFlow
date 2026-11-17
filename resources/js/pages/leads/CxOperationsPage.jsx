@@ -667,6 +667,27 @@ export const CxOperationsPage = () => {
         fetchCxOrders();
     }, [activeTab, days]);
 
+    // Live auto-refresh CX data periodically
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (!document.hidden && !loading) {
+                fetchCxOrders();
+            }
+        }, 30000);
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                fetchCxOrders();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [activeTab, days, loading]);
+
     const handleSearchSubmit = (e) => {
         e.preventDefault();
         fetchCxOrders();

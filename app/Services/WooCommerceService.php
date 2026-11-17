@@ -92,6 +92,74 @@ class WooCommerceService
     }
 
     /**
+     * Ensure real-time webhooks (order.created and order.updated) are registered in WooCommerce.
+     */
+    public function ensureWebhooksRegistered(?WooCommerceSetting $settings = null): array
+    {
+        $settings = $settings ?: $this->getSettings();
+        if (! $settings->is_enabled || empty($settings->store_url) || empty($settings->consumer_key)) {
+            return ['success' => false, 'message' => 'Store is not configured or disabled'];
+        }
+
+        $cleanUrl = rtrim(trim($settings->store_url), '/');
+        if (! str_starts_with($cleanUrl, 'http://') && ! str_starts_with($cleanUrl, 'https://')) {
+            $cleanUrl = 'https://' . $cleanUrl;
+        }
+
+        $deliveryUrl = config('app.url') ? rtrim(config('app.url'), '/') . '/api/webhooks/woocommerce' : 'https://nexflow.auliro.xyz/api/webhooks/woocommerce';
+        $endpoint = "{$cleanUrl}/wp-json/wc/v3/webhooks";
+
+        try {
+            $listRes = Http::timeout(10)
+                ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                ->get($endpoint);
+
+            $existingTopics = [];
+            if ($listRes->successful() && is_array($listRes->json())) {
+                foreach ($listRes->json() as $hook) {
+                    if (($hook['status'] ?? '') === 'active' && ($hook['delivery_url'] ?? '') === $deliveryUrl) {
+                        $existingTopics[] = $hook['topic'] ?? '';
+                    }
+                }
+            }
+
+            $registered = [];
+            $topicsToRegister = [
+                ['name' => 'NexFlow Order Created', 'topic' => 'order.created'],
+                ['name' => 'NexFlow Order Updated', 'topic' => 'order.updated'],
+            ];
+
+            foreach ($topicsToRegister as $t) {
+                if (! in_array($t['topic'], $existingTopics, true)) {
+                    $createRes = Http::timeout(10)
+                        ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                        ->post($endpoint, [
+                            'name' => $t['name'],
+                            'topic' => $t['topic'],
+                            'delivery_url' => $deliveryUrl,
+                            'status' => 'active',
+                        ]);
+
+                    if ($createRes->successful()) {
+                        $registered[] = $t['topic'];
+                    }
+                } else {
+                    $registered[] = $t['topic'] . ' (already active)';
+                }
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Webhooks verified successfully',
+                'registered' => $registered,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('ensureWebhooksRegistered error: ' . $e->getMessage());
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Sync orders from WooCommerce store.
      */
     public function syncOrders(int $limitPages = 20): array
