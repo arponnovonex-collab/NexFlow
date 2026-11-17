@@ -297,7 +297,7 @@ export const WebsiteOrdersPage = () => {
                 alert(`✅ Order #${editingOrder.order_number} সফলভাবে আপডেট এবং WooCommerce-এ সেভ করা হয়েছে!`);
                 setEditModalOpen(false);
                 setEditingOrder(null);
-                fetchOrders(page, perPage);
+                fetchOrders(page, perPage, true);
             }
         } catch (err) {
             alert('Failed to update order: ' + (err.response?.data?.message || err.message));
@@ -306,9 +306,11 @@ export const WebsiteOrdersPage = () => {
         }
     };
 
-    const fetchOrders = async (targetPage = page, targetPerPage = perPage) => {
+    const fetchOrders = async (targetPage = page, targetPerPage = perPage, isSilent = false) => {
         try {
-            setLoading(true);
+            if (!isSilent) {
+                setLoading(true);
+            }
             const params = {
                 source: 'website',
                 page: targetPage,
@@ -318,19 +320,30 @@ export const WebsiteOrdersPage = () => {
             if (search.trim()) params.search = search.trim();
 
             const res = await api.get('/orders', { params });
-            const pageData = res.data.data;
-            setOrders(pageData.data || []);
+            const pageData = res.data?.data;
+            const incomingOrders = pageData?.data || [];
+
+            setOrders(incomingOrders);
+
+            setSelectedOrder((prev) => {
+                if (!prev) return null;
+                const fresh = incomingOrders.find((o) => o.id === prev.id);
+                return fresh ? { ...prev, ...fresh } : prev;
+            });
+
             setPagination({
-                total: pageData.total || 0,
-                from: pageData.from || 0,
-                to: pageData.to || 0,
-                last_page: pageData.last_page || 1,
-                current_page: pageData.current_page || 1,
+                total: pageData?.total || 0,
+                from: pageData?.from || 0,
+                to: pageData?.to || 0,
+                last_page: pageData?.last_page || 1,
+                current_page: pageData?.current_page || 1,
             });
         } catch (err) {
             console.error('Failed to fetch website orders:', err);
         } finally {
-            setLoading(false);
+            if (!isSilent) {
+                setLoading(false);
+            }
         }
     };
 
@@ -346,7 +359,7 @@ export const WebsiteOrdersPage = () => {
     };
 
     useEffect(() => {
-        fetchOrders(1, perPage);
+        fetchOrders(1, perPage, false);
         setPage(1);
     }, [statusFilter, search, perPage]);
 
@@ -354,31 +367,31 @@ export const WebsiteOrdersPage = () => {
         fetchSettings();
     }, []);
 
-    // Automatic periodic background sync and live refresh
+    // Automatic periodic background sync and live refresh (Completely silent, zero flicker)
     useEffect(() => {
-        // 1. Live refresh local orders list every 30s
+        // 1. Silent live refresh local orders list every 20s
         const pollInterval = setInterval(() => {
-            if (!document.hidden && !syncingOrders && !loading) {
-                fetchOrders(page, perPage);
+            if (!document.hidden && !syncingOrders) {
+                fetchOrders(page, perPage, true);
             }
-        }, 30000);
+        }, 20000);
 
-        // 2. Background sync newest orders from WooCommerce every 60s
+        // 2. Silent background sync newest orders from WooCommerce every 30s
         const syncInterval = setInterval(async () => {
             if (!document.hidden && wcSettings?.is_enabled && wcSettings?.auto_sync_orders && !syncingOrders) {
                 try {
                     await api.post('/woocommerce/sync', { pages: 1 });
-                    fetchOrders(page, perPage);
+                    fetchOrders(page, perPage, true);
                 } catch {
                     // Silent background sync
                 }
             }
-        }, 60000);
+        }, 30000);
 
-        // 3. Refresh when user focuses/switches back to this tab
+        // 3. Silent refresh when user focuses/switches back to this tab
         const handleVisibilityChange = () => {
             if (!document.hidden) {
-                fetchOrders(page, perPage);
+                fetchOrders(page, perPage, true);
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -388,21 +401,21 @@ export const WebsiteOrdersPage = () => {
             clearInterval(syncInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [page, perPage, wcSettings?.is_enabled, wcSettings?.auto_sync_orders, syncingOrders, loading]);
+    }, [page, perPage, wcSettings?.is_enabled, wcSettings?.auto_sync_orders, syncingOrders]);
 
-    // 4. Fast polling every 5s while any order is actively being called
+    // 4. Fast silent polling every 3.5s while any order is actively being called
     const hasActiveAiCalls = orders.some((o) => o.ai_call_status === 'calling');
     useEffect(() => {
         if (!hasActiveAiCalls) return;
 
         const fastInterval = setInterval(() => {
-            if (!document.hidden && !loading) {
-                fetchOrders(page, perPage);
+            if (!document.hidden) {
+                fetchOrders(page, perPage, true);
             }
-        }, 5000);
+        }, 3500);
 
         return () => clearInterval(fastInterval);
-    }, [hasActiveAiCalls, page, perPage, loading]);
+    }, [hasActiveAiCalls, page, perPage]);
 
     const handleSaveSettings = async (e) => {
         e.preventDefault();
@@ -413,7 +426,7 @@ export const WebsiteOrdersPage = () => {
                 alert('✅ WooCommerce settings saved & connected successfully!');
                 setSettingsModalOpen(false);
                 fetchSettings();
-                fetchOrders(1, perPage);
+                fetchOrders(1, perPage, false);
             }
         } catch (err) {
             alert(`❌ Error saving settings: ${err.response?.data?.message || err.message}`);
@@ -429,7 +442,7 @@ export const WebsiteOrdersPage = () => {
             const res = await api.post('/woocommerce/sync');
             if (res.data.status === 'success') {
                 setSyncMessage(`✅ ${res.data.message}`);
-                fetchOrders(1, perPage);
+                fetchOrders(1, perPage, true);
                 fetchSettings();
             }
         } catch (err) {
@@ -469,7 +482,7 @@ export const WebsiteOrdersPage = () => {
             await api.put(`/orders/${orderId}/status`, { order_status: newStatus });
         } catch (err) {
             alert('Failed to update order status');
-            fetchOrders(page, perPage);
+            fetchOrders(page, perPage, true);
         }
     };
 
@@ -552,7 +565,7 @@ export const WebsiteOrdersPage = () => {
             if (res.data.status === 'success') {
                 const tracking = res.data.data?.tracking_code || '';
                 alert(`✅ Website Order #${order.order_number} successfully dispatched to Steadfast!\nTracking: ${tracking}`);
-                fetchOrders(page, perPage);
+                fetchOrders(page, perPage, true);
                 if (selectedOrder && selectedOrder.id === order.id) {
                     setSelectedOrder((prev) => ({
                         ...prev,
@@ -584,7 +597,7 @@ export const WebsiteOrdersPage = () => {
             const successCount = res.data.data?.success_count ?? res.data.data?.successful?.length ?? 0;
             const failedCount = res.data.data?.failed_count ?? res.data.data?.failed?.length ?? 0;
             alert(`✅ Steadfast Bulk Dispatch সম্পন্ন!\nসফল: ${successCount} টি, ব্যর্থ: ${failedCount} টি`);
-            fetchOrders(page, perPage);
+            fetchOrders(page, perPage, true);
             setSelectedOrderIds([]);
             setBulkAction('');
         } catch (err) {
@@ -629,7 +642,7 @@ export const WebsiteOrdersPage = () => {
                     setBulkActionLoading(true);
                     const res = await api.post('/orders/bulk-delete', { order_ids: selectedOrderIds });
                     alert(`✅ ${res.data.message || 'Orders deleted successfully'}`);
-                    fetchOrders(page, perPage);
+                    fetchOrders(page, perPage, true);
                     setSelectedOrderIds([]);
                     setBulkAction('');
                 } catch (err) {
@@ -659,7 +672,7 @@ export const WebsiteOrdersPage = () => {
                         order_status: statusTarget,
                     });
                     alert(`✅ ${res.data.message || 'Status updated successfully'}`);
-                    fetchOrders(page, perPage);
+                    fetchOrders(page, perPage, true);
                     setSelectedOrderIds([]);
                     setBulkAction('');
                 } catch (err) {
@@ -694,10 +707,16 @@ export const WebsiteOrdersPage = () => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                        <Globe className="w-6 h-6 text-cyan-400" />
-                        Website Orders
-                    </h1>
+                    <div className="flex items-center gap-2.5">
+                        <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                            <Globe className="w-6 h-6 text-cyan-400" />
+                            Website Orders
+                        </h1>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shadow-sm" title="ওয়েবসাইট ও কলের রিয়েল-টাইম লাইভ সিঙ্ক চালু আছে">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Live Auto-Sync
+                        </span>
+                    </div>
                     <p className="text-xs text-slate-400 mt-1">
                         WordPress / WooCommerce ওয়েবসাইট থেকে সিঙ্ক করা সকল অর্ডার, কাস্টমার নম্বর/অর্ডার আইডি দিয়ে সার্চ ও কুরিয়ার ডিসপ্যাচ।
                     </p>
@@ -977,8 +996,14 @@ export const WebsiteOrdersPage = () => {
                                     return (
                                         <tr
                                             key={order.id}
-                                            className={`hover:bg-slate-800/40 transition-colors ${
-                                                isSelected ? 'bg-cyan-950/20' : ''
+                                            className={`hover:bg-slate-800/40 transition-all duration-300 ${
+                                                isSelected
+                                                    ? 'bg-cyan-950/20'
+                                                    : order.ai_call_status === 'confirmed' || order.order_status === 'confirmed'
+                                                    ? 'bg-emerald-950/15'
+                                                    : order.ai_call_status === 'rejected' || order.order_status === 'cancelled'
+                                                    ? 'bg-rose-950/15'
+                                                    : ''
                                             }`}
                                         >
                                             <td className="p-3">
