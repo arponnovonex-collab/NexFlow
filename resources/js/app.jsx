@@ -45,6 +45,7 @@ import { SteadfastPage } from './pages/courier/SteadfastPage';
 import { CallCenterConfigPage } from './pages/call-center/CallCenterConfigPage';
 import { IpCallPage } from './pages/call-center/IpCallPage';
 import { CallRecordingsPage } from './pages/call-center/CallRecordingsPage';
+import { AiOrderConfirmationPage } from './pages/call-center/AiOrderConfirmationPage';
 
 // Smart Index Route Handler that retains Inbox or active page on browser refresh
 const IndexRouteHandler = () => {
@@ -126,6 +127,7 @@ export const App = () => {
                             <Route path="orders" element={<Navigate to="/orders/engagement" replace />} />
                             <Route path="orders/engagement" element={<OrdersPage />} />
                             <Route path="orders/website" element={<WebsiteOrdersPage />} />
+                            <Route path="orders/ai-confirmation" element={<AiOrderConfirmationPage />} />
                             <Route path="orders/cx-operations" element={<CxOperationsPage />} />
                             <Route path="orders/summary" element={<OrderSummaryPage />} />
 
@@ -139,6 +141,8 @@ export const App = () => {
 
                             {/* Call Center (ePBX.bd) */}
                             <Route path="call-center/configuration" element={<CallCenterConfigPage />} />
+                            <Route path="call-center/ai-confirmation" element={<AiOrderConfirmationPage />} />
+                            <Route path="ai-order-confirmation" element={<AiOrderConfirmationPage />} />
                             <Route path="call-center/ip-call" element={<IpCallPage />} />
                             <Route path="call-center/recordings" element={<CallRecordingsPage />} />
 

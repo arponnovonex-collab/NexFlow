@@ -29,8 +29,15 @@ class EpbxSetting extends Model
         'order_call_confirm_text',
         'order_call_cancel_text',
         'order_call_key_1_action',
+        'order_call_key_1_status',
+        'order_call_key_1_wc_status',
         'order_call_key_2_action',
+        'order_call_key_2_status',
+        'order_call_key_2_wc_status',
+        'order_call_no_answer_status',
         'order_call_agent_extension',
+        'auto_call_orders_trigger',
+        'auto_call_max_retries',
         'last_balance',
         'last_checked_at',
     ];
@@ -39,6 +46,7 @@ class EpbxSetting extends Model
         'is_enabled' => 'boolean',
         'auto_call_orders_enabled' => 'boolean',
         'auto_call_delay_seconds' => 'integer',
+        'auto_call_max_retries' => 'integer',
         'last_balance' => 'decimal:2',
         'last_checked_at' => 'datetime',
     ];

@@ -50,7 +50,14 @@ class CallCenterController extends Controller
                 'order_call_confirm_text' => $settings->order_call_confirm_text ?: $defaultConfirmText,
                 'order_call_cancel_text' => $settings->order_call_cancel_text ?: $defaultCancelText,
                 'order_call_key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
+                'order_call_key_1_status' => $settings->order_call_key_1_status ?: 'confirmed',
+                'order_call_key_1_wc_status' => $settings->order_call_key_1_wc_status ?: 'processing',
                 'order_call_key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
+                'order_call_key_2_status' => $settings->order_call_key_2_status ?: 'cancelled',
+                'order_call_key_2_wc_status' => $settings->order_call_key_2_wc_status ?: 'cancelled',
+                'order_call_no_answer_status' => $settings->order_call_no_answer_status ?: 'pending_confirmation',
+                'auto_call_orders_trigger' => $settings->auto_call_orders_trigger ?: 'auto_on_order',
+                'auto_call_max_retries' => (int) ($settings->auto_call_max_retries ?: 2),
                 'order_call_agent_extension' => $settings->order_call_agent_extension,
                 'last_balance' => $settings->last_balance,
                 'last_checked_at' => $settings->last_checked_at?->toIso8601String(),
@@ -75,11 +82,18 @@ class CallCenterController extends Controller
             'is_enabled' => 'required|boolean',
             'auto_call_orders_enabled' => 'nullable|boolean',
             'auto_call_delay_seconds' => 'nullable|integer|min:0|max:600',
+            'auto_call_orders_trigger' => 'nullable|string|max:30',
+            'auto_call_max_retries' => 'nullable|integer|min:1|max:10',
             'order_call_custom_text' => 'nullable|string',
             'order_call_confirm_text' => 'nullable|string',
             'order_call_cancel_text' => 'nullable|string',
             'order_call_key_1_action' => 'nullable|string|max:30',
+            'order_call_key_1_status' => 'nullable|string|max:30',
+            'order_call_key_1_wc_status' => 'nullable|string|max:30',
             'order_call_key_2_action' => 'nullable|string|max:30',
+            'order_call_key_2_status' => 'nullable|string|max:30',
+            'order_call_key_2_wc_status' => 'nullable|string|max:30',
+            'order_call_no_answer_status' => 'nullable|string|max:30',
             'order_call_agent_extension' => 'nullable|string|max:20',
         ]);
 
@@ -96,11 +110,18 @@ class CallCenterController extends Controller
             'is_enabled' => $validated['is_enabled'],
             'auto_call_orders_enabled' => $validated['auto_call_orders_enabled'] ?? $settings->auto_call_orders_enabled,
             'auto_call_delay_seconds' => $validated['auto_call_delay_seconds'] ?? $settings->auto_call_delay_seconds,
+            'auto_call_orders_trigger' => $validated['auto_call_orders_trigger'] ?? ($settings->auto_call_orders_trigger ?: 'auto_on_order'),
+            'auto_call_max_retries' => $validated['auto_call_max_retries'] ?? ($settings->auto_call_max_retries ?: 2),
             'order_call_custom_text' => $validated['order_call_custom_text'] ?? $settings->order_call_custom_text,
             'order_call_confirm_text' => $validated['order_call_confirm_text'] ?? $settings->order_call_confirm_text,
             'order_call_cancel_text' => $validated['order_call_cancel_text'] ?? $settings->order_call_cancel_text,
-            'order_call_key_1_action' => $validated['order_call_key_1_action'] ?? $settings->order_call_key_1_action,
-            'order_call_key_2_action' => $validated['order_call_key_2_action'] ?? $settings->order_call_key_2_action,
+            'order_call_key_1_action' => $validated['order_call_key_1_action'] ?? ($settings->order_call_key_1_action ?: 'hangup'),
+            'order_call_key_1_status' => $validated['order_call_key_1_status'] ?? ($settings->order_call_key_1_status ?: 'confirmed'),
+            'order_call_key_1_wc_status' => $validated['order_call_key_1_wc_status'] ?? ($settings->order_call_key_1_wc_status ?: 'processing'),
+            'order_call_key_2_action' => $validated['order_call_key_2_action'] ?? ($settings->order_call_key_2_action ?: 'hangup'),
+            'order_call_key_2_status' => $validated['order_call_key_2_status'] ?? ($settings->order_call_key_2_status ?: 'cancelled'),
+            'order_call_key_2_wc_status' => $validated['order_call_key_2_wc_status'] ?? ($settings->order_call_key_2_wc_status ?: 'cancelled'),
+            'order_call_no_answer_status' => $validated['order_call_no_answer_status'] ?? ($settings->order_call_no_answer_status ?: 'pending_confirmation'),
             'order_call_agent_extension' => $validated['order_call_agent_extension'] ?? $settings->order_call_agent_extension,
         ]);
 
@@ -142,6 +163,32 @@ class CallCenterController extends Controller
             'message' => $result['message'],
             'order' => $result['order'] ?? $order,
         ], 422);
+    }
+
+    /**
+     * Dispatch a Test AI Voice Call to any phone number to test TTS scripts and IVR flow.
+     */
+    public function testAiOrderCall(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => 'required|string',
+            'custom_script' => 'nullable|string',
+            'confirm_script' => 'nullable|string',
+            'cancel_script' => 'nullable|string',
+        ]);
+
+        $result = $this->epbxService->testVoiceCall(
+            $validated['phone'],
+            $validated['custom_script'] ?? null,
+            $validated['confirm_script'] ?? null,
+            $validated['cancel_script'] ?? null
+        );
+
+        return response()->json([
+            'status' => $result['success'] ? 'success' : 'error',
+            'message' => $result['message'],
+            'spoken_text' => $result['spoken_text'] ?? null,
+        ], $result['success'] ? 200 : 422);
     }
 
     /**

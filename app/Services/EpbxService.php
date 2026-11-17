@@ -301,8 +301,8 @@ class EpbxService
         $defaultCustomText = 'আসসালামু আলাইকুম {customer_name}, আপনি অলিরো থেকে {product_name} অর্ডার করেছেন। পণ্যটির মূল্য {amount} টাকা। অর্ডার কনফার্ম করতে ১ চাপুন। অর্ডার ক্যানসেল করতে ২ চাপুন।';
         $template = $customScript ?: ($settings->order_call_custom_text ?: $defaultCustomText);
         $customText = str_replace(
-            ['{customer_name}', '{product_name}', '{amount}', '{store_name}'],
-            [$customerName, $productName, (string) $amount, 'অলিরো'],
+            ['{customer_name}', '{product_name}', '{amount}', '{order_number}', '{store_name}'],
+            [$customerName, $productName, (string) $amount, (string) ($order->order_number ?: '#' . $order->id), 'অলিরো'],
             $template
         );
 
@@ -433,6 +433,99 @@ class EpbxService
     }
 
     /**
+     * Test dial an AI Voice Verification Call to a given phone number with custom TTS text.
+     */
+    public function testVoiceCall(string $phone, ?string $customScript = null, ?string $confirmScript = null, ?string $cancelScript = null): array
+    {
+        $settings = $this->getSettings();
+        $formattedPhone = $this->formatPhoneNumber($phone);
+
+        if (strlen($formattedPhone) < 10) {
+            return [
+                'success' => false,
+                'message' => 'সঠিক ১১ ডিজিটের ফোন নম্বর দিন (যেমন: 017XXXXXXXX)।',
+            ];
+        }
+
+        $defaultCustomText = 'আসসালামু আলাইকুম {customer_name}, আপনি অলিরো থেকে {product_name} অর্ডার করেছেন। পণ্যটির মূল্য {amount} টাকা। অর্ডার কনফার্ম করতে ১ চাপুন। অর্ডার ক্যানসেল করতে ২ চাপুন।';
+        $template = $customScript ?: ($settings->order_call_custom_text ?: $defaultCustomText);
+        $customText = str_replace(
+            ['{customer_name}', '{product_name}', '{amount}', '{order_number}', '{store_name}'],
+            ['টেস্ট গ্রাহক', 'টেস্ট প্রিমিয়াম ওয়াচ', '১৫৫০', '#TEST101', 'অলিরো'],
+            $template
+        );
+
+        $confirmText = $confirmScript ?: ($settings->order_call_confirm_text ?: 'অর্ডারটি কনফার্ম করা হয়েছে। ধন্যবাদ।');
+        $cancelText = $cancelScript ?: ($settings->order_call_cancel_text ?: 'আপনার অর্ডারটি ক্যানসেল করা হয়েছে। ক্যানসেলের কারণ জানতে আমাদের একজন প্রতিনিধি আপনার সাথে যোগাযোগ করতে পারেন। অনুগ্রহ করে সহযোগিতা করবেন। ধন্যবাদ।');
+
+        $trunk = $settings->trunk_number ?: '09639666896';
+        $baseUrl = rtrim($settings->api_base_url, '/');
+
+        // If mock / demo mode
+        if (str_starts_with((string) $settings->api_token, 'mock_') || $settings->api_token === 'epbx_test_token' || empty($settings->api_token)) {
+            return [
+                'success' => true,
+                'message' => "টেস্ট AI ভয়েস কল সফলভাবে ডায়াল করা হয়েছে (Demo Sandbox Mode)। নম্বর: {$formattedPhone}",
+                'spoken_text' => $customText,
+            ];
+        }
+
+        try {
+            $payload = [
+                'phone_number' => $formattedPhone,
+                'caller_id' => $trunk,
+                'customer_name' => 'টেস্ট গ্রাহক',
+                'amount' => '1550 BDT',
+                'store_name' => 'অলিরো',
+                'order_id' => 'TEST_' . time(),
+                'custom_text' => $customText,
+                'confirm_text' => $confirmText,
+                'cancel_text' => $cancelText,
+                'key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
+                'key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
+                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx',
+            ];
+
+            if (! empty($settings->order_call_agent_extension)) {
+                $payload['agent_extension'] = $settings->order_call_agent_extension;
+            }
+
+            $response = Http::timeout(12)
+                ->withToken($settings->api_token)
+                ->acceptJson()
+                ->post("{$baseUrl}/calls/verify", $payload);
+
+            if (! $response->successful()) {
+                $response = Http::timeout(12)
+                    ->withToken($settings->api_token)
+                    ->acceptJson()
+                    ->post("{$baseUrl}/calls/order-verification", $payload);
+            }
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'message' => "টেস্ট AI ভয়েস কল সফলভাবে ডায়াল করা হয়েছে! কিছুক্ষণের মধ্যে {$formattedPhone} নম্বরে ফোন আসবে।",
+                    'spoken_text' => $customText,
+                ];
+            }
+
+            $errMsg = $response->json('message') ?? $response->json('error') ?? ('HTTP ' . $response->status());
+            return [
+                'success' => false,
+                'message' => 'ePBX সার্ভার ত্রুটি: ' . $errMsg,
+                'spoken_text' => $customText,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => 'কানেকশন ত্রুটি: ' . $e->getMessage(),
+                'spoken_text' => $customText,
+            ];
+        }
+    }
+
+    /**
      * Process incoming CDR / recording / order verification webhook from ePBX.bd.
      */
     public function processWebhook(array $payload): bool
@@ -466,57 +559,64 @@ class EpbxService
         }
 
         if ($order) {
+            $settings = $this->getSettings();
+            $targetKey1Status = $settings->order_call_key_1_status ?: 'confirmed';
+            $targetKey1WcStatus = $settings->order_call_key_1_wc_status ?: 'processing';
+            $targetKey2Status = $settings->order_call_key_2_status ?: 'cancelled';
+            $targetKey2WcStatus = $settings->order_call_key_2_wc_status ?: 'cancelled';
+            $targetNoAnswerStatus = $settings->order_call_no_answer_status ?: 'pending_confirmation';
+
             $wcService = app(WooCommerceService::class);
             $existingNotes = $order->ai_call_notes ? ($order->ai_call_notes . "\n") : '';
 
             if ($statusStr === 'confirmed' || $digitPressed === '1') {
                 $order->update([
-                    'order_status' => 'confirmed',
+                    'order_status' => $targetKey1Status,
                     'ai_call_status' => 'confirmed',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
-                    'ai_call_notes' => $existingNotes . '✅ কাস্টমার ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
+                    'ai_call_notes' => $existingNotes . "✅ কাস্টমার ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন। (স্ট্যাটাস: {$targetKey1Status})",
                 ]);
 
-                // Sync status update to WooCommerce website!
-                if ($order->wc_order_id) {
-                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, 'processing');
+                // Sync status update to WooCommerce website if not none
+                if ($order->wc_order_id && $targetKey1WcStatus !== 'none') {
+                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, $targetKey1WcStatus);
                 }
             } elseif ($statusStr === 'rejected' || $statusStr === 'cancelled' || $digitPressed === '2') {
                 $order->update([
-                    'order_status' => 'cancelled',
+                    'order_status' => $targetKey2Status,
                     'ai_call_status' => 'rejected',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
-                    'ai_call_notes' => $existingNotes . '❌ কাস্টমার ফোনে ২ চেপে অর্ডার ক্যানসেল করেছেন।',
+                    'ai_call_notes' => $existingNotes . "❌ কাস্টমার ফোনে ২ চেপে অর্ডার ক্যানসেল করেছেন। (স্ট্যাটাস: {$targetKey2Status})",
                 ]);
 
-                // Sync status update to WooCommerce website!
-                if ($order->wc_order_id) {
-                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, 'cancelled');
+                // Sync status update to WooCommerce website if not none
+                if ($order->wc_order_id && $targetKey2WcStatus !== 'none') {
+                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, $targetKey2WcStatus);
                 }
             } elseif (in_array($statusStr, ['no answer', 'noanswer', 'unanswered'])) {
                 $order->update([
-                    'order_status' => 'processing',
+                    'order_status' => $targetNoAnswerStatus,
                     'ai_call_status' => 'no_answer',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '📞 কাস্টমারের ফোন রিং হয়েছে কিন্তু রিসিভ করেননি (NOANSWER)।',
                 ]);
             } elseif (in_array($statusStr, ['busy', 'rejected_call'])) {
                 $order->update([
-                    'order_status' => 'processing',
+                    'order_status' => $targetNoAnswerStatus,
                     'ai_call_status' => 'busy',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '📵 কাস্টমার কল কেটে দিয়েছেন বা নম্বর ব্যস্ত ছিল (BUSY)।',
                 ]);
             } elseif (str_contains($statusStr, 'no response')) {
                 $order->update([
-                    'order_status' => 'processing',
+                    'order_status' => $targetNoAnswerStatus,
                     'ai_call_status' => 'no_answer',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '⚠️ কাস্টমার ফোন ধরেছিলেন কিন্তু কোনো বাটন প্রেস করেননি (No Response)।',
                 ]);
             } elseif (in_array($statusStr, ['congestion', 'chanunavail', 'failed'])) {
                 $order->update([
-                    'order_status' => 'processing',
+                    'order_status' => $targetNoAnswerStatus,
                     'ai_call_status' => 'failed',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '❌ কাস্টমারের ফোন বন্ধ বা নেটওয়ার্কের বাইরে ছিল (Unreachable)।',

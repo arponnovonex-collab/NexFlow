@@ -153,6 +153,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/call-center/test-connection', [CallCenterController::class, 'testConnection']);
     Route::post('/call-center/originate', [CallCenterController::class, 'originateCall']);
     Route::post('/orders/{order}/ai-call', [CallCenterController::class, 'triggerOrderAiCall']);
+    Route::post('/call-center/ai-order-confirmation/test-call', [CallCenterController::class, 'testAiOrderCall']);
     Route::get('/call-center/logs', [CallCenterController::class, 'getCallLogs']);
     Route::post('/call-center/logs', [CallCenterController::class, 'storeCallLog']);
     Route::post('/call-center/sync-logs', [CallCenterController::class, 'syncLogs']);

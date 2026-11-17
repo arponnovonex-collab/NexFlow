@@ -195,6 +195,17 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                     </div>
                                 )}
                             </NavLink>
+                            <NavLink to="/orders/ai-confirmation" className={linkClasses}>
+                                <Bot className="w-4 h-4 shrink-0 text-cyan-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span>AI Order Call</span>
+                                        <span className="bg-cyan-500/20 text-cyan-300 text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-cyan-500/30">
+                                            IVR
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
                             <NavLink to="/orders/cx-operations" className={linkClasses}>
                                 <Headphones className="w-4 h-4 shrink-0 text-amber-400" />
                                 {!isCollapsed && (
@@ -473,6 +484,19 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                 <NavLink to="/call-center/configuration" className={linkClasses}>
                                     <Settings className="w-4 h-4 shrink-0 text-emerald-400" />
                                     {!isCollapsed && <span>Configuration</span>}
+                                </NavLink>
+                            )}
+                            {isAdmin && (
+                                <NavLink to="/call-center/ai-confirmation" className={linkClasses}>
+                                    <Bot className="w-4 h-4 shrink-0 text-cyan-400" />
+                                    {!isCollapsed && (
+                                        <div className="flex items-center justify-between w-full">
+                                            <span>AI Confirmation</span>
+                                            <span className="bg-cyan-500/20 text-cyan-300 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-cyan-500/30">
+                                                Voice
+                                            </span>
+                                        </div>
+                                    )}
                                 </NavLink>
                             )}
                             <NavLink to="/call-center/ip-call" className={linkClasses}>
