@@ -359,7 +359,7 @@ class EpbxService
                 'cancel_text' => $cancelText,
                 'key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
                 'key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
-                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx',
+                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx?order_id=' . ($order->wc_order_id ?: $order->id) . '&phone=' . $formattedPhone,
             ];
 
             if (! empty($settings->order_call_agent_extension)) {
@@ -483,7 +483,7 @@ class EpbxService
                 'cancel_text' => $cancelText,
                 'key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
                 'key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
-                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx',
+                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx?order_id=' . ($order->wc_order_id ?: $order->id) . '&phone=' . $formattedPhone,
             ];
 
             if (! empty($settings->order_call_agent_extension)) {
@@ -531,8 +531,14 @@ class EpbxService
     public function processWebhook(array $payload): bool
     {
         $callId = $payload['call_id'] ?? $payload['session_id'] ?? $payload['custom_id'] ?? null;
-        $orderIdentifier = $payload['order_id'] ?? null;
-        $destination = $payload['destination'] ?? $payload['phone_number'] ?? $payload['customer_phone'] ?? null;
+        $orderIdentifier = $payload['order_id'] ?? $payload['wc_order_id'] ?? null;
+        $destination = $payload['phone']
+            ?? $payload['destination']
+            ?? $payload['phone_number']
+            ?? $payload['customer_phone']
+            ?? $payload['mobile']
+            ?? $payload['caller']
+            ?? null;
         $statusRaw = $payload['status'] ?? $payload['call_status'] ?? $payload['action'] ?? $payload['event'] ?? '';
         $statusStr = strtolower(trim((string) $statusRaw));
         $recordingUrl = $payload['recording_url'] ?? $payload['audio_url'] ?? $payload['record_file'] ?? null;
@@ -555,13 +561,34 @@ class EpbxService
 
         if (! $order && $destination) {
             $cleanPhone = $this->formatPhoneNumber($destination);
-            $order = Order::where('customer_phone', $cleanPhone)->latest()->first();
+            $tenDigits = substr($cleanPhone, -10);
+
+            // Prioritize an order that is actively in 'calling' status for this phone
+            $order = Order::where(function ($q) use ($cleanPhone, $destination, $tenDigits) {
+                    $q->where('customer_phone', $cleanPhone)
+                      ->orWhere('customer_phone', $destination)
+                      ->orWhere('customer_phone', 'like', '%' . $tenDigits);
+                })
+                ->where('ai_call_status', 'calling')
+                ->latest('ai_call_last_at')
+                ->first();
+
+            // Fallback: most recent order for this phone
+            if (! $order) {
+                $order = Order::where(function ($q) use ($cleanPhone, $destination, $tenDigits) {
+                        $q->where('customer_phone', $cleanPhone)
+                          ->orWhere('customer_phone', $destination)
+                          ->orWhere('customer_phone', 'like', '%' . $tenDigits);
+                    })
+                    ->latest('id')
+                    ->first();
+            }
         }
 
         if ($order) {
             $settings = $this->getSettings();
             $targetKey1Status = $settings->order_call_key_1_status ?: 'confirmed';
-            $targetKey1WcStatus = $settings->order_call_key_1_wc_status ?: 'processing';
+            $targetKey1WcStatus = $settings->order_call_key_1_wc_status ?: 'confirmed';
             $targetKey2Status = $settings->order_call_key_2_status ?: 'cancelled';
             $targetKey2WcStatus = $settings->order_call_key_2_wc_status ?: 'cancelled';
             $targetNoAnswerStatus = $settings->order_call_no_answer_status ?: 'pending_confirmation';

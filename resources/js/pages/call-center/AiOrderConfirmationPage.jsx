@@ -50,7 +50,7 @@ export const AiOrderConfirmationPage = () => {
     const defaultConfirmText = 'অর্ডারটি কনফার্ম করা হয়েছে। ধন্যবাদ।';
     const [orderCallConfirmText, setOrderCallConfirmText] = useState(defaultConfirmText);
     const [orderCallKey1Status, setOrderCallKey1Status] = useState('confirmed');
-    const [orderCallKey1WcStatus, setOrderCallKey1WcStatus] = useState('processing');
+    const [orderCallKey1WcStatus, setOrderCallKey1WcStatus] = useState('confirmed');
     const [orderCallKey1Action, setOrderCallKey1Action] = useState('hangup');
 
     // Key 2 (Cancel)
@@ -496,7 +496,8 @@ export const AiOrderConfirmationPage = () => {
                                     onChange={(e) => setOrderCallKey1WcStatus(e.target.value)}
                                     className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-cyan-300 font-semibold focus:outline-none focus:border-cyan-400 cursor-pointer"
                                 >
-                                    <option value="processing">Processing (প্রসেসিং) — [Standard]</option>
+                                    <option value="confirmed">Confirmed (নিশ্চিত / কনফার্মড) — [Recommended]</option>
+                                    <option value="processing">Processing (প্রসেসিং)</option>
                                     <option value="completed">Completed (সম্পন্ন)</option>
                                     <option value="on-hold">On Hold (হোল্ড)</option>
                                     <option value="none">ওয়ার্ডপ্রেস স্ট্যাটাস পরিবর্তন করবেন না</option>

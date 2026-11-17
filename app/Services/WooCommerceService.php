@@ -1053,12 +1053,13 @@ class WooCommerceService
 
         $wcStatus = match ($nexflowStatus) {
             'pending_confirmation' => 'on-hold',
-            'confirmed', 'processing' => 'processing',
+            'confirmed' => 'confirmed',
+            'processing' => 'processing',
             'shipped' => 'processing',
-            'delivered' => 'completed',
+            'delivered', 'completed' => 'completed',
             'cancelled' => 'cancelled',
             'returned' => 'refunded',
-            default => 'processing',
+            default => $nexflowStatus,
         };
 
         $cleanUrl = rtrim(trim($settings->store_url), '/');
@@ -1069,7 +1070,48 @@ class WooCommerceService
                     'status' => $wcStatus,
                 ]);
 
-            return $res->successful();
+            if ($res->successful()) {
+                $noteText = match ($wcStatus) {
+                    'confirmed' => '✅ [ePBX AI Call] গ্রাহক ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
+                    'cancelled' => '❌ [ePBX AI Call] গ্রাহক ফোনে ২ চেপে অর্ডার বাতিল করেছেন।',
+                    default => "[ePBX AI Call] অর্ডার স্ট্যাটাস '{$wcStatus}'-এ আপডেট করা হয়েছে।",
+                };
+
+                try {
+                    Http::timeout(10)
+                        ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                        ->post("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}/notes", [
+                            'note' => $noteText,
+                        ]);
+                } catch (\Throwable) {
+                    // Ignore note failure if status succeeded
+                }
+
+                return true;
+            }
+
+            // Fallback for custom statuses
+            if ($wcStatus === 'confirmed') {
+                $retryRes = Http::timeout(10)
+                    ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                    ->put("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}", [
+                        'status' => 'processing',
+                    ]);
+
+                if ($retryRes->successful()) {
+                    try {
+                        Http::timeout(10)
+                            ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                            ->post("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}/notes", [
+                                'note' => '✅ [ePBX AI Call] গ্রাহক ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
+                            ]);
+                    } catch (\Throwable) {}
+
+                    return true;
+                }
+            }
+
+            return false;
         } catch (\Throwable $e) {
             Log::error("Failed to update WC order #{$wcOrderId} status: " . $e->getMessage());
             return false;

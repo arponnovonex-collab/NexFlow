@@ -19,12 +19,12 @@ class EpbxWebhookController extends Controller
      */
     public function handle(Request $request): JsonResponse
     {
-        $payload = $request->all();
-        if (empty($payload)) {
+        $payload = array_merge($request->query(), $request->all());
+        if (empty($payload) || count($payload) === count($request->query())) {
             $rawContent = $request->getContent();
             $decoded = json_decode($rawContent, true);
             if (is_array($decoded)) {
-                $payload = $decoded;
+                $payload = array_merge($request->query(), $decoded);
             }
         }
 
