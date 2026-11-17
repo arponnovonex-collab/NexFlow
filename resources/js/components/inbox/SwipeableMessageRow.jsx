@@ -103,8 +103,11 @@ export const SwipeableMessageRow = ({
         }
     };
 
-    const handleTouchEnd = () => {
+    const handleTouchEnd = (e) => {
         if (swipeOffset >= 38) {
+            if (e && e.stopPropagation) {
+                e.stopPropagation();
+            }
             onReply(msg);
         }
         setSwipeOffset(0);

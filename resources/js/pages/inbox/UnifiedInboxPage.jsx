@@ -108,29 +108,31 @@ export const UnifiedInboxPage = () => {
     // Ensure /inbox base entry exists in browser history when loaded directly into a conversation on mobile
     useEffect(() => {
         if (isMobile && searchParams.has('conversation')) {
+            const currentConv = searchParams.get('conversation');
             if (!window.history.state?.hasInboxBase) {
                 const currentSearch = window.location.search;
                 window.history.replaceState({ hasInboxBase: true, isBase: true }, '', '/inbox');
                 window.history.pushState(
-                    { hasInboxBase: true, isBase: false, conversation: searchParams.get('conversation') },
+                    { hasInboxBase: true, isBase: false, conversation: currentConv },
                     '',
                     '/inbox' + currentSearch
                 );
             }
         }
-    }, [isMobile]);
+    }, [isMobile, searchParams]);
 
     // Handle smartphone hardware/gesture back button & browser history
     useEffect(() => {
-        const handlePopState = () => {
-            const params = new URLSearchParams(window.location.search);
-            const convId = params.get('conversation');
+        const handlePopState = (e) => {
             if (isMobile) {
-                if (!convId) {
+                const params = new URLSearchParams(window.location.search);
+                const convId = params.get('conversation');
+                if (!convId || e.state?.isBase) {
                     setMobileView('list');
                     setMobileCrmExpanded(false);
                     setActiveConversation(null);
-                } else {
+                    activeConvIdRef.current = null;
+                } else if (convId) {
                     setMobileView('chat');
                     const convIdNum = parseInt(convId, 10);
                     if (convIdNum && convIdNum !== activeConvIdRef.current) {
@@ -153,6 +155,7 @@ export const UnifiedInboxPage = () => {
                 setMobileView('list');
                 setMobileCrmExpanded(false);
                 setActiveConversation(null);
+                activeConvIdRef.current = null;
             }
         }
     }, [searchParams, isMobile]);
@@ -161,10 +164,47 @@ export const UnifiedInboxPage = () => {
         setMobileView('list');
         setMobileCrmExpanded(false);
         setActiveConversation(null);
-        if (searchParams.has('conversation') && window.history.length > 1) {
-            navigate(-1);
-        } else {
-            navigate('/inbox', { replace: true });
+        activeConvIdRef.current = null;
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('conversation');
+        setSearchParams(newParams, { replace: true });
+        window.history.replaceState({ hasInboxBase: true, isBase: true }, '', '/inbox');
+    };
+
+    // Mobile Swipe Gesture: Swipe right on mobile chat thread to return to conversation list
+    const chatTouchStartXRef = useRef(0);
+    const chatTouchStartYRef = useRef(0);
+    const chatTouchStartTimeRef = useRef(0);
+
+    const handleChatTouchStart = (e) => {
+        if (!isMobile || mobileView !== 'chat') return;
+        const touch = e.touches[0];
+        chatTouchStartXRef.current = touch.clientX;
+        chatTouchStartYRef.current = touch.clientY;
+        chatTouchStartTimeRef.current = Date.now();
+    };
+
+    const handleChatTouchEnd = (e) => {
+        if (!isMobile || mobileView !== 'chat') return;
+        if (!e.changedTouches || e.changedTouches.length === 0) return;
+        const target = e.target;
+        if (target && target.closest('input, textarea, button, select, a, [contenteditable="true"]')) {
+            return;
+        }
+
+        const touch = e.changedTouches[0];
+        const diffX = touch.clientX - chatTouchStartXRef.current;
+        const diffY = touch.clientY - chatTouchStartYRef.current;
+        const timeElapsed = Date.now() - chatTouchStartTimeRef.current;
+
+        // Detect intentional rightward swipe:
+        // 1. Swiping from left edge (touchStartX < 80px) with diffX > 40px
+        const isEdgeSwipe = chatTouchStartXRef.current < 80 && diffX > 40 && Math.abs(diffY) < 60;
+        // 2. Horizontal swipe right across screen (diffX > 65px, diffX > 1.4 * diffY, duration < 750ms)
+        const isGeneralRightSwipe = diffX > 65 && diffX > Math.abs(diffY) * 1.4 && Math.abs(diffY) < 60 && timeElapsed < 750;
+
+        if (isEdgeSwipe || isGeneralRightSwipe) {
+            handleBackToList();
         }
     };
 
@@ -784,7 +824,12 @@ export const UnifiedInboxPage = () => {
 
         if (isMobile && (isExplicitUserClick || isNewSelection)) {
             // Push history entry on mobile so mobile back button returns to the conversation list
-            setSearchParams(newParams, { replace: false });
+            window.history.pushState(
+                { hasInboxBase: true, isBase: false, conversation: String(id) },
+                '',
+                `/inbox?${newParams.toString()}`
+            );
+            setSearchParams(newParams, { replace: true });
         } else {
             setSearchParams(newParams, { replace: true });
         }
@@ -1782,11 +1827,15 @@ export const UnifiedInboxPage = () => {
 
             {/* COLUMN 2: Center Message Thread & Composer */}
             {(!isMobile || mobileView === 'chat') && (
-                <div className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full min-h-0 overflow-hidden">
+                <div
+                    onTouchStart={handleChatTouchStart}
+                    onTouchEnd={handleChatTouchEnd}
+                    className="flex-1 flex flex-col min-w-0 bg-slate-900 h-full min-h-0 overflow-hidden"
+                >
                 {activeConversation ? (
                     <>
                         {/* Conversation Header */}
-                        <div className="h-14 md:h-16 px-2.5 md:px-5 border-b border-slate-800 flex items-center bg-slate-950/70 shrink-0 gap-2 relative">
+                        <div className="h-12 md:h-14 px-2 md:px-4 border-b border-slate-800 flex items-center bg-slate-950/70 shrink-0 gap-2 relative">
                             {/* Pinned / Fixed Left: Mobile Back Button */}
                             <div className="md:hidden shrink-0 flex items-center pr-2 border-r border-slate-800/80 z-20">
                                 <button
@@ -1797,7 +1846,7 @@ export const UnifiedInboxPage = () => {
                                         handleBackToList();
                                     }}
                                     title="Back to conversation list"
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-100 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/90 rounded-lg shrink-0 cursor-pointer shadow-sm select-none touch-manipulation"
+                                    className="flex items-center gap-1.5 px-2 py-1 text-xs font-bold text-slate-100 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 active:scale-95 border border-slate-700/90 rounded-lg shrink-0 cursor-pointer shadow-sm select-none touch-manipulation"
                                 >
                                     <ArrowLeft className="w-4 h-4 text-indigo-400 shrink-0" />
                                     <span>Chats</span>
@@ -1812,7 +1861,7 @@ export const UnifiedInboxPage = () => {
                                         <CustomerAvatar
                                             name={activeConversation.customer?.name}
                                             avatarUrl={activeConversation.customer?.avatar_url}
-                                            size="md"
+                                            size="sm"
                                         />
                                         <span
                                             className={`absolute -bottom-0.5 -right-0.5 p-0.5 rounded-full text-white text-[8px] ${
@@ -1945,7 +1994,11 @@ export const UnifiedInboxPage = () => {
                         )}
 
                         {/* Messages Scroll Area */}
-                        <div className="flex-1 p-3 md:p-6 overflow-y-auto space-y-3 md:space-y-4 min-h-0 overscroll-contain scroll-smooth">
+                        <div
+                            onTouchStart={handleChatTouchStart}
+                            onTouchEnd={handleChatTouchEnd}
+                            className="flex-1 px-2.5 pt-1.5 pb-3 md:px-5 md:pt-2 md:pb-4 overflow-y-auto space-y-2 md:space-y-2.5 min-h-0 overscroll-contain scroll-smooth"
+                        >
                             {loadingThread ? (
                                 <div className="py-20 text-center text-xs text-slate-400">Loading conversation...</div>
                             ) : (
