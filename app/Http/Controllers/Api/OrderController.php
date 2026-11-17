@@ -1068,9 +1068,47 @@ class OrderController extends Controller
                 $raw['is_cx_resolved'] = true;
                 $raw['cx_resolved_at'] = now()->toISOString();
                 $raw['cx_resolved_by'] = $userName;
+                $raw['cx_resolution_action'] = 'resolve';
 
                 $cxNote = "[CX Problem Resolved by {$userName} on {$timeStr}]";
                 $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
+
+                $currentItems = is_array($order->items_data) && ! empty($order->items_data)
+                    ? $order->items_data
+                    : [[
+                        'name' => $order->product?->name ?: 'Product',
+                        'size' => $order->size ?: '',
+                        'color' => $order->color ?: '',
+                        'quantity' => (int) ($order->quantity ?: 1),
+                        'price' => (float) ($order->unit_price ?: 0),
+                    ]];
+
+                $historyEntry = [
+                    'id' => (string) Str::uuid(),
+                    'action' => 'resolve',
+                    'title' => 'ডুপ্লিকেট সমস্যা সমাধান করা হয়েছে (Case Resolved)',
+                    'performed_by' => $userName,
+                    'performed_at' => now()->toISOString(),
+                    'formatted_time' => now()->format('d M Y, h:i A'),
+                    'before' => [
+                        'order_status' => $order->order_status,
+                        'items' => $currentItems,
+                        'quantity' => (int) $order->quantity,
+                        'total_amount' => (float) $order->total_amount,
+                    ],
+                    'after' => [
+                        'order_status' => $order->order_status === 'cancelled' ? 'cancelled' : 'confirmed',
+                        'items' => $currentItems,
+                        'quantity' => (int) $order->quantity,
+                        'total_amount' => (float) $order->total_amount,
+                    ],
+                    'note' => $cxNote,
+                ];
+
+                $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+                $history[] = $historyEntry;
+                $raw['cx_history'] = $history;
+                $raw['cx_last_change'] = $historyEntry;
 
                 $updateData = [
                     'notes' => $updatedNotes,
@@ -1124,6 +1162,44 @@ class OrderController extends Controller
             $raw['is_cx_resolved'] = true;
             $raw['cx_resolved_at'] = now()->toISOString();
             $raw['cx_resolved_by'] = $userName;
+            $raw['cx_resolution_action'] = 'resolve';
+
+            $currentItems = is_array($order->items_data) && ! empty($order->items_data)
+                ? $order->items_data
+                : [[
+                    'name' => $order->product?->name ?: 'Product',
+                    'size' => $order->size ?: '',
+                    'color' => $order->color ?: '',
+                    'quantity' => (int) ($order->quantity ?: 1),
+                    'price' => (float) ($order->unit_price ?: 0),
+                ]];
+
+            $historyEntry = [
+                'id' => (string) Str::uuid(),
+                'action' => 'resolve',
+                'title' => 'অর্ডার সমাধান ও নিশ্চিত করা হয়েছে (Resolved & Confirmed)',
+                'performed_by' => $userName,
+                'performed_at' => now()->toISOString(),
+                'formatted_time' => now()->format('d M Y, h:i A'),
+                'before' => [
+                    'order_status' => $order->order_status,
+                    'items' => $currentItems,
+                    'quantity' => (int) $order->quantity,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'after' => [
+                    'order_status' => $order->order_status === 'cancelled' ? 'cancelled' : 'confirmed',
+                    'items' => $currentItems,
+                    'quantity' => (int) $order->quantity,
+                    'total_amount' => (float) $order->total_amount,
+                ],
+                'note' => $cxNote,
+            ];
+
+            $history = is_array($raw['cx_history'] ?? null) ? $raw['cx_history'] : [];
+            $history[] = $historyEntry;
+            $raw['cx_history'] = $history;
+            $raw['cx_last_change'] = $historyEntry;
 
             $updateData = [
                 'notes' => $updatedNotes,

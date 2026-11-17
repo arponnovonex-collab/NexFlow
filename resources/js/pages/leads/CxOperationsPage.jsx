@@ -521,18 +521,26 @@ const OrderCard = ({
                         </span>
                     )}
 
-                    {/* Confirm Order Button (Only if not confirmed and not cancelled) */}
-                    {!isConfirmed && !isCancelled && (
+                    {/* Resolve (সমাধান হয়েছে) Button */}
+                    {!isCancelled && !isResolved && (
                         <button
                             type="button"
                             disabled={isActionLoading}
-                            onClick={() => onConfirm(order.id)}
+                            onClick={() => (onResolve ? onResolve(order.id) : onConfirm(order.id))}
                             className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow-md shadow-emerald-950/50 transition-all cursor-pointer"
-                            title="এই অর্ডারটি কনফার্ম করুন"
+                            title="এই অর্ডারটি সমাধান (Resolve) করুন"
                         >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>কনফার্ম (Confirm)</span>
+                            {isActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                            <span>Resolve (সমাধান হয়েছে)</span>
                         </button>
+                    )}
+
+                    {/* Resolved Badge */}
+                    {isResolved && !isCancelled && (
+                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>সমাধান হয়েছে</span>
+                        </span>
                     )}
 
                     {/* Steadfast Dispatch button if confirmed and no tracking */}
@@ -1145,10 +1153,16 @@ export const CxOperationsPage = () => {
                                                         </button>
                                                     </div>
                                                 ) : (
-                                                    <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-3 py-1.5 rounded-xl border border-amber-500/30 flex items-center gap-1.5">
-                                                        <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                                        <span>রিভিউ বাকি (Pending)</span>
-                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isGroupResolving}
+                                                        onClick={() => handleResolveGroup(group, false)}
+                                                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+                                                        title="সম্পূর্ণ কেসটি সমাধান (Resolve) হিসেবে চিহ্নিত করুন"
+                                                    >
+                                                        {isGroupResolving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                                        <span>Resolve (সমাধান হয়েছে)</span>
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>
@@ -1161,7 +1175,7 @@ export const CxOperationsPage = () => {
                                         }`}>
                                             <AlertTriangle className={`w-4 h-4 shrink-0 ${isGroupResolved ? 'text-emerald-400' : 'text-rose-400'}`} />
                                             <span>
-                                                <strong>সমস্যা বিশ্লেষণ:</strong> গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। নিচে যেকোনো একটি অর্ডার <strong>কনফার্ম</strong> অথবা <strong>Edit</strong> করে সেভ করলেই পুরো কেসটি স্বয়ংক্রিয়ভাবে <strong>Resolved</strong> ট্যাবে চলে যাবে এবং পরিবর্তন হিস্ট্রি সংরক্ষিত থাকবে। অনাকাঙ্ক্ষিত অর্ডারটি <strong>বাতিল (Cancel)</strong> করতে পারেন।
+                                                <strong>সমস্যা বিশ্লেষণ:</strong> গ্রাহক গত ১০ দিনে একই পণ্য <strong>{group.product_name}</strong> {group.orders.length} বার অর্ডার করেছেন। কাস্টমারের সাথে কথা বলে অপ্রয়োজনীয় অর্ডারটি <strong>বাতিল (Cancel)</strong> করুন এবং প্রয়োজনীয় অর্ডারে বা উপরে থাকা <strong>Resolve (সমাধান হয়েছে)</strong> বাটনে ক্লিক করুন।
                                             </span>
                                         </div>
 
@@ -1176,6 +1190,7 @@ export const CxOperationsPage = () => {
                                                     onEdit={openEditModal}
                                                     onCancel={openCancelModal}
                                                     onConfirm={(id) => handleQuickAction(id, 'confirm')}
+                                                    onResolve={(id) => handleQuickAction(id, 'resolve')}
                                                     onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                                     onDispatchSteadfast={handleDispatchSteadfast}
                                                     actionLoadingId={actionLoadingId}
@@ -1206,6 +1221,7 @@ export const CxOperationsPage = () => {
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
                                         onConfirm={(id) => handleQuickAction(id, 'confirm')}
+                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         actionLoadingId={actionLoadingId}
@@ -1233,6 +1249,7 @@ export const CxOperationsPage = () => {
                                         onEdit={openEditModal}
                                         onCancel={openCancelModal}
                                         onConfirm={(id) => handleQuickAction(id, 'confirm')}
+                                        onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         actionLoadingId={actionLoadingId}
