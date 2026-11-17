@@ -440,11 +440,11 @@ class EpbxService
         $callId = $payload['call_id'] ?? $payload['session_id'] ?? $payload['custom_id'] ?? null;
         $orderIdentifier = $payload['order_id'] ?? null;
         $destination = $payload['destination'] ?? $payload['phone_number'] ?? $payload['customer_phone'] ?? null;
-        $statusRaw = $payload['status'] ?? '';
+        $statusRaw = $payload['status'] ?? $payload['call_status'] ?? $payload['action'] ?? $payload['event'] ?? '';
         $statusStr = strtolower(trim((string) $statusRaw));
-        $recordingUrl = $payload['recording_url'] ?? $payload['audio_url'] ?? null;
+        $recordingUrl = $payload['recording_url'] ?? $payload['audio_url'] ?? $payload['record_file'] ?? null;
         $duration = (int) ($payload['duration'] ?? $payload['duration_seconds'] ?? $payload['billsec'] ?? 0);
-        $digitPressed = (string) ($payload['digit_pressed'] ?? '');
+        $digitPressed = (string) ($payload['digit_pressed'] ?? $payload['digit'] ?? $payload['dtmf'] ?? $payload['key'] ?? $payload['pressed_key'] ?? '');
 
         // --- 1. HANDLE ORDER AI VERIFICATION CALLBACK ---
         $order = null;
@@ -471,7 +471,7 @@ class EpbxService
 
             if ($statusStr === 'confirmed' || $digitPressed === '1') {
                 $order->update([
-                    'order_status' => 'processing',
+                    'order_status' => 'confirmed',
                     'ai_call_status' => 'confirmed',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '✅ কাস্টমার ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
@@ -495,24 +495,28 @@ class EpbxService
                 }
             } elseif (in_array($statusStr, ['no answer', 'noanswer', 'unanswered'])) {
                 $order->update([
+                    'order_status' => 'processing',
                     'ai_call_status' => 'no_answer',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '📞 কাস্টমারের ফোন রিং হয়েছে কিন্তু রিসিভ করেননি (NOANSWER)।',
                 ]);
             } elseif (in_array($statusStr, ['busy', 'rejected_call'])) {
                 $order->update([
+                    'order_status' => 'processing',
                     'ai_call_status' => 'busy',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '📵 কাস্টমার কল কেটে দিয়েছেন বা নম্বর ব্যস্ত ছিল (BUSY)।',
                 ]);
             } elseif (str_contains($statusStr, 'no response')) {
                 $order->update([
+                    'order_status' => 'processing',
                     'ai_call_status' => 'no_answer',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '⚠️ কাস্টমার ফোন ধরেছিলেন কিন্তু কোনো বাটন প্রেস করেননি (No Response)।',
                 ]);
             } elseif (in_array($statusStr, ['congestion', 'chanunavail', 'failed'])) {
                 $order->update([
+                    'order_status' => 'processing',
                     'ai_call_status' => 'failed',
                     'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
                     'ai_call_notes' => $existingNotes . '❌ কাস্টমারের ফোন বন্ধ বা নেটওয়ার্কের বাইরে ছিল (Unreachable)।',

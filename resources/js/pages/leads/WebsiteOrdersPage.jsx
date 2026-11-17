@@ -35,6 +35,7 @@ import {
     UserCheck,
     Bot,
     Volume2,
+    XCircle,
 } from 'lucide-react';
 
 /**
@@ -917,6 +918,7 @@ export const WebsiteOrdersPage = () => {
                                 <th className="p-3">Duplicate / Double Order</th>
                                 <th className="p-3">Amount & Payment</th>
                                 <th className="p-3">Order Status</th>
+                                <th className="p-3 min-w-[210px]">ভেরিফিকেশন কল (ePBX AI)</th>
                                 <th className="p-3">Courier Dispatch</th>
                                 <th className="p-3 text-right">Actions</th>
                             </tr>
@@ -924,14 +926,14 @@ export const WebsiteOrdersPage = () => {
                         <tbody className="divide-y divide-slate-800/60">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="9" className="p-8 text-center text-slate-500">
+                                    <td colSpan="10" className="p-8 text-center text-slate-500">
                                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-500" />
                                         Loading website orders...
                                     </td>
                                 </tr>
                             ) : orders.length === 0 ? (
                                 <tr>
-                                    <td colSpan="9" className="p-12 text-center text-slate-500">
+                                    <td colSpan="10" className="p-12 text-center text-slate-500">
                                         <Globe className="w-8 h-8 mx-auto mb-2 opacity-40 text-cyan-400" />
                                         <p className="font-semibold text-slate-300">
                                             {search ? `No orders found for "${search}"` : 'No website orders found'}
@@ -990,63 +992,6 @@ export const WebsiteOrdersPage = () => {
                                                         minute: '2-digit',
                                                     })}
                                                 </div>
-
-                                                {/* AI Call Status Badge */}
-                                                {order.ai_call_status && (
-                                                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                                                        <span
-                                                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                                                order.ai_call_status === 'confirmed'
-                                                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                                                    : order.ai_call_status === 'rejected'
-                                                                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                                                                    : order.ai_call_status === 'calling'
-                                                                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse'
-                                                                    : order.ai_call_status === 'no_answer'
-                                                                    ? 'bg-slate-800 text-slate-400 border-slate-700'
-                                                                    : order.ai_call_status === 'busy'
-                                                                    ? 'bg-slate-800 text-slate-400 border-slate-700'
-                                                                    : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
-                                                            }`}
-                                                            title={order.ai_call_notes || `AI Call Status: ${order.ai_call_status}`}
-                                                        >
-                                                            {order.ai_call_status === 'confirmed' ? (
-                                                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                                            ) : order.ai_call_status === 'rejected' ? (
-                                                                <AlertCircle className="w-3 h-3 text-rose-400" />
-                                                            ) : order.ai_call_status === 'calling' ? (
-                                                                <PhoneCall className="w-3 h-3 text-amber-400 animate-pulse" />
-                                                            ) : (
-                                                                <Phone className="w-3 h-3 text-slate-400" />
-                                                            )}
-                                                            <span>
-                                                                {order.ai_call_status === 'confirmed'
-                                                                    ? 'AI Confirmed (১ প্রেস)'
-                                                                    : order.ai_call_status === 'rejected'
-                                                                    ? 'AI Cancelled (২ প্রেস)'
-                                                                    : order.ai_call_status === 'calling'
-                                                                    ? 'AI কল চলছে...'
-                                                                    : order.ai_call_status === 'no_answer'
-                                                                    ? 'কল ধরেনি'
-                                                                    : order.ai_call_status === 'busy'
-                                                                    ? 'ব্যস্ত ছিল'
-                                                                    : order.ai_call_status}
-                                                            </span>
-                                                        </span>
-
-                                                        {order.ai_call_recording_url && (
-                                                            <a
-                                                                href={order.ai_call_recording_url}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="p-1 text-indigo-400 hover:text-indigo-200 hover:bg-indigo-500/20 rounded transition-colors inline-flex items-center"
-                                                                title="AI কল রেকর্ডিং শুনুন"
-                                                            >
-                                                                <Volume2 className="w-3.5 h-3.5" />
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                )}
                                             </td>
 
                                             {/* Customer */}
@@ -1197,6 +1142,104 @@ export const WebsiteOrdersPage = () => {
                                                 </select>
                                             </td>
 
+                                            {/* AI Voice Call (ePBX Verification) Dedicated Column */}
+                                            <td className="p-3 min-w-[210px]">
+                                                <div className="space-y-1.5">
+                                                    {/* Status Badge: Did customer pick up / what did they press? */}
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        {order.ai_call_status === 'confirmed' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm">
+                                                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                                <span>কল ধরেছে (১ কনফার্ম)</span>
+                                                            </span>
+                                                        ) : order.ai_call_status === 'rejected' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm">
+                                                                <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                                                <span>কল ধরেছে (২ বাতিল)</span>
+                                                            </span>
+                                                        ) : order.ai_call_status === 'calling' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse shadow-sm">
+                                                                <PhoneCall className="w-3 h-3 text-amber-400 shrink-0 animate-bounce" />
+                                                                <span>কল চলছে...</span>
+                                                            </span>
+                                                        ) : order.ai_call_status === 'no_answer' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                                                                <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                                                                <span>কল ধরেনি (No Answer)</span>
+                                                            </span>
+                                                        ) : order.ai_call_status === 'busy' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-950/50 text-purple-300 border border-purple-500/30">
+                                                                <Phone className="w-3 h-3 text-purple-400 shrink-0" />
+                                                                <span>ব্যস্ত / কেটে দিয়েছে</span>
+                                                            </span>
+                                                        ) : order.ai_call_status === 'failed' ? (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950/50 text-rose-300 border border-rose-500/40">
+                                                                <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+                                                                <span>কল ব্যর্থ</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800/80 text-slate-400 border border-slate-700/60">
+                                                                <span>কল করা হয়নি</span>
+                                                            </span>
+                                                        )}
+
+                                                        {order.ai_call_recording_url && (
+                                                            <a
+                                                                href={order.ai_call_recording_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="p-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition-colors inline-flex items-center"
+                                                                title="গ্রাহকের কলের অডিও রেকর্ডিং শুনুন"
+                                                            >
+                                                                <Volume2 className="w-3.5 h-3.5 text-indigo-300" />
+                                                            </a>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Manual Call Buttons */}
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        {order.customer_phone ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleTriggerAiCall(order)}
+                                                                disabled={callingAiOrderId === order.id}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                                                                title="ePBX AI ভেরিফিকেশন কল ডায়াল করুন"
+                                                            >
+                                                                {callingAiOrderId === order.id ? (
+                                                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                                                ) : (
+                                                                    <Bot className="w-3 h-3" />
+                                                                )}
+                                                                <span>{order.ai_call_status ? 'পুনরায় AI কল' : 'AI কল দিন'}</span>
+                                                            </button>
+                                                        ) : null}
+
+                                                        {order.customer_phone && (
+                                                            <Link
+                                                                to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/30 transition-all cursor-pointer"
+                                                                title="এজেন্ট এক্সটেনশন থেকে সরাসরি ম্যানুয়াল কথা বলুন (IP Phone)"
+                                                            >
+                                                                <PhoneCall className="w-3 h-3" />
+                                                                <span>ম্যানুয়াল কল</span>
+                                                            </Link>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Timestamp / Call Attempts */}
+                                                    {order.ai_call_last_at && (
+                                                        <div className="text-[9px] text-slate-500 flex items-center gap-1 font-mono">
+                                                            <Clock className="w-2.5 h-2.5 text-slate-600 shrink-0" />
+                                                            <span>
+                                                                {new Date(order.ai_call_last_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                {order.ai_call_count > 1 ? ` (${order.ai_call_count} বার কল)` : ''}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </td>
+
                                             {/* Courier Dispatch */}
                                             <td className="p-3">
                                                 {order.tracking_code ? (
@@ -1224,21 +1267,6 @@ export const WebsiteOrdersPage = () => {
                                             {/* Actions */}
                                             <td className="p-3 text-right">
                                                 <div className="flex items-center justify-end gap-1">
-                                                    {order.customer_phone && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleTriggerAiCall(order)}
-                                                            disabled={callingAiOrderId === order.id}
-                                                            className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer inline-flex items-center"
-                                                            title="AI Verification কল পাঠান (ePBX TTS)"
-                                                        >
-                                                            {callingAiOrderId === order.id ? (
-                                                                <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
-                                                            ) : (
-                                                                <Bot className="w-4 h-4" />
-                                                            )}
-                                                        </button>
-                                                    )}
                                                     {order.customer_phone && (
                                                         <Link
                                                             to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
