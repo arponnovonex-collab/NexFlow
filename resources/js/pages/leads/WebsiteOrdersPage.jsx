@@ -33,6 +33,8 @@ import {
     Edit,
     History,
     UserCheck,
+    Bot,
+    Volume2,
 } from 'lucide-react';
 
 /**
@@ -163,6 +165,7 @@ export const WebsiteOrdersPage = () => {
     const [bulkActionLoading, setBulkActionLoading] = useState(false);
     const [sendingBulkSteadfast, setSendingBulkSteadfast] = useState(false);
     const [sendingOrderId, setSendingOrderId] = useState(null);
+    const [callingAiOrderId, setCallingAiOrderId] = useState(null);
 
     // Problem Orders Confirmation Modal State
     const [problemModalOpen, setProblemModalOpen] = useState(false);
@@ -468,6 +471,54 @@ export const WebsiteOrdersPage = () => {
         setSelectedOrderIds((prev) =>
             prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]
         );
+    };
+
+    // AI Order Verification Call Trigger
+    const handleTriggerAiCall = async (order) => {
+        const phone = order.customer_phone || order.customer?.phone;
+        if (!phone) {
+            alert('গ্রাহকের কোনো ফোন নম্বর পাওয়া যায়নি!');
+            return;
+        }
+
+        const confirmCall = window.confirm(
+            `📞 AI Order Verification Call\n\nগ্রাহক: ${order.customer?.name || 'Customer'}\nফোন: ${phone}\nঅর্ডার: #${order.order_number}\n\nসিস্টেম গ্রাহককে ফোন করে পণ্য নিশ্চিত (১ চাপুন) বা বাতিল (২ চাপুন) করতে বলবে। কল পাঠাতে চান?`
+        );
+        if (!confirmCall) return;
+
+        try {
+            setCallingAiOrderId(order.id);
+            const res = await api.post(`/orders/${order.id}/ai-call`);
+            if (res.data.status === 'success') {
+                alert(`✅ ${res.data.message || 'AI কল সফলভাবে ডায়াল করা হচ্ছে!'}`);
+                setOrders((prev) =>
+                    prev.map((o) =>
+                        o.id === order.id
+                            ? {
+                                  ...o,
+                                  ai_call_status: 'calling',
+                                  ai_call_count: (o.ai_call_count || 0) + 1,
+                                  ai_call_last_at: new Date().toISOString(),
+                              }
+                            : o
+                    )
+                );
+                if (selectedOrder && selectedOrder.id === order.id) {
+                    setSelectedOrder((prev) => ({
+                        ...prev,
+                        ai_call_status: 'calling',
+                        ai_call_count: (prev.ai_call_count || 0) + 1,
+                        ai_call_last_at: new Date().toISOString(),
+                    }));
+                }
+            } else {
+                alert(`❌ ${res.data.message || 'AI কল শুরু করতে ব্যর্থ হয়েছে'}`);
+            }
+        } catch (err) {
+            alert(`❌ AI কল পাঠাতে সমস্যা হয়েছে: ${err.response?.data?.message || err.message}`);
+        } finally {
+            setCallingAiOrderId(null);
+        }
     };
 
     // Steadfast Courier Dispatch
@@ -939,6 +990,63 @@ export const WebsiteOrdersPage = () => {
                                                         minute: '2-digit',
                                                     })}
                                                 </div>
+
+                                                {/* AI Call Status Badge */}
+                                                {order.ai_call_status && (
+                                                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                                        <span
+                                                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                                                order.ai_call_status === 'confirmed'
+                                                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                                                    : order.ai_call_status === 'rejected'
+                                                                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                                                    : order.ai_call_status === 'calling'
+                                                                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse'
+                                                                    : order.ai_call_status === 'no_answer'
+                                                                    ? 'bg-slate-800 text-slate-400 border-slate-700'
+                                                                    : order.ai_call_status === 'busy'
+                                                                    ? 'bg-slate-800 text-slate-400 border-slate-700'
+                                                                    : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
+                                                            }`}
+                                                            title={order.ai_call_notes || `AI Call Status: ${order.ai_call_status}`}
+                                                        >
+                                                            {order.ai_call_status === 'confirmed' ? (
+                                                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                                            ) : order.ai_call_status === 'rejected' ? (
+                                                                <AlertCircle className="w-3 h-3 text-rose-400" />
+                                                            ) : order.ai_call_status === 'calling' ? (
+                                                                <PhoneCall className="w-3 h-3 text-amber-400 animate-pulse" />
+                                                            ) : (
+                                                                <Phone className="w-3 h-3 text-slate-400" />
+                                                            )}
+                                                            <span>
+                                                                {order.ai_call_status === 'confirmed'
+                                                                    ? 'AI Confirmed (১ প্রেস)'
+                                                                    : order.ai_call_status === 'rejected'
+                                                                    ? 'AI Cancelled (২ প্রেস)'
+                                                                    : order.ai_call_status === 'calling'
+                                                                    ? 'AI কল চলছে...'
+                                                                    : order.ai_call_status === 'no_answer'
+                                                                    ? 'কল ধরেনি'
+                                                                    : order.ai_call_status === 'busy'
+                                                                    ? 'ব্যস্ত ছিল'
+                                                                    : order.ai_call_status}
+                                                            </span>
+                                                        </span>
+
+                                                        {order.ai_call_recording_url && (
+                                                            <a
+                                                                href={order.ai_call_recording_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="p-1 text-indigo-400 hover:text-indigo-200 hover:bg-indigo-500/20 rounded transition-colors inline-flex items-center"
+                                                                title="AI কল রেকর্ডিং শুনুন"
+                                                            >
+                                                                <Volume2 className="w-3.5 h-3.5" />
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </td>
 
                                             {/* Customer */}
@@ -1116,6 +1224,21 @@ export const WebsiteOrdersPage = () => {
                                             {/* Actions */}
                                             <td className="p-3 text-right">
                                                 <div className="flex items-center justify-end gap-1">
+                                                    {order.customer_phone && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleTriggerAiCall(order)}
+                                                            disabled={callingAiOrderId === order.id}
+                                                            className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors cursor-pointer inline-flex items-center"
+                                                            title="AI Verification কল পাঠান (ePBX TTS)"
+                                                        >
+                                                            {callingAiOrderId === order.id ? (
+                                                                <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                                                            ) : (
+                                                                <Bot className="w-4 h-4" />
+                                                            )}
+                                                        </button>
+                                                    )}
                                                     {order.customer_phone && (
                                                         <Link
                                                             to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
@@ -1369,6 +1492,80 @@ export const WebsiteOrdersPage = () => {
                                 {selectedOrder.notes && (
                                     <div className="col-span-2 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
                                         <strong>Customer Note:</strong> {selectedOrder.notes}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* AI Voice Verification Call Info */}
+                        <div className="p-3 bg-indigo-950/20 border border-indigo-500/30 rounded-xl space-y-2">
+                            <div className="flex items-center justify-between border-b border-indigo-500/20 pb-1.5 flex-wrap gap-2">
+                                <h4 className="font-bold text-indigo-200 text-xs flex items-center gap-1.5">
+                                    <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span>AI ভয়েস ভেরিফিকেশন (ePBX IVR Call)</span>
+                                </h4>
+                                <div className="flex items-center gap-2">
+                                    {selectedOrder.ai_call_status ? (
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                            selectedOrder.ai_call_status === 'confirmed'
+                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                : selectedOrder.ai_call_status === 'rejected'
+                                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                                : selectedOrder.ai_call_status === 'calling'
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                                        }`}>
+                                            {selectedOrder.ai_call_status === 'confirmed'
+                                                ? '✅ গ্রাহক ১ চেপে কনফার্ম করেছেন'
+                                                : selectedOrder.ai_call_status === 'rejected'
+                                                ? '❌ গ্রাহক ২ চেপে বাতিল করেছেন'
+                                                : selectedOrder.ai_call_status === 'calling'
+                                                ? '⏳ কল ডায়াল করা হচ্ছে...'
+                                                : selectedOrder.ai_call_status === 'no_answer'
+                                                ? '📵 গ্রাহক কল ধরেনি'
+                                                : selectedOrder.ai_call_status === 'busy'
+                                                ? '📵 গ্রাহক ব্যস্ত ছিল'
+                                                : selectedOrder.ai_call_status}
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] text-slate-400">কল পাঠানো হয়নি</span>
+                                    )}
+
+                                    {selectedOrder.customer_phone && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTriggerAiCall(selectedOrder)}
+                                            disabled={callingAiOrderId === selectedOrder.id}
+                                            className="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                                        >
+                                            {callingAiOrderId === selectedOrder.id ? (
+                                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                            ) : (
+                                                <Bot className="w-3 h-3" />
+                                            )}
+                                            <span>{selectedOrder.ai_call_status ? 'পুনরায় AI কল দিন' : 'AI কল পাঠান'}</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+                                <div>
+                                    মোট কল প্রচেষ্টা: <strong className="text-white">{selectedOrder.ai_call_count || 0} বার</strong>
+                                </div>
+                                <div>
+                                    সর্বশেষ কল: <span className="text-slate-300">{selectedOrder.ai_call_last_at ? new Date(selectedOrder.ai_call_last_at).toLocaleString() : 'এখনো করা হয়নি'}</span>
+                                </div>
+                                {selectedOrder.ai_call_notes && (
+                                    <div className="col-span-2 text-indigo-300/90 text-[10px] italic bg-indigo-950/40 p-1.5 rounded border border-indigo-500/20">
+                                        নোট: {selectedOrder.ai_call_notes}
+                                    </div>
+                                )}
+                                {selectedOrder.ai_call_recording_url && (
+                                    <div className="col-span-2 pt-1 flex flex-col sm:flex-row sm:items-center gap-2">
+                                        <span className="text-[10px] text-indigo-300 flex items-center gap-1 font-semibold shrink-0">
+                                            <Volume2 className="w-3.5 h-3.5 text-indigo-400" /> অডিও রেকর্ডিং:
+                                        </span>
+                                        <audio controls src={selectedOrder.ai_call_recording_url} className="h-7 w-full max-w-sm" />
                                     </div>
                                 )}
                             </div>

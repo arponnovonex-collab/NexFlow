@@ -28,6 +28,8 @@ import {
     History,
     UserCheck,
     Clock,
+    Bot,
+    Volume2,
 } from 'lucide-react';
 
 /**
@@ -128,6 +130,7 @@ const OrderCard = ({
     onResolve,
     onSetQtyOne,
     onDispatchSteadfast,
+    onTriggerAiCall,
     actionLoadingId,
     dispatchingId,
 }) => {
@@ -210,7 +213,51 @@ const OrderCard = ({
                         </span>
                     </div>
 
-                    <div className="shrink-0 flex items-center gap-1.5">
+                    <div className="shrink-0 flex items-center gap-1.5 flex-wrap justify-end">
+                        {order.ai_call_status && (
+                            <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                    order.ai_call_status === 'confirmed'
+                                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                        : order.ai_call_status === 'rejected'
+                                        ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                        : order.ai_call_status === 'calling'
+                                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse'
+                                        : order.ai_call_status === 'no_answer'
+                                        ? 'bg-slate-800 text-slate-400 border-slate-700'
+                                        : order.ai_call_status === 'busy'
+                                        ? 'bg-slate-800 text-slate-400 border-slate-700'
+                                        : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
+                                }`}
+                                title={order.ai_call_notes || `AI Call Status: ${order.ai_call_status}`}
+                            >
+                                <Bot className="w-3 h-3 text-indigo-400" />
+                                <span>
+                                    {order.ai_call_status === 'confirmed'
+                                        ? 'AI Confirmed (১)'
+                                        : order.ai_call_status === 'rejected'
+                                        ? 'AI Cancelled (২)'
+                                        : order.ai_call_status === 'calling'
+                                        ? 'AI কল চলছে...'
+                                        : order.ai_call_status === 'no_answer'
+                                        ? 'কল ধরেনি'
+                                        : order.ai_call_status === 'busy'
+                                        ? 'ব্যস্ত'
+                                        : order.ai_call_status}
+                                </span>
+                            </span>
+                        )}
+                        {order.ai_call_recording_url && (
+                            <a
+                                href={order.ai_call_recording_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 text-indigo-400 hover:text-indigo-200 hover:bg-indigo-500/20 rounded transition-colors inline-flex items-center"
+                                title="AI কল রেকর্ডিং শুনুন"
+                            >
+                                <Volume2 className="w-3.5 h-3.5" />
+                            </a>
+                        )}
                         {isCancelled ? (
                             <Badge variant="danger" size="xs">
                                 ❌ বাতিলকৃত (Cancelled)
@@ -240,6 +287,21 @@ const OrderCard = ({
                         </div>
                         {rawPhone && (
                             <div className="flex items-center gap-1.5 shrink-0">
+                                {onTriggerAiCall && !isCancelled && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onTriggerAiCall(order)}
+                                        disabled={actionLoadingId === `ai-${order.id}`}
+                                        className="p-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                        title="AI ভয়েস ভেরিফিকেশন কল দিন"
+                                    >
+                                        {actionLoadingId === `ai-${order.id}` ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <Bot className="w-3.5 h-3.5" />
+                                        )}
+                                    </button>
+                                )}
                                 <Link
                                     to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
                                     className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
@@ -501,6 +563,24 @@ const OrderCard = ({
                         <Edit3 className="w-3 h-3" />
                         <span>Edit</span>
                     </button>
+
+                    {/* AI Verification Call */}
+                    {!isCancelled && onTriggerAiCall && (
+                        <button
+                            type="button"
+                            disabled={isActionLoading || actionLoadingId === `ai-${order.id}`}
+                            onClick={() => onTriggerAiCall(order)}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                            title="গ্রাহককে AI Verification কল পাঠান"
+                        >
+                            {actionLoadingId === `ai-${order.id}` ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                                <Bot className="w-3 h-3" />
+                            )}
+                            <span>AI Call</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -705,6 +785,35 @@ export const CxOperationsPage = () => {
             }
         } catch (err) {
             alert('Action failed: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    // AI Verification Call Trigger
+    const handleTriggerAiCall = async (order) => {
+        const phone = order.customer_phone || order.customer?.phone;
+        if (!phone) {
+            alert('গ্রাহকের কোনো ফোন নম্বর নেই!');
+            return;
+        }
+
+        const confirmCall = window.confirm(
+            `📞 AI Order Verification Call\n\nগ্রাহক: ${order.customer?.name || 'Customer'}\nফোন: ${phone}\nঅর্ডার: #${order.order_number}\n\nসিস্টেম গ্রাহককে কল করে পণ্য নিশ্চিত (১) বা বাতিল (২) করতে বলবে। কল পাঠাতে চান?`
+        );
+        if (!confirmCall) return;
+
+        try {
+            setActionLoadingId(`ai-${order.id}`);
+            const res = await api.post(`/orders/${order.id}/ai-call`);
+            if (res.data.status === 'success') {
+                alert(`✅ ${res.data.message || 'AI কল সফলভাবে ডায়াল করা হচ্ছে!'}`);
+                await fetchCxOrders();
+            } else {
+                alert(`❌ ${res.data.message || 'AI কল ব্যর্থ হয়েছে'}`);
+            }
+        } catch (err) {
+            alert(`❌ AI কল শুরু করতে সমস্যা হয়েছে: ${err.response?.data?.message || err.message}`);
         } finally {
             setActionLoadingId(null);
         }
@@ -1150,6 +1259,23 @@ export const CxOperationsPage = () => {
 
                                             {/* Top Right Group Action Buttons: IP Call + WhatsApp + ONE Resolve Button */}
                                             <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                                {rawPhone && group.orders.length > 0 && !isGroupResolved && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleTriggerAiCall(group.orders[0])}
+                                                        disabled={actionLoadingId === `ai-${group.orders[0].id}`}
+                                                        className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                                                        title="গ্রাহককে AI Verification কল পাঠান"
+                                                    >
+                                                        {actionLoadingId === `ai-${group.orders[0].id}` ? (
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <Bot className="w-3.5 h-3.5" />
+                                                        )}
+                                                        <span>AI Call</span>
+                                                    </button>
+                                                )}
+
                                                 {rawPhone && (
                                                     <Link
                                                         to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
@@ -1236,6 +1362,7 @@ export const CxOperationsPage = () => {
                                                     onResolve={(id) => handleQuickAction(id, 'resolve')}
                                                     onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                                     onDispatchSteadfast={handleDispatchSteadfast}
+                                                    onTriggerAiCall={handleTriggerAiCall}
                                                     actionLoadingId={actionLoadingId}
                                                     dispatchingId={dispatchingId}
                                                 />
@@ -1267,6 +1394,7 @@ export const CxOperationsPage = () => {
                                         onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
+                                        onTriggerAiCall={handleTriggerAiCall}
                                         actionLoadingId={actionLoadingId}
                                         dispatchingId={dispatchingId}
                                     />
@@ -1295,6 +1423,7 @@ export const CxOperationsPage = () => {
                                         onResolve={(id) => handleQuickAction(id, 'resolve')}
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
+                                        onTriggerAiCall={handleTriggerAiCall}
                                         actionLoadingId={actionLoadingId}
                                         dispatchingId={dispatchingId}
                                     />

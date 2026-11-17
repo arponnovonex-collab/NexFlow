@@ -24,6 +24,10 @@ import {
     HelpCircle,
     Lock,
     Globe,
+    Bot,
+    Sparkles,
+    Volume2,
+    Play,
 } from 'lucide-react';
 
 export const CallCenterConfigPage = () => {
@@ -45,9 +49,21 @@ export const CallCenterConfigPage = () => {
     const [sipPort, setSipPort] = useState('5060');
     const [webDialerUrl, setWebDialerUrl] = useState('https://auliro010.epbx.bd/dialer');
     const [isEnabled, setIsEnabled] = useState(false);
+    const [autoCallOrdersEnabled, setAutoCallOrdersEnabled] = useState(false);
+    const [autoCallDelaySeconds, setAutoCallDelaySeconds] = useState(60);
+    const [orderCallCustomText, setOrderCallCustomText] = useState('');
+    const [orderCallConfirmText, setOrderCallConfirmText] = useState('');
+    const [orderCallCancelText, setOrderCallCancelText] = useState('');
+    const [orderCallKey1Action, setOrderCallKey1Action] = useState('hangup');
+    const [orderCallKey2Action, setOrderCallKey2Action] = useState('hangup');
+    const [orderCallAgentExtension, setOrderCallAgentExtension] = useState('');
     const [lastBalance, setLastBalance] = useState(null);
     const [webhookUrl, setWebhookUrl] = useState('');
     const [lastCheckedAt, setLastCheckedAt] = useState(null);
+
+    // Test call modal state
+    const [testPhone, setTestPhone] = useState('');
+    const [sendingTestCall, setSendingTestCall] = useState(false);
 
     const fetchConfig = async () => {
         try {
@@ -63,6 +79,14 @@ export const CallCenterConfigPage = () => {
             setSipPort(data.sip_port || '5060');
             setWebDialerUrl(data.web_dialer_url || 'https://auliro010.epbx.bd/dialer');
             setIsEnabled(Boolean(data.is_enabled));
+            setAutoCallOrdersEnabled(Boolean(data.auto_call_orders_enabled));
+            setAutoCallDelaySeconds(data.auto_call_delay_seconds || 60);
+            setOrderCallCustomText(data.order_call_custom_text || 'আসসালামু আলাইকুম {customer_name}, আপনি অলিরো থেকে {product_name} অর্ডার করেছেন। পণ্যটির মূল্য {amount} টাকা। অর্ডার কনফার্ম করতে ১ চাপুন। অর্ডার ক্যানসেল করতে ২ চাপুন।');
+            setOrderCallConfirmText(data.order_call_confirm_text || 'অর্ডারটি কনফার্ম করা হয়েছে। ধন্যবাদ।');
+            setOrderCallCancelText(data.order_call_cancel_text || 'আপনার অর্ডারটি ক্যানসেল করা হয়েছে। ক্যানসেলের কারণ জানতে আমাদের একজন প্রতিনিধি আপনার সাথে যোগাযোগ করতে পারেন। অনুগ্রহ করে সহযোগিতা করবেন। ধন্যবাদ।');
+            setOrderCallKey1Action(data.order_call_key_1_action || 'hangup');
+            setOrderCallKey2Action(data.order_call_key_2_action || 'hangup');
+            setOrderCallAgentExtension(data.order_call_agent_extension || '');
             setLastBalance(data.last_balance);
             setWebhookUrl(data.webhook_url || `${window.location.origin}/api/webhooks/epbx`);
             setLastCheckedAt(data.last_checked_at);
@@ -91,6 +115,14 @@ export const CallCenterConfigPage = () => {
                 sip_port: sipPort.trim(),
                 web_dialer_url: webDialerUrl.trim(),
                 is_enabled: isEnabled,
+                auto_call_orders_enabled: autoCallOrdersEnabled,
+                auto_call_delay_seconds: parseInt(autoCallDelaySeconds, 10) || 60,
+                order_call_custom_text: orderCallCustomText.trim(),
+                order_call_confirm_text: orderCallConfirmText.trim(),
+                order_call_cancel_text: orderCallCancelText.trim(),
+                order_call_key_1_action: orderCallKey1Action,
+                order_call_key_2_action: orderCallKey2Action,
+                order_call_agent_extension: orderCallAgentExtension.trim(),
             });
 
             alert('ePBX.bd Configuration saved successfully!');
@@ -426,6 +458,115 @@ export const CallCenterConfigPage = () => {
                                     />
                                 </div>
                                 <p className="text-[10px] text-slate-400 mt-1">Asterisk IP: <code>103.15.140.151:5060</code> (যদি IP ফোন কানেক্ট করতে চান)।</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* DYNAMIC AI VOICE ORDER VERIFICATION & AUTO-CALL SETTINGS */}
+                    <div className="pt-4 border-t border-slate-800/80 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Bot className="w-5 h-5 text-indigo-400" />
+                                <div>
+                                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                        ডায়নামিক AI ভয়েস কল ও অর্ডার কনফার্মেশন (Auto-Call Verification)
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                            ePBX AI IVR
+                                        </span>
+                                    </h3>
+                                    <p className="text-xs text-slate-400">
+                                        ওয়েবসাইট থেকে অর্ডার আসার পর কাস্টমারকে স্বয়ংক্রিয়ভাবে বা ১-ক্লিকে ডায়নামিক বাংলা ভয়েস কল পাঠানো ও কি-প্রেস (১ বা ২) হ্যান্ডলিং।
+                                    </p>
+                                </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={autoCallOrdersEnabled}
+                                    onChange={(e) => setAutoCallOrdersEnabled(e.target.checked)}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+
+                        {/* Call Delay & Extension settings */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    অর্ডার প্লেসের পর কল যাওয়ার বিলম্ব (Delay in Seconds)
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="600"
+                                        value={autoCallDelaySeconds}
+                                        onChange={(e) => setAutoCallDelaySeconds(e.target.value)}
+                                        className="w-32 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-cyan-300 font-mono focus:border-indigo-500 focus:outline-none"
+                                    />
+                                    <span className="text-xs text-slate-400">সেকেন্ড (ডিফল্ট: ৬০ সেকেন্ড)</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">কাস্টমার চেকআউট শেষ করে ফোন যাতে হাতে নেওয়ার সময় পায়।</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-300 mb-1">
+                                    এজেন্ট সাপোর্ট এক্সটেনশন (২ প্রেস করলে ট্রান্সফারের জন্য)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={orderCallAgentExtension}
+                                    onChange={(e) => setOrderCallAgentExtension(e.target.value)}
+                                    placeholder="e.g. 101 or 104 (Optional)"
+                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">ফাঁকা রাখলে কাস্টমার ২ প্রেস করলে কল কেটে যাবে (Hangup)।</p>
+                            </div>
+                        </div>
+
+                        {/* Custom Greeting Text */}
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-medium text-slate-200 flex items-center justify-between">
+                                <span>১. প্রাথমিক ডায়নামিক ভয়েস স্ক্রিপ্ট (Custom Greeting TTS)</span>
+                                <span className="text-[10px] text-indigo-400 font-mono">
+                                    ভ্যারিয়েবল: {'{customer_name}'}, {'{product_name}'}, {'{amount}'}, {'{store_name}'}
+                                </span>
+                            </label>
+                            <textarea
+                                rows={2}
+                                value={orderCallCustomText}
+                                onChange={(e) => setOrderCallCustomText(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none leading-relaxed"
+                            />
+                        </div>
+
+                        {/* 1 Press (Confirm) & 2 Press (Cancel) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="block text-xs font-medium text-emerald-300 flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>২. গ্রাহক ১ চাপলে বার্তা (Confirm Speech)</span>
+                                </label>
+                                <textarea
+                                    rows={2}
+                                    value={orderCallConfirmText}
+                                    onChange={(e) => setOrderCallConfirmText(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-emerald-200 focus:border-emerald-500 focus:outline-none"
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="block text-xs font-medium text-rose-300 flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                                    <span>৩. গ্রাহক ২ চাপলে বার্তা (Cancel Speech)</span>
+                                </label>
+                                <textarea
+                                    rows={2}
+                                    value={orderCallCancelText}
+                                    onChange={(e) => setOrderCallCancelText(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-rose-200 focus:border-rose-500 focus:outline-none"
+                                />
                             </div>
                         </div>
                     </div>

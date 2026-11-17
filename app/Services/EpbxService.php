@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\CallLog;
 use App\Models\Customer;
 use App\Models\EpbxSetting;
+use App\Models\Order;
+use App\Services\WooCommerceService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -258,19 +260,272 @@ class EpbxService
     }
 
     /**
-     * Process incoming CDR / recording webhook from ePBX.bd.
+     * Send an Outbound Dynamic AI Voice Order Verification Call via ePBX.bd.
+     */
+    public function sendOrderVerificationCall(Order $order, ?string $customScript = null): array
+    {
+        $settings = $this->getSettings();
+        $rawPhone = $order->customer_phone ?: ($order->customer?->phone ?: '');
+        $formattedPhone = $this->formatPhoneNumber($rawPhone);
+
+        if (strlen($formattedPhone) < 10) {
+            return [
+                'success' => false,
+                'message' => 'সঠিক ১১ ডিজিটের ফোন নম্বর পাওয়া যায়নি। অর্ডার নম্বর: ' . ($order->order_number ?: '#' . $order->id),
+            ];
+        }
+
+        // 1. Resolve Customer Name
+        $customerName = trim((string) ($order->customer?->name ?: ($order->wc_raw_data['billing']['first_name'] ?? '')));
+        if (empty($customerName) || $customerName === 'Website Customer') {
+            $customerName = 'সম্মানিত গ্রাহক';
+        }
+
+        // 2. Resolve Product Name
+        $productName = 'আপনার পছন্দের পণ্য';
+        if (! empty($order->items_data) && is_array($order->items_data)) {
+            $firstItem = $order->items_data[0] ?? [];
+            $firstItemName = trim((string) ($firstItem['name'] ?? ''));
+            $itemCount = count($order->items_data);
+            if (! empty($firstItemName)) {
+                $productName = $itemCount > 1 ? "{$firstItemName} সহ মোট {$itemCount}টি পণ্য" : $firstItemName;
+            }
+        } elseif ($order->product && ! empty($order->product->name)) {
+            $productName = $order->product->name;
+        }
+
+        // 3. Resolve Amount
+        $amount = (int) round((float) $order->total_amount);
+
+        // 4. Compile Dynamic Bangla TTS Text
+        $defaultCustomText = 'আসসালামু আলাইকুম {customer_name}, আপনি অলিরো থেকে {product_name} অর্ডার করেছেন। পণ্যটির মূল্য {amount} টাকা। অর্ডার কনফার্ম করতে ১ চাপুন। অর্ডার ক্যানসেল করতে ২ চাপুন।';
+        $template = $customScript ?: ($settings->order_call_custom_text ?: $defaultCustomText);
+        $customText = str_replace(
+            ['{customer_name}', '{product_name}', '{amount}', '{store_name}'],
+            [$customerName, $productName, (string) $amount, 'অলিরো'],
+            $template
+        );
+
+        $confirmText = $settings->order_call_confirm_text ?: 'অর্ডারটি কনফার্ম করা হয়েছে। ধন্যবাদ।';
+        $cancelText = $settings->order_call_cancel_text ?: 'আপনার অর্ডারটি ক্যানসেল করা হয়েছে। ক্যানসেলের কারণ জানতে আমাদের একজন প্রতিনিধি আপনার সাথে যোগাযোগ করতে পারেন। অনুগ্রহ করে সহযোগিতা করবেন। ধন্যবাদ।';
+
+        $trunk = $settings->trunk_number ?: '09639666896';
+        $callSessionId = 'epbx_ai_' . ($order->wc_order_id ?: $order->id) . '_' . time();
+
+        // Create initial CallLog
+        $callLog = CallLog::create([
+            'call_session_id' => $callSessionId,
+            'direction' => 'outbound',
+            'customer_phone' => $formattedPhone,
+            'customer_id' => $order->customer_id,
+            'order_id' => $order->id,
+            'agent_extension' => $settings->order_call_agent_extension ?: 'AI_IVR',
+            'trunk_number' => $trunk,
+            'status' => 'initiated',
+            'notes' => "AI Voice Order Verification Call to {$customerName} ({$formattedPhone})",
+            'started_at' => now(),
+        ]);
+
+        // If mock / demo mode
+        if (str_starts_with((string) $settings->api_token, 'mock_') || $settings->api_token === 'epbx_test_token' || empty($settings->api_token)) {
+            $order->update([
+                'ai_call_status' => 'calling',
+                'ai_call_session_id' => $callSessionId,
+                'ai_call_count' => ($order->ai_call_count ?? 0) + 1,
+                'ai_call_last_at' => now(),
+                'ai_call_notes' => 'AI ভেরিফিকেশন কল সফলভাবে ডায়াল করা হয়েছে (Demo Sandbox)।',
+            ]);
+
+            return [
+                'success' => true,
+                'message' => "AI ভেরিফিকেশন কল {$formattedPhone} নম্বরে পাঠানো হয়েছে (Demo Sandbox Mode)।",
+                'order' => $order->fresh(),
+                'call_log' => $callLog,
+            ];
+        }
+
+        $baseUrl = rtrim($settings->api_base_url, '/');
+
+        try {
+            $payload = [
+                'phone_number' => $formattedPhone,
+                'caller_id' => $trunk,
+                'customer_name' => $customerName,
+                'amount' => "{$amount} BDT",
+                'store_name' => 'অলিরো',
+                'order_id' => (string) ($order->wc_order_id ?: $order->id),
+                'custom_text' => $customText,
+                'confirm_text' => $confirmText,
+                'cancel_text' => $cancelText,
+                'key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
+                'key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
+                'webhook_url' => url('/api/webhooks/epbx'),
+            ];
+
+            if (! empty($settings->order_call_agent_extension)) {
+                $payload['agent_extension'] = $settings->order_call_agent_extension;
+            }
+
+            $response = Http::timeout(12)
+                ->withToken($settings->api_token)
+                ->acceptJson()
+                ->post("{$baseUrl}/calls/verify", $payload);
+
+            if (! $response->successful()) {
+                // Fallback attempt: check alternate endpoint
+                $response = Http::timeout(12)
+                    ->withToken($settings->api_token)
+                    ->acceptJson()
+                    ->post("{$baseUrl}/calls/order-verification", $payload);
+            }
+
+            if ($response->successful()) {
+                $resData = $response->json();
+                $remoteCallId = $resData['call_id'] ?? $resData['session_id'] ?? $resData['data']['call_id'] ?? $callSessionId;
+
+                $order->update([
+                    'ai_call_status' => 'calling',
+                    'ai_call_session_id' => $remoteCallId,
+                    'ai_call_count' => ($order->ai_call_count ?? 0) + 1,
+                    'ai_call_last_at' => now(),
+                    'ai_call_notes' => 'AI কল পাঠানো হয়েছে। কাস্টমারের রেসপন্সের অপেক্ষা করা হচ্ছে।',
+                ]);
+
+                $callLog->update([
+                    'call_session_id' => $remoteCallId,
+                    'status' => 'ringing',
+                ]);
+
+                return [
+                    'success' => true,
+                    'message' => "AI ভেরিফিকেশন কল সফলভাবে {$formattedPhone} নম্বরে পাঠানো হয়েছে!",
+                    'order' => $order->fresh(),
+                    'call_log' => $callLog->fresh(),
+                    'data' => $resData,
+                ];
+            }
+
+            $errMsg = $response->json('message') ?? $response->json('error') ?? ('HTTP ' . $response->status());
+            $order->update([
+                'ai_call_status' => 'failed',
+                'ai_call_notes' => 'ePBX API Error: ' . $errMsg,
+            ]);
+            $callLog->update(['status' => 'failed', 'notes' => 'API Error: ' . $errMsg]);
+
+            return [
+                'success' => false,
+                'message' => 'ePBX API ত্রুটি: ' . $errMsg,
+                'order' => $order->fresh(),
+            ];
+        } catch (\Throwable $e) {
+            Log::error('ePBX Order Verification Exception: ' . $e->getMessage(), ['order_id' => $order->id]);
+            $order->update([
+                'ai_call_status' => 'failed',
+                'ai_call_notes' => 'Error: ' . $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'ePBX সার্ভারে কানেক্ট করতে ব্যর্থ: ' . $e->getMessage(),
+                'order' => $order->fresh(),
+            ];
+        }
+    }
+
+    /**
+     * Process incoming CDR / recording / order verification webhook from ePBX.bd.
      */
     public function processWebhook(array $payload): bool
     {
         $callId = $payload['call_id'] ?? $payload['session_id'] ?? $payload['custom_id'] ?? null;
-        $destination = $payload['destination'] ?? $payload['customer_phone'] ?? null;
-        $statusStr = strtolower((string) ($payload['status'] ?? ''));
+        $orderIdentifier = $payload['order_id'] ?? null;
+        $destination = $payload['destination'] ?? $payload['phone_number'] ?? $payload['customer_phone'] ?? null;
+        $statusRaw = $payload['status'] ?? '';
+        $statusStr = strtolower(trim((string) $statusRaw));
+        $recordingUrl = $payload['recording_url'] ?? $payload['audio_url'] ?? null;
+        $duration = (int) ($payload['duration'] ?? $payload['duration_seconds'] ?? $payload['billsec'] ?? 0);
+        $digitPressed = (string) ($payload['digit_pressed'] ?? '');
 
+        // --- 1. HANDLE ORDER AI VERIFICATION CALLBACK ---
+        $order = null;
+        if ($orderIdentifier) {
+            $order = Order::where('wc_order_id', is_numeric($orderIdentifier) ? (int) $orderIdentifier : 0)
+                ->orWhere('id', is_numeric($orderIdentifier) ? (int) $orderIdentifier : 0)
+                ->orWhere('order_number', (string) $orderIdentifier)
+                ->orWhere('order_number', '#' . $orderIdentifier)
+                ->first();
+        }
+
+        if (! $order && $callId) {
+            $order = Order::where('ai_call_session_id', $callId)->first();
+        }
+
+        if (! $order && $destination) {
+            $cleanPhone = $this->formatPhoneNumber($destination);
+            $order = Order::where('customer_phone', $cleanPhone)->latest()->first();
+        }
+
+        if ($order) {
+            $wcService = app(WooCommerceService::class);
+            $existingNotes = $order->ai_call_notes ? ($order->ai_call_notes . "\n") : '';
+
+            if ($statusStr === 'confirmed' || $digitPressed === '1') {
+                $order->update([
+                    'order_status' => 'processing',
+                    'ai_call_status' => 'confirmed',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '✅ কাস্টমার ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
+                ]);
+
+                // Sync status update to WooCommerce website!
+                if ($order->wc_order_id) {
+                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, 'processing');
+                }
+            } elseif ($statusStr === 'rejected' || $statusStr === 'cancelled' || $digitPressed === '2') {
+                $order->update([
+                    'order_status' => 'cancelled',
+                    'ai_call_status' => 'rejected',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '❌ কাস্টমার ফোনে ২ চেপে অর্ডার ক্যানসেল করেছেন।',
+                ]);
+
+                // Sync status update to WooCommerce website!
+                if ($order->wc_order_id) {
+                    $wcService->updateOrderStatusInWooCommerce($order->wc_order_id, 'cancelled');
+                }
+            } elseif (in_array($statusStr, ['no answer', 'noanswer', 'unanswered'])) {
+                $order->update([
+                    'ai_call_status' => 'no_answer',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '📞 কাস্টমারের ফোন রিং হয়েছে কিন্তু রিসিভ করেননি (NOANSWER)।',
+                ]);
+            } elseif (in_array($statusStr, ['busy', 'rejected_call'])) {
+                $order->update([
+                    'ai_call_status' => 'busy',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '📵 কাস্টমার কল কেটে দিয়েছেন বা নম্বর ব্যস্ত ছিল (BUSY)।',
+                ]);
+            } elseif (str_contains($statusStr, 'no response')) {
+                $order->update([
+                    'ai_call_status' => 'no_answer',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '⚠️ কাস্টমার ফোন ধরেছিলেন কিন্তু কোনো বাটন প্রেস করেননি (No Response)।',
+                ]);
+            } elseif (in_array($statusStr, ['congestion', 'chanunavail', 'failed'])) {
+                $order->update([
+                    'ai_call_status' => 'failed',
+                    'ai_call_recording_url' => $recordingUrl ?: $order->ai_call_recording_url,
+                    'ai_call_notes' => $existingNotes . '❌ কাস্টমারের ফোন বন্ধ বা নেটওয়ার্কের বাইরে ছিল (Unreachable)।',
+                ]);
+            }
+        }
+
+        // --- 2. UPDATE OR CREATE CALL LOG ---
         $mappedStatus = match ($statusStr) {
-            'answered', 'completed', 'success' => 'answered',
+            'confirmed', 'answered', 'completed', 'success' => 'answered',
             'busy' => 'busy',
-            'no answer', 'no_answer', 'cancelled' => 'no_answer',
-            'failed' => 'failed',
+            'no answer', 'noanswer', 'unanswered', 'rejected' => 'no_answer',
+            'failed', 'congestion', 'chanunavail' => 'failed',
             default => 'answered',
         };
 
@@ -279,6 +534,10 @@ class EpbxService
             $callLog = CallLog::where('call_session_id', $callId)
                 ->orWhere('id', is_numeric($callId) ? (int) $callId : 0)
                 ->first();
+        }
+
+        if (! $callLog && $order) {
+            $callLog = CallLog::where('order_id', $order->id)->latest()->first();
         }
 
         if (! $callLog && $destination) {
@@ -291,8 +550,9 @@ class EpbxService
         if ($callLog) {
             $callLog->update([
                 'status' => $mappedStatus,
-                'duration_seconds' => (int) ($payload['duration'] ?? $payload['duration_seconds'] ?? $callLog->duration_seconds),
-                'recording_url' => $payload['recording_url'] ?? $payload['audio_url'] ?? $callLog->recording_url,
+                'order_id' => $callLog->order_id ?: $order?->id,
+                'duration_seconds' => $duration > 0 ? $duration : (int) ($payload['duration'] ?? $payload['duration_seconds'] ?? $callLog->duration_seconds),
+                'recording_url' => $recordingUrl ?: ($payload['audio_url'] ?? $callLog->recording_url),
                 'cost' => (float) ($payload['cost'] ?? $callLog->cost),
                 'answered_at' => ! empty($payload['answer_time']) ? $payload['answer_time'] : ($mappedStatus === 'answered' ? now() : null),
                 'ended_at' => ! empty($payload['end_time']) ? $payload['end_time'] : now(),

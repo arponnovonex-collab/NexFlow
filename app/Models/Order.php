@@ -42,6 +42,12 @@ class Order extends Model
         'rider_note',
         'returned_at',
         'wc_raw_data',
+        'ai_call_status',
+        'ai_call_session_id',
+        'ai_call_count',
+        'ai_call_last_at',
+        'ai_call_recording_url',
+        'ai_call_notes',
     ];
 
     protected function casts(): array
@@ -55,6 +61,8 @@ class Order extends Model
             'items_data' => 'array',
             'courier_sent_at' => 'datetime',
             'returned_at' => 'datetime',
+            'ai_call_last_at' => 'datetime',
+            'ai_call_count' => 'integer',
             'courier_response' => 'array',
             'wc_raw_data' => 'array',
         ];

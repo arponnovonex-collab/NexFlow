@@ -452,10 +452,25 @@ class WooCommerceService
             'created_at' => $orderDate,
         ];
 
+        $isNewlyCreated = false;
         if ($order) {
             $order->update($orderAttributes);
         } else {
             $order = Order::create(array_merge(['wc_order_id' => $wcId], $orderAttributes));
+            $isNewlyCreated = true;
+        }
+
+        // Automatic Outbound Dynamic AI Voice Order Verification Call
+        if ($isNewlyCreated && in_array($order->order_status, ['pending_confirmation', 'pending', 'on-hold'])) {
+            try {
+                $epbxService = app(\App\Services\EpbxService::class);
+                $epbxSettings = $epbxService->getSettings();
+                if ($epbxSettings->is_enabled && $epbxSettings->auto_call_orders_enabled) {
+                    $epbxService->sendOrderVerificationCall($order);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Auto AI call dispatch error for order #' . $wcId . ': ' . $e->getMessage());
+            }
         }
 
         return $order;

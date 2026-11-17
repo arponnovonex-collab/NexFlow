@@ -17,6 +17,7 @@ class CallLog extends Model
         'direction',
         'customer_phone',
         'customer_id',
+        'order_id',
         'agent_user_id',
         'agent_extension',
         'trunk_number',
@@ -42,6 +43,11 @@ class CallLog extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
     }
 
     public function agent(): BelongsTo

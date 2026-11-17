@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CallLog;
 use App\Models\Customer;
+use App\Models\Order;
 use App\Services\EpbxService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,10 @@ class CallCenterController extends Controller
         $settings = $this->epbxService->getSettings();
         $webhookUrl = url('/api/webhooks/epbx');
 
+        $defaultCustomText = 'আসসালামু আলাইকুম {customer_name}, আপনি অলিরো থেকে {product_name} অর্ডার করেছেন। পণ্যটির মূল্য {amount} টাকা। অর্ডার কনফার্ম করতে ১ চাপুন। অর্ডার ক্যানসেল করতে ২ চাপুন।';
+        $defaultConfirmText = 'অর্ডারটি কনফার্ম করা হয়েছে। ধন্যবাদ।';
+        $defaultCancelText = 'আপনার অর্ডারটি ক্যানসেল করা হয়েছে। ক্যানসেলের কারণ জানতে আমাদের একজন প্রতিনিধি আপনার সাথে যোগাযোগ করতে পারেন। অনুগ্রহ করে সহযোগিতা করবেন। ধন্যবাদ।';
+
         return response()->json([
             'status' => 'success',
             'data' => [
@@ -39,6 +44,14 @@ class CallCenterController extends Controller
                 'webhook_secret' => $settings->webhook_secret,
                 'webhook_url' => $webhookUrl,
                 'is_enabled' => (bool) $settings->is_enabled,
+                'auto_call_orders_enabled' => (bool) $settings->auto_call_orders_enabled,
+                'auto_call_delay_seconds' => (int) ($settings->auto_call_delay_seconds ?: 60),
+                'order_call_custom_text' => $settings->order_call_custom_text ?: $defaultCustomText,
+                'order_call_confirm_text' => $settings->order_call_confirm_text ?: $defaultConfirmText,
+                'order_call_cancel_text' => $settings->order_call_cancel_text ?: $defaultCancelText,
+                'order_call_key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
+                'order_call_key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
+                'order_call_agent_extension' => $settings->order_call_agent_extension,
                 'last_balance' => $settings->last_balance,
                 'last_checked_at' => $settings->last_checked_at?->toIso8601String(),
             ],
@@ -60,6 +73,14 @@ class CallCenterController extends Controller
             'sip_port' => 'nullable|string|max:10',
             'web_dialer_url' => 'nullable|string|max:255',
             'is_enabled' => 'required|boolean',
+            'auto_call_orders_enabled' => 'nullable|boolean',
+            'auto_call_delay_seconds' => 'nullable|integer|min:0|max:600',
+            'order_call_custom_text' => 'nullable|string',
+            'order_call_confirm_text' => 'nullable|string',
+            'order_call_cancel_text' => 'nullable|string',
+            'order_call_key_1_action' => 'nullable|string|max:30',
+            'order_call_key_2_action' => 'nullable|string|max:30',
+            'order_call_agent_extension' => 'nullable|string|max:20',
         ]);
 
         $settings = $this->epbxService->getSettings();
@@ -73,6 +94,14 @@ class CallCenterController extends Controller
             'sip_port' => $validated['sip_port'] ?? $settings->sip_port,
             'web_dialer_url' => $validated['web_dialer_url'] ?? $settings->web_dialer_url,
             'is_enabled' => $validated['is_enabled'],
+            'auto_call_orders_enabled' => $validated['auto_call_orders_enabled'] ?? $settings->auto_call_orders_enabled,
+            'auto_call_delay_seconds' => $validated['auto_call_delay_seconds'] ?? $settings->auto_call_delay_seconds,
+            'order_call_custom_text' => $validated['order_call_custom_text'] ?? $settings->order_call_custom_text,
+            'order_call_confirm_text' => $validated['order_call_confirm_text'] ?? $settings->order_call_confirm_text,
+            'order_call_cancel_text' => $validated['order_call_cancel_text'] ?? $settings->order_call_cancel_text,
+            'order_call_key_1_action' => $validated['order_call_key_1_action'] ?? $settings->order_call_key_1_action,
+            'order_call_key_2_action' => $validated['order_call_key_2_action'] ?? $settings->order_call_key_2_action,
+            'order_call_agent_extension' => $validated['order_call_agent_extension'] ?? $settings->order_call_agent_extension,
         ]);
 
         // Auto test connection if token is provided
@@ -87,6 +116,32 @@ class CallCenterController extends Controller
             'test_result' => $testResult,
             'data' => $settings->fresh(),
         ]);
+    }
+
+    /**
+     * Dispatch an Outbound Dynamic AI Voice Call for a specific Order.
+     */
+    public function triggerOrderAiCall(Order $order, Request $request): JsonResponse
+    {
+        $customScript = $request->input('custom_script');
+        $result = $this->epbxService->sendOrderVerificationCall($order, $customScript);
+
+        if ($result['success']) {
+            return response()->json([
+                'status' => 'success',
+                'message' => $result['message'],
+                'data' => [
+                    'order' => $result['order'],
+                    'call_log' => $result['call_log'] ?? null,
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => $result['message'],
+            'order' => $result['order'] ?? $order,
+        ], 422);
     }
 
     /**
