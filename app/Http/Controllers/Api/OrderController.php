@@ -488,14 +488,13 @@ class OrderController extends Controller
             $siblings = $siblingsQuery->get();
             $activeSiblings = $siblings->filter(fn($o) => $o->order_status !== 'cancelled');
 
-            // If exactly 1 active sibling remains, auto-resolve it
+            // If exactly 1 active sibling remains, record the audit note but do not mark group resolved
+            // so the agent can still review, edit quantity, or confirm the retained order before resolving
             if ($activeSiblings->count() === 1) {
                 $retainedOrder = $activeSiblings->first();
                 $raw = is_array($retainedOrder->wc_raw_data) ? $retainedOrder->wc_raw_data : [];
-                $raw['is_cx_resolved'] = true;
-                $raw['cx_resolved_by'] = $userName;
-                $raw['cx_resolved_at'] = now()->toISOString();
-                $raw['cx_resolution_action'] = 'retained_after_duplicate_removed';
+                $raw['cx_sibling_cancelled_at'] = now()->toISOString();
+                $raw['cx_sibling_cancelled_by'] = $userName;
 
                 $noteMsg = "[CX Verified: Retained order after duplicate #{$orderNum} was {$actionType} by {$userName} on {$timeStr}]";
                 $updatedNotes = trim(($retainedOrder->notes ? $retainedOrder->notes . "\n" : '') . $noteMsg);
@@ -680,12 +679,10 @@ class OrderController extends Controller
             'customer_address' => (string) ($validated['customer_address'] ?? $order->customer_address),
         ];
 
-        // Auto-resolve order and record History
+        // Record Edit History without prematurely resolving the group/problem
         $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
-        $raw['is_cx_resolved'] = true;
-        $raw['cx_resolved_at'] = now()->toISOString();
-        $raw['cx_resolved_by'] = $userName;
-        $raw['cx_resolution_action'] = 'edited';
+        $raw['cx_last_edited_at'] = now()->toISOString();
+        $raw['cx_last_edited_by'] = $userName;
 
         $historyEntry = [
             'id' => (string) Str::uuid(),
@@ -800,10 +797,9 @@ class OrderController extends Controller
                     $duplicateOrderIds[$ord->id] = true;
                 }
 
-                $unresolvedActiveCount = 0;
                 $activeCount = 0;
                 $cancelledCount = 0;
-                $hasResolvedAction = false;
+                $isGroupResolved = false;
                 $resolvedBy = null;
                 $resolvedAt = null;
 
@@ -812,14 +808,11 @@ class OrderController extends Controller
                         $cancelledCount++;
                     } else {
                         $activeCount++;
-                        if (! $ord->is_cx_resolved) {
-                            $unresolvedActiveCount++;
-                        }
                     }
 
-                    if ($ord->is_cx_resolved) {
-                        $hasResolvedAction = true;
-                        $raw = is_array($ord->wc_raw_data) ? $ord->wc_raw_data : [];
+                    $raw = is_array($ord->wc_raw_data) ? $ord->wc_raw_data : [];
+                    if (! empty($raw['cx_group_resolved']) || str_contains((string) $ord->notes, '[CX Problem Resolved')) {
+                        $isGroupResolved = true;
                         if (! empty($raw['cx_resolved_by']) && empty($resolvedBy)) {
                             $resolvedBy = $raw['cx_resolved_by'];
                             $resolvedAt = $raw['cx_resolved_at'] ?? null;
@@ -827,11 +820,10 @@ class OrderController extends Controller
                     }
                 }
 
-                // Group is resolved when:
-                // 1) 1 or fewer active orders remain and at least one order was cancelled (duplicate conflict solved!)
-                // 2) OR no unresolved active orders remain
-                // 3) OR any order in the group was confirmed/edited/resolved
-                $isGroupResolved = ($activeCount <= 1 && $cancelledCount > 0) || ($unresolvedActiveCount === 0) || $hasResolvedAction;
+                // If all orders in the group were cancelled, group is resolved
+                if ($activeCount === 0 && $cancelledCount >= 2) {
+                    $isGroupResolved = true;
+                }
 
                 $firstOrder = $groupList[0];
                 $duplicateGroups[] = [
@@ -846,7 +838,7 @@ class OrderController extends Controller
                     'order_count' => count($groupList),
                     'active_order_count' => $activeCount,
                     'cancelled_order_count' => $cancelledCount,
-                    'unresolved_order_count' => $unresolvedActiveCount,
+                    'unresolved_order_count' => $isGroupResolved ? 0 : $activeCount,
                     'is_resolved' => $isGroupResolved,
                     'resolved_by' => $resolvedBy,
                     'resolved_at' => $resolvedAt,
@@ -1054,6 +1046,7 @@ class OrderController extends Controller
 
             if ($isReopen) {
                 $raw['is_cx_resolved'] = false;
+                $raw['cx_group_resolved'] = false;
                 $raw['cx_reopened_at'] = now()->toISOString();
                 $raw['cx_reopened_by'] = $userName;
 
@@ -1066,6 +1059,7 @@ class OrderController extends Controller
                 ]);
             } else {
                 $raw['is_cx_resolved'] = true;
+                $raw['cx_group_resolved'] = true;
                 $raw['cx_resolved_at'] = now()->toISOString();
                 $raw['cx_resolved_by'] = $userName;
                 $raw['cx_resolution_action'] = 'resolve';
@@ -1239,9 +1233,8 @@ class OrderController extends Controller
             $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
 
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
-            $raw['is_cx_resolved'] = true;
-            $raw['cx_resolved_at'] = now()->toISOString();
-            $raw['cx_resolved_by'] = $userName;
+            $raw['cx_last_qty_adjusted_at'] = now()->toISOString();
+            $raw['cx_last_qty_adjusted_by'] = $userName;
             $raw['cx_resolution_action'] = 'set_qty_one';
 
             $prevItems = is_array($order->items_data) && ! empty($order->items_data)
@@ -1313,7 +1306,7 @@ class OrderController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => "Order #{$order->order_number} quantity adjusted to 1 and resolved! Total: ৳{$newTotal}",
+                'message' => "Order #{$order->order_number} quantity adjusted to 1! Total: ৳{$newTotal}",
                 'data' => $order->fresh(['customer', 'product', 'variant']),
             ]);
         }
@@ -1323,9 +1316,8 @@ class OrderController extends Controller
             $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
 
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
-            $raw['is_cx_resolved'] = true;
-            $raw['cx_resolved_at'] = now()->toISOString();
-            $raw['cx_resolved_by'] = $userName;
+            $raw['cx_confirmed_at'] = now()->toISOString();
+            $raw['cx_confirmed_by'] = $userName;
             $raw['cx_resolution_action'] = 'confirmed';
 
             $currentItems = is_array($order->items_data) && ! empty($order->items_data)
@@ -1384,7 +1376,7 @@ class OrderController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'message' => "Order #{$order->order_number} confirmed and resolved successfully!",
+                'message' => "Order #{$order->order_number} confirmed successfully!",
                 'data' => $order->fresh(['customer', 'product', 'variant']),
             ]);
         }
@@ -1395,10 +1387,8 @@ class OrderController extends Controller
             $updatedNotes = trim(($order->notes ? $order->notes . "\n" : '') . $cxNote);
 
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
-            $raw['is_cx_resolved'] = true;
             $raw['cx_cancelled_at'] = now()->toISOString();
             $raw['cx_cancelled_by'] = $userName;
-            $raw['cx_resolved_by'] = $userName;
             $raw['cx_resolution_action'] = 'cancelled';
 
             $currentItems = is_array($order->items_data) && ! empty($order->items_data)
@@ -1441,9 +1431,6 @@ class OrderController extends Controller
                 'notes' => $updatedNotes,
                 'wc_raw_data' => $raw,
             ]);
-
-            // Auto-resolve any remaining sibling duplicate orders in this group
-            $this->resolveRetainedSiblingsAfterRemoval([$order], 'cancelled', $userName);
 
             if ($order->wc_order_id) {
                 try {
@@ -1886,20 +1873,15 @@ class OrderController extends Controller
                 $anyResolvedInGroup = false;
                 foreach ($group as $gOrd) {
                     $raw = is_array($gOrd->wc_raw_data) ? $gOrd->wc_raw_data : [];
-                    if (! empty($raw['is_cx_resolved'])
-                        || str_contains((string) $gOrd->notes, '[CX Resolved')
-                        || str_contains((string) $gOrd->notes, '[CX Problem Resolved')
-                        || str_contains((string) $gOrd->notes, '[CX Review: Quantity adjusted')
-                        || str_contains((string) $gOrd->notes, '[CX Verified')
-                        || str_contains((string) $gOrd->notes, '[CX Edit')
-                        || str_contains((string) $gOrd->notes, '[CX Cancelled')) {
+                    if (! empty($raw['cx_group_resolved'])
+                        || str_contains((string) $gOrd->notes, '[CX Problem Resolved')) {
                         $anyResolvedInGroup = true;
                         break;
                     }
                 }
 
-                // If only 1 or 0 active orders remain in group and at least 1 order was cancelled, or if any order was resolved:
-                $isGroupConflictResolved = (count($activeInGroup) <= 1 && count($cancelledInGroup) > 0) || $anyResolvedInGroup;
+                // If all orders in group were cancelled, or group was explicitly resolved by CX agent:
+                $isGroupConflictResolved = (count($activeInGroup) === 0 && count($cancelledInGroup) >= 2) || $anyResolvedInGroup;
 
                 if ($isGroupConflictResolved) {
                     foreach ($group as $gOrd) {

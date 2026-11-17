@@ -521,8 +521,30 @@ const OrderCard = ({
                         </span>
                     )}
 
-                    {/* Resolve (সমাধান হয়েছে) Button */}
-                    {!isCancelled && !isResolved && (
+                    {/* Confirm Button (if not confirmed & not cancelled) */}
+                    {!isConfirmed && !isCancelled && (
+                        <button
+                            type="button"
+                            disabled={isActionLoading}
+                            onClick={() => onConfirm(order.id)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            title="এই অর্ডারটি কনফার্ম করুন"
+                        >
+                            {isActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                            <span>কনফার্ম (Confirm)</span>
+                        </button>
+                    )}
+
+                    {/* Confirmed Badge */}
+                    {isConfirmed && !isCancelled && (
+                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>কনফার্মড</span>
+                        </span>
+                    )}
+
+                    {/* Resolve (সমাধান হয়েছে) Button ONLY for Standalone Multi-Qty Cards (in duplicate group, use top header resolve button) */}
+                    {!isDuplicateSubCard && !isCancelled && !isResolved && (
                         <button
                             type="button"
                             disabled={isActionLoading}
@@ -535,8 +557,8 @@ const OrderCard = ({
                         </button>
                     )}
 
-                    {/* Resolved Badge */}
-                    {isResolved && !isCancelled && (
+                    {/* Resolved Badge for Standalone Cards */}
+                    {!isDuplicateSubCard && isResolved && !isCancelled && (
                         <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                             <span>সমাধান হয়েছে</span>
@@ -1267,7 +1289,7 @@ export const CxOperationsPage = () => {
                 <Modal
                     isOpen={editModalOpen}
                     onClose={() => setEditModalOpen(false)}
-                    title={`✏️ Edit Order ${editingOrder.order_number?.startsWith('#') ? '' : '#'}${editingOrder.order_number}`}
+                    title={`✏️ Edit Order #${String(editingOrder.order_number || '').replace(/^#+/, '')}`}
                 >
                     <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
                         {/* Customer Information */}
@@ -1501,11 +1523,11 @@ export const CxOperationsPage = () => {
                 <Modal
                     isOpen={cancelModalOpen}
                     onClose={() => setCancelModalOpen(false)}
-                    title={`❌ Cancel Order #${orderToCancel.order_number}`}
+                    title={`❌ Cancel Order #${String(orderToCancel.order_number || '').replace(/^#+/, '')}`}
                 >
                     <div className="space-y-4 text-xs">
                         <p className="text-slate-300">
-                            আপনি কি নিশ্চিত যে আপনি অর্ডার <strong className="text-white font-mono">#{orderToCancel.order_number}</strong> বাতিল করতে চান?
+                            আপনি কি নিশ্চিত যে আপনি অর্ডার <strong className="text-white font-mono">#{String(orderToCancel.order_number || '').replace(/^#+/, '')}</strong> বাতিল করতে চান?
                         </p>
 
                         <div>

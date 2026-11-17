@@ -1606,7 +1606,7 @@ export const WebsiteOrdersPage = () => {
                 <Modal
                     isOpen={editModalOpen}
                     onClose={() => setEditModalOpen(false)}
-                    title={`✏️ Edit Order ${editingOrder.order_number?.startsWith('#') ? '' : '#'}${editingOrder.order_number}`}
+                    title={`✏️ Edit Order #${String(editingOrder.order_number || '').replace(/^#+/, '')}`}
                 >
                     <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
                         {/* Customer Information */}
