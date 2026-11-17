@@ -79,7 +79,7 @@ class CallCenterController extends Controller
             'sip_server' => 'nullable|string|max:100',
             'sip_port' => 'nullable|string|max:10',
             'web_dialer_url' => 'nullable|string|max:255',
-            'is_enabled' => 'required|boolean',
+            'is_enabled' => 'nullable|boolean',
             'auto_call_orders_enabled' => 'nullable|boolean',
             'auto_call_delay_seconds' => 'nullable|integer|min:0|max:600',
             'auto_call_orders_trigger' => 'nullable|string|max:30',
@@ -98,36 +98,88 @@ class CallCenterController extends Controller
         ]);
 
         $settings = $this->epbxService->getSettings();
-        $settings->update([
-            'api_base_url' => $validated['api_base_url'] ?: 'https://epbx.bd/api/v1',
-            'api_token' => $validated['api_token'] !== null ? trim($validated['api_token']) : $settings->api_token,
-            'trunk_number' => $validated['trunk_number'],
-            'default_extension' => $validated['default_extension'] ?: '101',
-            'extension_password' => $validated['extension_password'] ?? $settings->extension_password,
-            'sip_server' => $validated['sip_server'] ?? $settings->sip_server,
-            'sip_port' => $validated['sip_port'] ?? $settings->sip_port,
-            'web_dialer_url' => $validated['web_dialer_url'] ?? $settings->web_dialer_url,
-            'is_enabled' => $validated['is_enabled'],
-            'auto_call_orders_enabled' => $validated['auto_call_orders_enabled'] ?? $settings->auto_call_orders_enabled,
-            'auto_call_delay_seconds' => $validated['auto_call_delay_seconds'] ?? $settings->auto_call_delay_seconds,
-            'auto_call_orders_trigger' => $validated['auto_call_orders_trigger'] ?? ($settings->auto_call_orders_trigger ?: 'auto_on_order'),
-            'auto_call_max_retries' => $validated['auto_call_max_retries'] ?? ($settings->auto_call_max_retries ?: 2),
-            'order_call_custom_text' => $validated['order_call_custom_text'] ?? $settings->order_call_custom_text,
-            'order_call_confirm_text' => $validated['order_call_confirm_text'] ?? $settings->order_call_confirm_text,
-            'order_call_cancel_text' => $validated['order_call_cancel_text'] ?? $settings->order_call_cancel_text,
-            'order_call_key_1_action' => $validated['order_call_key_1_action'] ?? ($settings->order_call_key_1_action ?: 'hangup'),
-            'order_call_key_1_status' => $validated['order_call_key_1_status'] ?? ($settings->order_call_key_1_status ?: 'confirmed'),
-            'order_call_key_1_wc_status' => $validated['order_call_key_1_wc_status'] ?? ($settings->order_call_key_1_wc_status ?: 'processing'),
-            'order_call_key_2_action' => $validated['order_call_key_2_action'] ?? ($settings->order_call_key_2_action ?: 'hangup'),
-            'order_call_key_2_status' => $validated['order_call_key_2_status'] ?? ($settings->order_call_key_2_status ?: 'cancelled'),
-            'order_call_key_2_wc_status' => $validated['order_call_key_2_wc_status'] ?? ($settings->order_call_key_2_wc_status ?: 'cancelled'),
-            'order_call_no_answer_status' => $validated['order_call_no_answer_status'] ?? ($settings->order_call_no_answer_status ?: 'pending_confirmation'),
-            'order_call_agent_extension' => $validated['order_call_agent_extension'] ?? $settings->order_call_agent_extension,
-        ]);
+        $updateData = [];
 
-        // Auto test connection if token is provided
+        if (array_key_exists('api_base_url', $validated)) {
+            $updateData['api_base_url'] = $validated['api_base_url'] ?: 'https://epbx.bd/api/v1';
+        }
+        if (array_key_exists('api_token', $validated) && $validated['api_token'] !== null) {
+            $updateData['api_token'] = trim($validated['api_token']);
+        }
+        if (array_key_exists('trunk_number', $validated)) {
+            $updateData['trunk_number'] = $validated['trunk_number'];
+        }
+        if (array_key_exists('default_extension', $validated)) {
+            $updateData['default_extension'] = $validated['default_extension'] ?: '101';
+        }
+        if (array_key_exists('extension_password', $validated)) {
+            $updateData['extension_password'] = $validated['extension_password'];
+        }
+        if (array_key_exists('sip_server', $validated)) {
+            $updateData['sip_server'] = $validated['sip_server'];
+        }
+        if (array_key_exists('sip_port', $validated)) {
+            $updateData['sip_port'] = $validated['sip_port'];
+        }
+        if (array_key_exists('web_dialer_url', $validated)) {
+            $updateData['web_dialer_url'] = $validated['web_dialer_url'];
+        }
+        if (array_key_exists('is_enabled', $validated)) {
+            $updateData['is_enabled'] = (bool) $validated['is_enabled'];
+        }
+        if (array_key_exists('auto_call_orders_enabled', $validated)) {
+            $updateData['auto_call_orders_enabled'] = (bool) $validated['auto_call_orders_enabled'];
+        }
+        if (array_key_exists('auto_call_delay_seconds', $validated)) {
+            $updateData['auto_call_delay_seconds'] = $validated['auto_call_delay_seconds'];
+        }
+        if (array_key_exists('auto_call_orders_trigger', $validated)) {
+            $updateData['auto_call_orders_trigger'] = $validated['auto_call_orders_trigger'];
+        }
+        if (array_key_exists('auto_call_max_retries', $validated)) {
+            $updateData['auto_call_max_retries'] = $validated['auto_call_max_retries'];
+        }
+        if (array_key_exists('order_call_custom_text', $validated)) {
+            $updateData['order_call_custom_text'] = $validated['order_call_custom_text'];
+        }
+        if (array_key_exists('order_call_confirm_text', $validated)) {
+            $updateData['order_call_confirm_text'] = $validated['order_call_confirm_text'];
+        }
+        if (array_key_exists('order_call_cancel_text', $validated)) {
+            $updateData['order_call_cancel_text'] = $validated['order_call_cancel_text'];
+        }
+        if (array_key_exists('order_call_key_1_action', $validated)) {
+            $updateData['order_call_key_1_action'] = $validated['order_call_key_1_action'];
+        }
+        if (array_key_exists('order_call_key_1_status', $validated)) {
+            $updateData['order_call_key_1_status'] = $validated['order_call_key_1_status'];
+        }
+        if (array_key_exists('order_call_key_1_wc_status', $validated)) {
+            $updateData['order_call_key_1_wc_status'] = $validated['order_call_key_1_wc_status'];
+        }
+        if (array_key_exists('order_call_key_2_action', $validated)) {
+            $updateData['order_call_key_2_action'] = $validated['order_call_key_2_action'];
+        }
+        if (array_key_exists('order_call_key_2_status', $validated)) {
+            $updateData['order_call_key_2_status'] = $validated['order_call_key_2_status'];
+        }
+        if (array_key_exists('order_call_key_2_wc_status', $validated)) {
+            $updateData['order_call_key_2_wc_status'] = $validated['order_call_key_2_wc_status'];
+        }
+        if (array_key_exists('order_call_no_answer_status', $validated)) {
+            $updateData['order_call_no_answer_status'] = $validated['order_call_no_answer_status'];
+        }
+        if (array_key_exists('order_call_agent_extension', $validated)) {
+            $updateData['order_call_agent_extension'] = $validated['order_call_agent_extension'];
+        }
+
+        if (! empty($updateData)) {
+            $settings->update($updateData);
+        }
+
+        // Auto test connection only if token was explicitly provided in the request
         $testResult = null;
-        if (! empty($settings->api_token)) {
+        if (array_key_exists('api_token', $validated) && ! empty($settings->api_token)) {
             $testResult = $this->epbxService->testConnection($settings);
         }
 

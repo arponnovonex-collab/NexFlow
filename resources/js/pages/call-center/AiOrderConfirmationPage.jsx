@@ -157,6 +157,7 @@ export const AiOrderConfirmationPage = () => {
             const res = await api.post('/call-center/settings', payload);
             if (res.data?.status === 'success') {
                 setSuccessMessage('✅ AI অর্ডার কনফার্মেশন সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
                 setTimeout(() => setSuccessMessage(null), 6000);
             }
         } catch (err) {
