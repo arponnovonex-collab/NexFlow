@@ -390,6 +390,20 @@ export const WebsiteOrdersPage = () => {
         };
     }, [page, perPage, wcSettings?.is_enabled, wcSettings?.auto_sync_orders, syncingOrders, loading]);
 
+    // 4. Fast polling every 5s while any order is actively being called
+    const hasActiveAiCalls = orders.some((o) => o.ai_call_status === 'calling');
+    useEffect(() => {
+        if (!hasActiveAiCalls) return;
+
+        const fastInterval = setInterval(() => {
+            if (!document.hidden && !loading) {
+                fetchOrders(page, perPage);
+            }
+        }, 5000);
+
+        return () => clearInterval(fastInterval);
+    }, [hasActiveAiCalls, page, perPage, loading]);
+
     const handleSaveSettings = async (e) => {
         e.preventDefault();
         try {

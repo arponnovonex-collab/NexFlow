@@ -359,7 +359,7 @@ class EpbxService
                 'cancel_text' => $cancelText,
                 'key_1_action' => $settings->order_call_key_1_action ?: 'hangup',
                 'key_2_action' => $settings->order_call_key_2_action ?: 'hangup',
-                'webhook_url' => url('/api/webhooks/epbx'),
+                'webhook_url' => 'https://nexflow.auliro.xyz/api/webhooks/epbx',
             ];
 
             if (! empty($settings->order_call_agent_extension)) {

@@ -41,7 +41,7 @@ Route::post('/webhooks/instagram', [MetaWebhookController::class, 'handleFaceboo
 Route::get('/webhooks/whatsapp', [MetaWebhookController::class, 'verify']);
 Route::post('/webhooks/whatsapp', [MetaWebhookController::class, 'handleFacebook']);
 Route::post('/webhooks/woocommerce', [WooCommerceController::class, 'handleWebhook']);
-Route::post('/webhooks/epbx', [EpbxWebhookController::class, 'handle']);
+Route::match(['get', 'post'], '/webhooks/epbx', [EpbxWebhookController::class, 'handle']);
 Route::get('/call-center/recordings/{uniqueid}', [CallCenterController::class, 'streamRecording']);
 
 /*

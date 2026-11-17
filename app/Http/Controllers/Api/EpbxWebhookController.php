@@ -20,7 +20,25 @@ class EpbxWebhookController extends Controller
     public function handle(Request $request): JsonResponse
     {
         $payload = $request->all();
+        if (empty($payload)) {
+            $rawContent = $request->getContent();
+            $decoded = json_decode($rawContent, true);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
         Log::info('ePBX Webhook Received:', $payload);
+
+        try {
+            \App\Models\WebhookEvent::create([
+                'platform' => 'epbx',
+                'event_type' => (string) ($payload['status'] ?? ($payload['digit_pressed'] ?? ($payload['event'] ?? 'call_callback'))),
+                'payload' => $payload,
+            ]);
+        } catch (\Throwable) {
+            // Ignore if WebhookEvent fails
+        }
 
         try {
             $processed = $this->epbxService->processWebhook($payload);
