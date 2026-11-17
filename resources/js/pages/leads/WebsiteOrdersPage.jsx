@@ -630,7 +630,7 @@ export const WebsiteOrdersPage = () => {
                 <div>
                     <h1 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
                         <Globe className="w-6 h-6 text-cyan-400" />
-                        Website Orders (ওয়েবসাইট অর্ডার - WooCommerce)
+                        Website Orders
                     </h1>
                     <p className="text-xs text-slate-400 mt-1">
                         WordPress / WooCommerce ওয়েবসাইট থেকে সিঙ্ক করা সকল অর্ডার, কাস্টমার নম্বর/অর্ডার আইডি দিয়ে সার্চ ও কুরিয়ার ডিসপ্যাচ।
