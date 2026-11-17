@@ -461,12 +461,16 @@ class WooCommerceService
         }
 
         // Automatic Outbound Dynamic AI Voice Order Verification Call
-        if ($isNewlyCreated && in_array($order->order_status, ['pending_confirmation', 'pending', 'on-hold'])) {
+        // Only trigger for fresh new orders (created within the last 30 minutes) and not already cancelled/delivered
+        $isFreshOrder = $orderDate && abs($orderDate->diffInMinutes(now())) <= 30;
+        if ($isNewlyCreated && $isFreshOrder && ! in_array($order->order_status, ['cancelled', 'delivered', 'returned'])) {
             try {
                 $epbxService = app(\App\Services\EpbxService::class);
                 $epbxSettings = $epbxService->getSettings();
                 if ($epbxSettings->is_enabled && $epbxSettings->auto_call_orders_enabled) {
-                    $epbxService->sendOrderVerificationCall($order);
+                    if (empty($order->ai_call_status) || $order->ai_call_status === 'idle') {
+                        $epbxService->sendOrderVerificationCall($order);
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning('Auto AI call dispatch error for order #' . $wcId . ': ' . $e->getMessage());
