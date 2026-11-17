@@ -400,12 +400,13 @@ class WooCommerceService
         $wcStatus = strtolower($wcOrder['status'] ?? 'pending');
         $orderStatus = match ($wcStatus) {
             'pending', 'on-hold' => 'pending_confirmation',
+            'confirmed' => 'confirmed',
             'processing' => 'processing',
             'completed' => 'delivered',
             'cancelled' => 'cancelled',
             'refunded' => 'returned',
             'failed' => 'cancelled',
-            default => 'confirmed',
+            default => 'processing',
         };
 
         // Map Payment Status
@@ -454,6 +455,10 @@ class WooCommerceService
 
         $isNewlyCreated = false;
         if ($order) {
+            // Protect locally confirmed status: don't revert to processing if already confirmed via AI call or agent
+            if ($order->order_status === 'confirmed' && $orderStatus === 'processing') {
+                unset($orderAttributes['order_status']);
+            }
             $order->update($orderAttributes);
         } else {
             $order = Order::create(array_merge(['wc_order_id' => $wcId], $orderAttributes));
@@ -849,7 +854,8 @@ class WooCommerceService
         if (! empty($status)) {
             $payload['status'] = match ($status) {
                 'pending_confirmation' => 'on-hold',
-                'confirmed', 'processing' => 'processing',
+                'confirmed' => 'confirmed',
+                'processing' => 'processing',
                 'shipped' => 'processing',
                 'delivered' => 'completed',
                 'cancelled' => 'cancelled',
