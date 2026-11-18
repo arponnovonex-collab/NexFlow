@@ -23,6 +23,7 @@ import { FollowupsPage } from './pages/leads/FollowupsPage';
 import { CustomersPage } from './pages/leads/CustomersPage';
 import { OrdersPage } from './pages/leads/OrdersPage';
 import { WebsiteOrdersPage } from './pages/leads/WebsiteOrdersPage';
+import { ProblemFreeOrdersPage } from './pages/leads/ProblemFreeOrdersPage';
 import { CxOperationsPage } from './pages/leads/CxOperationsPage';
 import { OrderSummaryPage } from './pages/leads/OrderSummaryPage';
 import { TeamManagementPage } from './pages/team/TeamManagementPage';
@@ -127,6 +128,7 @@ export const App = () => {
                             <Route path="orders" element={<Navigate to="/orders/engagement" replace />} />
                             <Route path="orders/engagement" element={<OrdersPage />} />
                             <Route path="orders/website" element={<WebsiteOrdersPage />} />
+                            <Route path="orders/problem-free" element={<ProblemFreeOrdersPage />} />
                             <Route path="orders/ai-confirmation" element={<AiOrderConfirmationPage />} />
                             <Route path="orders/cx-operations" element={<CxOperationsPage />} />
                             <Route path="orders/summary" element={<OrderSummaryPage />} />

@@ -39,6 +39,7 @@ import {
     PhoneForwarded,
     Globe,
     Headphones,
+    ShieldCheck,
 } from 'lucide-react';
 
 export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen }) => {
@@ -191,6 +192,17 @@ export const Sidebar = ({ isCollapsed, setIsCollapsed, mobileOpen, setMobileOpen
                                         <span>Website Order</span>
                                         <span className="bg-cyan-500/20 text-cyan-400 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
                                             WordPress
+                                        </span>
+                                    </div>
+                                )}
+                            </NavLink>
+                            <NavLink to="/orders/problem-free" className={linkClasses}>
+                                <ShieldCheck className="w-4 h-4 shrink-0 text-teal-400" />
+                                {!isCollapsed && (
+                                    <div className="flex items-center justify-between w-full">
+                                        <span className="font-semibold text-teal-300">Problem Free All Order</span>
+                                        <span className="bg-teal-500/20 text-teal-300 text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-teal-500/30">
+                                            Clean
                                         </span>
                                     </div>
                                 )}

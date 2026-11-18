@@ -14,6 +14,7 @@ use App\Services\SteadfastCourierService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -25,6 +26,20 @@ class OrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Order::with(['customer', 'product', 'variant', 'user:id,name']);
+
+        $problemIds = [];
+        if ($request->boolean('problem_free')) {
+            // Exclude cancelled by default unless explicitly requested
+            if (! $request->filled('order_status')) {
+                $query->where('order_status', '!=', 'cancelled');
+            }
+
+            // Exclude orders with unverified duplicate or multi-qty problems
+            $problemIds = $this->getUnresolvedProblemOrderIds(15);
+            if (! empty($problemIds)) {
+                $query->whereNotIn('id', $problemIds);
+            }
+        }
 
         if ($request->filled('order_status')) {
             $query->where('order_status', $request->order_status);
@@ -102,9 +117,27 @@ class OrderController extends Controller
         // Attach Duplicate / Double Order detection & CX resolution status
         $this->attachDuplicateStatus($orders);
 
+        $stats = null;
+        if ($request->boolean('problem_free')) {
+            $stats = Cache::remember('problem_free_order_stats', 30, function () use ($problemIds) {
+                return [
+                    'total' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->count(),
+                    'website' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->whereIn('order_source', ['woocommerce', 'web'])->count(),
+                    'engagement' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->where(function ($sq) {
+                        $sq->whereIn('order_source', ['manual_inbox', 'import', 'crm'])
+                            ->orWhereNull('order_source')
+                            ->orWhere('order_source', '!=', 'woocommerce');
+                    })->count(),
+                    'confirmed' => Order::where('order_status', 'confirmed')->whereNotIn('id', $problemIds)->count(),
+                    'processing' => Order::whereIn('order_status', ['processing', 'pending'])->whereNotIn('id', $problemIds)->count(),
+                ];
+            });
+        }
+
         return response()->json([
             'status' => 'success',
             'data' => $orders,
+            'stats' => $stats,
         ]);
     }
 
@@ -1973,6 +2006,152 @@ class OrderController extends Controller
             'message' => $result['message'],
             'data' => $order->fresh(['customer', 'product', 'variant']),
         ]);
+    }
+
+    /**
+     * Retrieve IDs of all orders within the window that currently have UNRESOLVED duplicate or multi-quantity problems.
+     */
+    public function getUnresolvedProblemOrderIds(int $days = 15): array
+    {
+        return Cache::remember('cx_unresolved_problem_order_ids_' . $days, 30, function () use ($days) {
+            $startDate = Carbon::now()->subDays($days)->startOfDay();
+
+            $normalizePhone = function (?string $phone): string {
+                if (empty($phone)) return '';
+                $digits = preg_replace('/[^0-9]/', '', $phone);
+                if (str_starts_with($digits, '880') && strlen($digits) === 13) {
+                    $digits = substr($digits, 2);
+                }
+                if (strlen($digits) === 10 && str_starts_with($digits, '1')) {
+                    $digits = '0' . $digits;
+                }
+                return $digits;
+            };
+
+            $extractSize = function ($it, $defaultSize) {
+                $size = trim((string) ($it['size'] ?? ''));
+                if (empty($size) && ! empty($it['meta_data']) && is_array($it['meta_data'])) {
+                    foreach ($it['meta_data'] as $m) {
+                        $k = strtolower((string) ($m['key'] ?? $m['display_key'] ?? ''));
+                        $v = trim((string) ($m['value'] ?? $m['display_value'] ?? ''));
+                        if (str_contains($k, 'size') || str_contains($k, 'সাইজ')) {
+                            $size = $v;
+                            break;
+                        }
+                    }
+                }
+                return ! empty($size) ? $size : trim((string) $defaultSize);
+            };
+
+            $recentOrders = Order::query()
+                ->where('created_at', '>=', $startDate)
+                ->get(['id', 'customer_id', 'customer_phone', 'product_id', 'quantity', 'items_data', 'wc_raw_data', 'notes', 'order_status', 'created_at']);
+
+            $groups = [];
+            $multiQtyIds = [];
+            $resolvedMap = [];
+
+            foreach ($recentOrders as $ord) {
+                $raw = is_array($ord->wc_raw_data) ? $ord->wc_raw_data : [];
+                $isResolved = ! empty($raw['is_cx_resolved'])
+                    || ! empty($raw['cx_group_resolved'])
+                    || str_contains((string) $ord->notes, '[CX Resolved')
+                    || str_contains((string) $ord->notes, '[CX Problem Resolved')
+                    || str_contains((string) $ord->notes, '[CX Review: Quantity adjusted')
+                    || str_contains((string) $ord->notes, '[CX Verified')
+                    || str_contains((string) $ord->notes, '[CX Edit')
+                    || str_contains((string) $ord->notes, '[CX Cancelled');
+
+                if ($isResolved) {
+                    $resolvedMap[$ord->id] = true;
+                }
+
+                // Check multi-quantity problem
+                $isMulti = false;
+                $rawItems = $ord->items_data;
+                if (empty($rawItems) && is_array($ord->wc_raw_data) && ! empty($ord->wc_raw_data['line_items'])) {
+                    $rawItems = $ord->wc_raw_data['line_items'];
+                }
+
+                if (! empty($rawItems) && is_array($rawItems)) {
+                    $itemCounts = [];
+                    foreach ($rawItems as $it) {
+                        $pId = $it['product_id'] ?? null;
+                        $name = $it['name'] ?? $it['product_name'] ?? 'product';
+                        $size = $extractSize($it, $ord->size ?? '');
+                        $pKey = $pId ? 'pid_' . $pId : 'pname_' . Str::slug($name);
+                        $key = $pKey . '__' . strtolower($size);
+
+                        $q = (int) ($it['quantity'] ?? $it['qty'] ?? 1);
+                        if ($q >= 2) {
+                            $isMulti = true;
+                            break;
+                        }
+                        $itemCounts[$key] = ($itemCounts[$key] ?? 0) + $q;
+                        if ($itemCounts[$key] >= 2) {
+                            $isMulti = true;
+                            break;
+                        }
+                    }
+                } else {
+                    $isMulti = ((int) ($ord->quantity ?? 1)) >= 2;
+                }
+
+                if ($isMulti && ! $isResolved && $ord->order_status !== 'cancelled') {
+                    $multiQtyIds[$ord->id] = true;
+                }
+
+                // Duplicate grouping (same phone + same product + same size)
+                $norm = $normalizePhone($ord->customer_phone);
+                if (! empty($norm)) {
+                    $seenKeys = [];
+                    if (! empty($rawItems) && is_array($rawItems)) {
+                        foreach ($rawItems as $it) {
+                            $pId = $it['product_id'] ?? null;
+                            $name = $it['name'] ?? $it['product_name'] ?? 'product';
+                            $size = $extractSize($it, $ord->size ?? '');
+                            $pKey = $pId ? 'pid_' . $pId : 'pname_' . Str::slug($name);
+                            $k = $norm . '__' . $pKey . '__' . strtolower($size);
+
+                            if (! in_array($k, $seenKeys)) {
+                                $seenKeys[] = $k;
+                                if (! isset($groups[$k])) {
+                                    $groups[$k] = [];
+                                }
+                                $groups[$k][] = $ord;
+                            }
+                        }
+                    } else {
+                        $pKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_product';
+                        $sKey = strtolower(trim((string) ($ord->size ?? '')));
+                        $k = $norm . '__' . $pKey . '__' . $sKey;
+                        $groups[$k][] = $ord;
+                    }
+                }
+            }
+
+            $duplicateProblemIds = [];
+            foreach ($groups as $group) {
+                if (count($group) >= 2) {
+                    $anyResolved = false;
+                    foreach ($group as $gOrd) {
+                        if (! empty($resolvedMap[$gOrd->id])) {
+                            $anyResolved = true;
+                            break;
+                        }
+                    }
+                    if (! $anyResolved) {
+                        foreach ($group as $gOrd) {
+                            if ($gOrd->order_status !== 'cancelled') {
+                                $duplicateProblemIds[$gOrd->id] = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return array_map('intval', array_keys($multiQtyIds + $duplicateProblemIds));
+        });
     }
 
     /**
