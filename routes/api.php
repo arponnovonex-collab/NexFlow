@@ -90,6 +90,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('conversations', ConversationController::class)->only(['index', 'show']);
     Route::get('/conversations/{conversation}/latest-messages', [ConversationController::class, 'latestMessages']);
     Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
+    Route::post('/conversations/{conversation}/messages/{message}/react', [ConversationController::class, 'reactMessage']);
     Route::post('/conversations/{conversation}/suggest-reply', [ConversationController::class, 'suggestReply']);
     Route::post('/conversations/{conversation}/takeover', [ConversationController::class, 'toggleTakeover']);
     Route::put('/conversations/{conversation}/status', [ConversationController::class, 'updateStatus']);

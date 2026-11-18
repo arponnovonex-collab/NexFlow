@@ -613,6 +613,147 @@ class ConversationController extends Controller
     }
 
     /**
+     * Add, toggle or update an emoji reaction on a message (and propagate to Meta Messenger / Instagram / WhatsApp if applicable).
+     */
+    public function reactMessage(Request $request, Conversation $conversation, Message $message): JsonResponse
+    {
+        $validated = $request->validate([
+            'emoji' => 'required|string|max:16',
+        ]);
+
+        $emoji = trim($validated['emoji']);
+        $user = $request->user();
+
+        // Ensure message belongs to this conversation
+        if ((int) $message->conversation_id !== (int) $conversation->id) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Message does not belong to this conversation',
+            ], 404);
+        }
+
+        $metadata = $message->metadata ?? [];
+        $reactions = $metadata['reactions'] ?? [];
+        if (! is_array($reactions)) {
+            $reactions = [];
+        }
+
+        $existingIndex = null;
+        foreach ($reactions as $idx => $r) {
+            $rUserId = $r['user_id'] ?? null;
+            $rBy = $r['by'] ?? null;
+            if ($rUserId && $user && (int) $rUserId === (int) $user->id) {
+                $existingIndex = $idx;
+                break;
+            } elseif (! $rUserId && $rBy === 'moderator') {
+                $existingIndex = $idx;
+                break;
+            }
+        }
+
+        $action = 'react';
+        if ($existingIndex !== null) {
+            if (($reactions[$existingIndex]['emoji'] ?? '') === $emoji) {
+                // Clicking the same emoji toggles it off (unreact)
+                $action = 'unreact';
+                array_splice($reactions, $existingIndex, 1);
+            } else {
+                // Switched emoji
+                $action = 'react';
+                $reactions[$existingIndex]['emoji'] = $emoji;
+                $reactions[$existingIndex]['user_name'] = $user?->name ?: 'Moderator';
+                $reactions[$existingIndex]['updated_at'] = now()->toIso8601String();
+            }
+        } else {
+            // New reaction
+            $action = 'react';
+            $reactions[] = [
+                'emoji' => $emoji,
+                'by' => 'moderator',
+                'user_id' => $user?->id,
+                'user_name' => $user?->name ?: 'Moderator',
+                'created_at' => now()->toIso8601String(),
+            ];
+        }
+
+        $metadata['reactions'] = array_values($reactions);
+        $message->update(['metadata' => $metadata]);
+
+        // Propagate reaction to Meta Graph API if platform_message_id is available
+        $account = $conversation->socialAccount;
+        if (! empty($message->platform_message_id) && $account && $account->access_token && ! str_starts_with($account->access_token, 'EAAXMOCK')) {
+            $version = config('services.meta.graph_version', 'v19.0');
+            $identity = CustomerChannelIdentity::where('social_account_id', $conversation->social_account_id)
+                ->where('customer_id', $conversation->customer_id)
+                ->first();
+            $psid = $identity?->platform_customer_id ?? preg_replace('/^t_(?:ig_|wa_)?/', '', (string) $conversation->channel_conversation_id);
+
+            try {
+                if ($account->platform === 'facebook_page' || $account->platform === 'instagram_business') {
+                    $endpoint = "https://graph.facebook.com/{$version}/me/messages";
+                    $payload = [
+                        'recipient' => ['id' => (string) $psid],
+                        'sender_action' => $action === 'unreact' ? 'unreact' : 'react',
+                        'payload' => [
+                            'message_id' => (string) $message->platform_message_id,
+                        ],
+                    ];
+                    if ($action === 'react') {
+                        $payload['payload']['reaction'] = $emoji;
+                    }
+
+                    $res = Http::timeout(5)
+                        ->withToken($account->access_token)
+                        ->acceptJson()
+                        ->post($endpoint, $payload);
+
+                    if (! $res->successful()) {
+                        Log::warning("Meta Reaction API response ({$res->status()}): " . $res->body());
+                    }
+                } elseif ($account->platform === 'whatsapp_cloud') {
+                    $phoneId = $account->account_id;
+                    $targetRecipient = preg_replace('/[^0-9]/', '', (string) $psid);
+                    $endpoint = "https://graph.facebook.com/{$version}/{$phoneId}/messages";
+                    $payload = [
+                        'messaging_product' => 'whatsapp',
+                        'recipient_type' => 'individual',
+                        'to' => $targetRecipient,
+                        'type' => 'reaction',
+                        'reaction' => [
+                            'message_id' => (string) $message->platform_message_id,
+                            'emoji' => $action === 'react' ? $emoji : '',
+                        ],
+                    ];
+
+                    $res = Http::timeout(5)
+                        ->withToken($account->access_token)
+                        ->acceptJson()
+                        ->post($endpoint, $payload);
+
+                    if (! $res->successful()) {
+                        Log::warning("WhatsApp Reaction API response ({$res->status()}): " . $res->body());
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Dispatch Reaction to Meta exception: ' . $e->getMessage());
+            }
+        }
+
+        $loadRelations = [
+            'senderUser:id,name',
+            'attachments',
+            'replyTo:id,text,sender_type,sender_user_id,message_type,created_at,metadata',
+            'replyTo.senderUser:id,name',
+        ];
+
+        return response()->json([
+            'status' => 'success',
+            'action' => $action,
+            'data' => $message->load($loadRelations),
+        ]);
+    }
+
+    /**
      * Suggest AI Reply for Moderator.
      */
     public function suggestReply(Request $request, Conversation $conversation): JsonResponse

@@ -286,12 +286,77 @@ class MetaWebhookController extends Controller
     }
 
     /**
+     * Process incoming Facebook Messenger / Instagram reaction event from customer.
+     */
+    protected function processMessengerReactionInstant(array $event, ?SocialAccount $account): void
+    {
+        $reactionData = $event['reaction'] ?? null;
+        if (! $reactionData) {
+            return;
+        }
+
+        $mid = $reactionData['mid'] ?? null;
+        if (! $mid) {
+            return;
+        }
+
+        $action = $reactionData['action'] ?? 'react'; // 'react' or 'unreact'
+        $rawReaction = $reactionData['emoji'] ?? $reactionData['reaction'] ?? '❤️';
+        $emoji = match (strtolower((string) $rawReaction)) {
+            'love', 'heart' => '❤️',
+            'like', 'thumbs_up', 'thumbsup' => '👍',
+            'dislike', 'thumbs_down', 'thumbsdown' => '👎',
+            'smile', 'haha', 'laugh', 'laughing' => '😂',
+            'wow', 'surprised' => '😮',
+            'sad', 'cry', 'crying' => '😢',
+            'angry' => '😠',
+            'pray' => '🙏',
+            'fire' => '🔥',
+            default => (string) $rawReaction,
+        };
+
+        $message = Message::where('platform_message_id', $mid)->first();
+        if (! $message) {
+            return;
+        }
+
+        $metadata = $message->metadata ?? [];
+        $reactions = $metadata['reactions'] ?? [];
+        if (! is_array($reactions)) {
+            $reactions = [];
+        }
+
+        // Filter out any previous reaction from customer
+        $reactions = array_values(array_filter($reactions, function ($r) {
+            return ($r['by'] ?? null) !== 'customer';
+        }));
+
+        if ($action === 'react' && ! empty($emoji)) {
+            $reactions[] = [
+                'emoji' => $emoji,
+                'by' => 'customer',
+                'user_name' => $message->conversation?->customer?->name ?: 'Customer',
+                'created_at' => now()->toIso8601String(),
+            ];
+        }
+
+        $metadata['reactions'] = $reactions;
+        $message->update(['metadata' => $metadata]);
+    }
+
+    /**
      * Process incoming Facebook Messenger messages with INSTANT database storage.
      * Supports both inbound customer messages AND page moderator replies (message_echoes)
      * sent from Facebook Page Inbox / Meta Business Suite / Messenger mobile app.
      */
     protected function processMessengerEventInstant(array $event, ?SocialAccount $account, array &$pendingTasks): void
     {
+        // 0. Handle incoming reaction event from customer (Messenger / Instagram)
+        if (! empty($event['reaction'])) {
+            $this->processMessengerReactionInstant($event, $account);
+            return;
+        }
+
         $senderPsid = $event['sender']['id'] ?? null;
         $recipientId = $event['recipient']['id'] ?? null;
         $messageObj = $event['message'] ?? null;
@@ -679,6 +744,34 @@ class MetaWebhookController extends Controller
             $msgId = $msg['id'] ?? null;
             $msgType = $msg['type'] ?? 'text';
             $msgText = '';
+
+            // Handle incoming WhatsApp reaction
+            if ($msgType === 'reaction') {
+                $targetMid = $msg['reaction']['message_id'] ?? null;
+                $emoji = $msg['reaction']['emoji'] ?? '';
+                if ($targetMid) {
+                    $targetMsg = Message::where('platform_message_id', $targetMid)->first();
+                    if ($targetMsg) {
+                        $meta = $targetMsg->metadata ?? [];
+                        $reactions = $meta['reactions'] ?? [];
+                        if (! is_array($reactions)) {
+                            $reactions = [];
+                        }
+                        $reactions = array_values(array_filter($reactions, fn($r) => ($r['by'] ?? null) !== 'customer'));
+                        if (! empty($emoji)) {
+                            $reactions[] = [
+                                'emoji' => $emoji,
+                                'by' => 'customer',
+                                'user_name' => $contactMap[$fromWaId] ?? "WhatsApp Customer (+{$fromWaId})",
+                                'created_at' => now()->toIso8601String(),
+                            ];
+                        }
+                        $meta['reactions'] = $reactions;
+                        $targetMsg->update(['metadata' => $meta]);
+                    }
+                }
+                continue;
+            }
 
             if ($msgType === 'text') {
                 $msgText = $msg['text']['body'] ?? '';

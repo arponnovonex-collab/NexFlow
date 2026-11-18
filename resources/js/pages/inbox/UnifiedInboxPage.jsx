@@ -392,6 +392,92 @@ export const UnifiedInboxPage = () => {
         }
     };
 
+    const handleReactMessage = async (targetMsg, emoji) => {
+        if (!targetMsg || !activeConversation) return;
+
+        // Current reactions list
+        const currentReactions = Array.isArray(targetMsg.metadata?.reactions)
+            ? [...targetMsg.metadata.reactions]
+            : [];
+
+        // Check if current user already reacted
+        const existingIdx = currentReactions.findIndex(
+            (r) =>
+                (r.user_id && user && r.user_id === user.id) ||
+                (r.by === 'moderator' && (!r.user_id || (user && r.user_id === user.id)))
+        );
+
+        let newReactions;
+        if (existingIdx >= 0) {
+            if (currentReactions[existingIdx].emoji === emoji) {
+                // Remove reaction (toggle off)
+                newReactions = currentReactions.filter((_, idx) => idx !== existingIdx);
+            } else {
+                // Switch emoji
+                newReactions = currentReactions.map((r, idx) =>
+                    idx === existingIdx
+                        ? {
+                              ...r,
+                              emoji,
+                              user_name: user?.name || 'Moderator',
+                              updated_at: new Date().toISOString(),
+                          }
+                        : r
+                );
+            }
+        } else {
+            // Add new reaction
+            newReactions = [
+                ...currentReactions,
+                {
+                    emoji,
+                    by: 'moderator',
+                    user_id: user?.id,
+                    user_name: user?.name || 'Moderator',
+                    created_at: new Date().toISOString(),
+                },
+            ];
+        }
+
+        // Optimistic UI update
+        setMessages((prev) =>
+            prev.map((m) =>
+                m.id === targetMsg.id
+                    ? {
+                          ...m,
+                          metadata: {
+                              ...(m.metadata || {}),
+                              reactions: newReactions,
+                          },
+                      }
+                    : m
+            )
+        );
+
+        // Send to backend API
+        try {
+            const res = await api.post(
+                `/conversations/${activeConversation.id}/messages/${targetMsg.id}/react`,
+                { emoji }
+            );
+            if (res.data?.data) {
+                const serverMsg = res.data.data;
+                setMessages((prev) =>
+                    prev.map((m) =>
+                        m.id === serverMsg.id
+                            ? {
+                                  ...m,
+                                  metadata: serverMsg.metadata,
+                              }
+                            : m
+                    )
+                );
+            }
+        } catch (err) {
+            console.error('Failed to react to message:', err);
+        }
+    };
+
     const handleSelectSavedMessage = (data) => {
         const text = typeof data === 'string' ? data : data?.text;
         const imageUrl = typeof data === 'object' ? data?.imageUrl : null;
@@ -2035,6 +2121,8 @@ export const UnifiedInboxPage = () => {
                                             onScrollToMessage={handleScrollToMessage}
                                             onOpenImageLightbox={handleOpenImageLightbox}
                                             activeConversation={activeConversation}
+                                            onReact={handleReactMessage}
+                                            currentUserId={user?.id}
                                         />
                                     );
                                 })

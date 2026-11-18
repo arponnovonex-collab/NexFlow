@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     Reply,
     User,
@@ -13,6 +13,8 @@ import {
     CheckCheck,
     Copy,
     Check,
+    Smile,
+    Plus,
 } from 'lucide-react';
 
 export const SwipeableMessageRow = ({
@@ -27,10 +29,14 @@ export const SwipeableMessageRow = ({
     onScrollToMessage,
     onOpenImageLightbox,
     activeConversation,
+    onReact,
+    currentUserId,
 }) => {
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [showReactionPicker, setShowReactionPicker] = useState(false);
+    const reactionPickerRef = useRef(null);
     const touchStartXRef = useRef(0);
     const touchStartYRef = useRef(0);
     const isHorizontalSwipeRef = useRef(null);
@@ -38,6 +44,24 @@ export const SwipeableMessageRow = ({
     // Mouse drag support for desktop
     const mouseStartXRef = useRef(0);
     const isMouseDownRef = useRef(false);
+
+    const QUICK_EMOJIS = ['❤️', '👍', '😂', '😮', '😢', '🙏', '🔥', '👏'];
+
+    // Close reaction picker on outside click
+    useEffect(() => {
+        if (!showReactionPicker) return;
+        const handleClickOutside = (e) => {
+            if (reactionPickerRef.current && !reactionPickerRef.current.contains(e.target)) {
+                setShowReactionPicker(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('touchstart', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('touchstart', handleClickOutside);
+        };
+    }, [showReactionPicker]);
 
     // 1-Click Copy Message to Clipboard
     const handleCopyMessage = async (e) => {
@@ -517,14 +541,154 @@ export const SwipeableMessageRow = ({
                             </div>
                         );
                     })()}
+
+                    {/* Grouped Reactions Pill Badge */}
+                    {(() => {
+                        const reactionsList = Array.isArray(msg.metadata?.reactions)
+                            ? msg.metadata.reactions
+                            : [];
+                        if (reactionsList.length === 0) return null;
+
+                        const grouped = {};
+                        reactionsList.forEach((r) => {
+                            if (!r.emoji) return;
+                            if (!grouped[r.emoji]) {
+                                grouped[r.emoji] = {
+                                    emoji: r.emoji,
+                                    count: 0,
+                                    hasReacted: false,
+                                    names: [],
+                                };
+                            }
+                            grouped[r.emoji].count += 1;
+                            const name = r.user_name || (r.by === 'customer' ? 'Customer' : 'Moderator');
+                            grouped[r.emoji].names.push(name);
+                            if (r.user_id === currentUserId || (r.by === 'moderator' && (!r.user_id || r.user_id === currentUserId))) {
+                                grouped[r.emoji].hasReacted = true;
+                            }
+                        });
+
+                        const groupedArray = Object.values(grouped);
+                        if (groupedArray.length === 0) return null;
+
+                        return (
+                            <div
+                                className={`flex items-center gap-1 pt-1.5 mt-1 border-t select-none ${
+                                    isCustomer
+                                        ? 'border-slate-700/60 justify-start'
+                                        : 'border-white/15 justify-end'
+                                }`}
+                            >
+                                <div className="inline-flex items-center gap-1 flex-wrap">
+                                    {groupedArray.map((grp) => (
+                                        <button
+                                            key={grp.emoji}
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onReact) onReact(msg, grp.emoji);
+                                            }}
+                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all hover:scale-105 cursor-pointer shadow-xs ${
+                                                grp.hasReacted
+                                                    ? isCustomer
+                                                        ? 'bg-indigo-600/40 text-indigo-200 border border-indigo-500/50'
+                                                        : 'bg-white/25 text-white border border-white/40'
+                                                    : isCustomer
+                                                    ? 'bg-slate-900/80 text-slate-300 hover:bg-slate-900 border border-slate-700/60'
+                                                    : 'bg-black/20 text-white/90 hover:bg-black/30 border border-white/20'
+                                            }`}
+                                            title={`${grp.names.join(', ')} (${grp.hasReacted ? 'ক্লিক করে রিমুভ করুন' : 'ক্লিক করে রিঅ্যাক্ট দিন'})`}
+                                        >
+                                            <span className="text-sm leading-none">{grp.emoji}</span>
+                                            {grp.count > 1 && (
+                                                <span className="text-[10px] font-bold font-mono opacity-90">
+                                                    {grp.count}
+                                                </span>
+                                            )}
+                                        </button>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowReactionPicker((prev) => !prev);
+                                        }}
+                                        className={`p-1 rounded-full transition-colors cursor-pointer ${
+                                            isCustomer
+                                                ? 'text-slate-400 hover:text-amber-300 hover:bg-slate-700/50'
+                                                : 'text-indigo-200 hover:text-white hover:bg-white/10'
+                                        }`}
+                                        title="আরও রিঅ্যাকশন যোগ করুন"
+                                    >
+                                        <Plus className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })()}
                 </div>
 
-                {/* Quick Action Buttons (Reply, Copy) */}
+                {/* Quick Action Buttons (React, Reply, Copy) */}
                 <div
-                    className={`opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-all shrink-0 select-none ${
-                        isCustomer ? 'flex-row' : 'flex-row-reverse'
-                    }`}
+                    className={`flex items-center gap-0.5 transition-all shrink-0 select-none ${
+                        showReactionPicker ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    } ${isCustomer ? 'flex-row' : 'flex-row-reverse'}`}
                 >
+                    {/* Reaction Button & Floating Emoji Picker */}
+                    <div className="relative" ref={reactionPickerRef}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowReactionPicker((prev) => !prev);
+                            }}
+                            className={`p-1.5 rounded-full transition-all cursor-pointer shadow-sm shrink-0 ${
+                                showReactionPicker
+                                    ? 'text-amber-400 bg-slate-800'
+                                    : 'text-slate-400 hover:text-amber-300 hover:bg-slate-800/80'
+                            }`}
+                            title="রিঅ্যাক্ট দিন (React with Emoji)"
+                        >
+                            <Smile className="w-3.5 h-3.5" />
+                        </button>
+
+                        {showReactionPicker && (
+                            <div
+                                onClick={(e) => e.stopPropagation()}
+                                className={`absolute -top-11 z-50 p-1 px-1.5 rounded-full bg-slate-900/95 border border-slate-700/80 shadow-2xl backdrop-blur-md flex items-center gap-1 animate-in zoom-in-95 duration-150 ${
+                                    isCustomer ? 'left-0' : 'right-0'
+                                }`}
+                            >
+                                {QUICK_EMOJIS.map((emoji) => {
+                                    const isUserReacted = (msg.metadata?.reactions || []).some(
+                                        (r) =>
+                                            r.emoji === emoji &&
+                                            (r.user_id === currentUserId || (r.by === 'moderator' && (!r.user_id || r.user_id === currentUserId)))
+                                    );
+                                    return (
+                                        <button
+                                            key={emoji}
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (onReact) onReact(msg, emoji);
+                                                setShowReactionPicker(false);
+                                            }}
+                                            className={`w-7 h-7 flex items-center justify-center rounded-full text-base transition-transform hover:scale-130 active:scale-95 cursor-pointer ${
+                                                isUserReacted
+                                                    ? 'bg-indigo-600/40 ring-1 ring-indigo-400'
+                                                    : 'hover:bg-slate-800'
+                                            }`}
+                                            title={`React with ${emoji}`}
+                                        >
+                                            {emoji}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
                     <button
                         type="button"
                         onClick={() => onReply(msg)}
