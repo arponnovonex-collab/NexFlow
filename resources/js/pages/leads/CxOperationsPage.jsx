@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
+import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -12,6 +13,7 @@ import {
     CheckCircle2,
     XCircle,
     PhoneCall,
+    PhoneOff,
     MessageCircle,
     Edit3,
     Check,
@@ -155,6 +157,9 @@ const OrderCard = ({
     onSetQtyOne,
     onDispatchSteadfast,
     onTriggerAiCall,
+    onStartCall,
+    activeCallPhone = null,
+    callState = 'idle',
     actionLoadingId,
     dispatchingId,
 }) => {
@@ -167,6 +172,7 @@ const OrderCard = ({
     const rawPhone = order.customer_phone || order.customer?.phone || '';
     const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
     const waPhone = cleanDigits.startsWith('880') ? cleanDigits : (cleanDigits.startsWith('0') ? '88' + cleanDigits : '880' + cleanDigits);
+    const isInCall = callState !== 'idle' && activeCallPhone && (activeCallPhone === cleanDigits || (cleanDigits.length >= 10 && activeCallPhone.endsWith(cleanDigits.slice(-10))));
 
     const rawData = order.wc_raw_data || {};
     const lastChange = rawData.cx_last_change || (Array.isArray(rawData.cx_history) && rawData.cx_history.length > 0 ? rawData.cx_history[rawData.cx_history.length - 1] : null);
@@ -326,13 +332,28 @@ const OrderCard = ({
                                     )}
                                 </button>
                             )}
-                            <Link
-                                to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
-                                className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
-                                title="IP কল দিন"
-                            >
-                                <PhoneCall className="w-3.5 h-3.5" />
-                            </Link>
+                            {onStartCall ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onStartCall(order)}
+                                    className={`p-1.5 rounded-lg text-white font-bold text-xs flex items-center gap-1 transition-all cursor-pointer ${
+                                        isInCall
+                                            ? 'bg-rose-600 hover:bg-rose-500 animate-pulse ring-2 ring-rose-400 shadow-md shadow-rose-950/50'
+                                            : 'bg-emerald-600 hover:bg-emerald-500 shadow-sm shadow-emerald-950/40'
+                                    }`}
+                                    title={isInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'সরাসরি ব্রাউজারে IP কল দিন (পেজ চেঞ্জ হবে না)'}
+                                >
+                                    {isInCall ? <PhoneOff className="w-3.5 h-3.5" /> : <PhoneCall className="w-3.5 h-3.5" />}
+                                </button>
+                            ) : (
+                                <Link
+                                    to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
+                                    className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
+                                    title="IP কল দিন"
+                                >
+                                    <PhoneCall className="w-3.5 h-3.5" />
+                                </Link>
+                            )}
                             <a
                                 href={`https://wa.me/${waPhone}`}
                                 target="_blank"
@@ -688,6 +709,15 @@ const OrderCard = ({
 };
 
 export const CxOperationsPage = () => {
+    // In-app SIP Phone for direct WebRTC calling without page navigation
+    const {
+        makeCall,
+        hangupCall,
+        callState,
+        callNumber,
+        sipStatus,
+    } = useSipPhone();
+
     const [cxData, setCxData] = useState({
         duplicate_groups: [],
         multi_qty_orders: [],
@@ -866,6 +896,50 @@ export const CxOperationsPage = () => {
             alert(`❌ AI কল শুরু করতে সমস্যা হয়েছে: ${err.response?.data?.message || err.message}`);
         } finally {
             setActionLoadingId(null);
+        }
+    };
+
+    // Direct In-App Manual IP Call Handler (Starts WebRTC call without navigating away)
+    const handleStartManualCall = (order) => {
+        if (!order) return;
+        const rawPhone = order.customer_phone || order.customer?.phone || '';
+        const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+        if (!cleanDigits) {
+            alert('গ্রাহকের কোনো ফোন নম্বর পাওয়া যায়নি।');
+            return;
+        }
+
+        // If currently in call with this customer, clicking again hangs up
+        if (callState !== 'idle' && (callNumber === cleanDigits || (cleanDigits.length >= 10 && callNumber.endsWith(cleanDigits.slice(-10))))) {
+            hangupCall();
+            return;
+        }
+
+        // If in call with another customer, confirm before switching
+        if (callState !== 'idle') {
+            const proceed = window.confirm(
+                `অন্য একটি নম্বরে (${callNumber}) কল চলছে। আপনি কি বর্তমান কলটি কেটে এই গ্রাহককে কল দিতে চান?`
+            );
+            if (!proceed) return;
+            hangupCall();
+        }
+
+        const customerName = resolveCustomerName(order);
+
+        if (sipStatus === 'registered') {
+            makeCall(cleanDigits, {
+                customerName,
+                orderId: order.id,
+                orderNumber: order.order_number,
+            });
+        } else {
+            // Fallback: inform user and allow opening dialer in a new tab without losing current CX page
+            const openNewTab = window.confirm(
+                `ইন-ব্রাউজার ফোন স্ট্যাটাস: ${sipStatus}।\n\nআপনি কি নতুন ব্রাউজার ট্যাবে ফুল ডায়লার ওপেন করে কল দিতে চান? (আপনার বর্তমান CX পেজটি যেমন আছে তেমনই থাকবে)`
+            );
+            if (openNewTab) {
+                window.open(`/call-center/ip-call?phone=${encodeURIComponent(cleanDigits)}&autocall=true`, '_blank');
+            }
         }
     };
 
@@ -1327,14 +1401,24 @@ export const CxOperationsPage = () => {
                                                 )}
 
                                                 {rawPhone && (
-                                                    <Link
-                                                        to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
-                                                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                                                        title="গ্রাহককে IP কল দিন (ePBX Dialer)"
-                                                    >
-                                                        <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
-                                                        <span>কল দিন (IP Call)</span>
-                                                    </Link>
+                                                    (() => {
+                                                        const isGroupInCall = callState !== 'idle' && (callNumber === cleanDigits || (cleanDigits.length >= 10 && callNumber.endsWith(cleanDigits.slice(-10))));
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleStartManualCall(group.orders[0])}
+                                                                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+                                                                    isGroupInCall
+                                                                        ? 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 animate-pulse shadow-lg shadow-rose-950/40'
+                                                                        : 'bg-emerald-600/25 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 shadow-sm shadow-emerald-950/30'
+                                                                }`}
+                                                                title={isGroupInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'সরাসরি ইন-ব্রাউজার কল দিন (পেজ পরিবর্তন হবে না)'}
+                                                            >
+                                                                {isGroupInCall ? <PhoneOff className="w-3.5 h-3.5" /> : <PhoneCall className="w-3.5 h-3.5 animate-pulse" />}
+                                                                <span>{isGroupInCall ? 'কল কাটুন (In Call)' : 'কল দিন (IP Call)'}</span>
+                                                            </button>
+                                                        );
+                                                    })()
                                                 )}
 
                                                 {rawPhone && (
@@ -1398,6 +1482,21 @@ export const CxOperationsPage = () => {
                                             </span>
                                         </div>
 
+                                        {/* Live In-Call Notice Banner */}
+                                        {(() => {
+                                            const isGroupInCall = callState !== 'idle' && (callNumber === cleanDigits || (cleanDigits.length >= 10 && callNumber.endsWith(cleanDigits.slice(-10))));
+                                            if (!isGroupInCall) return null;
+                                            return (
+                                                <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/60 text-xs text-emerald-200 flex items-center justify-between gap-2 animate-pulse shadow-md shadow-emerald-950/40">
+                                                    <div className="flex items-center gap-2">
+                                                        <Headphones className="w-4 h-4 text-emerald-400 shrink-0" />
+                                                        <span className="font-bold">📞 গ্রাহকের সাথে ফোনে কথা বলা চলছে... কথা বলতে বলতেই নিচের যেকোনো অর্ডারে বাতিল বা নিশ্চিত করতে পারবেন!</span>
+                                                    </div>
+                                                    <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-900/80 px-2 py-0.5 rounded border border-emerald-500/40">Live Call</span>
+                                                </div>
+                                            );
+                                        })()}
+
                                         {/* Side-by-Side Sibling Orders Display */}
                                         <div className={`grid grid-cols-1 ${group.orders.length >= 2 ? 'lg:grid-cols-2' : ''} gap-4`}>
                                             {group.orders.map((order, idx) => (
@@ -1413,6 +1512,9 @@ export const CxOperationsPage = () => {
                                                     onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                                     onDispatchSteadfast={handleDispatchSteadfast}
                                                     onTriggerAiCall={handleTriggerAiCall}
+                                                    onStartCall={handleStartManualCall}
+                                                    activeCallPhone={callState !== 'idle' ? callNumber : null}
+                                                    callState={callState}
                                                     actionLoadingId={actionLoadingId}
                                                     dispatchingId={dispatchingId}
                                                 />
@@ -1445,6 +1547,9 @@ export const CxOperationsPage = () => {
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         onTriggerAiCall={handleTriggerAiCall}
+                                        onStartCall={handleStartManualCall}
+                                        activeCallPhone={callState !== 'idle' ? callNumber : null}
+                                        callState={callState}
                                         actionLoadingId={actionLoadingId}
                                         dispatchingId={dispatchingId}
                                     />
@@ -1474,6 +1579,9 @@ export const CxOperationsPage = () => {
                                         onSetQtyOne={(id) => handleQuickAction(id, 'set_qty_one')}
                                         onDispatchSteadfast={handleDispatchSteadfast}
                                         onTriggerAiCall={handleTriggerAiCall}
+                                        onStartCall={handleStartManualCall}
+                                        activeCallPhone={callState !== 'idle' ? callNumber : null}
+                                        callState={callState}
                                         actionLoadingId={actionLoadingId}
                                         dispatchingId={dispatchingId}
                                     />

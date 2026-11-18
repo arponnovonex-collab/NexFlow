@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import JsSIP from 'jssip';
 import api from '../api/client';
 import { Phone, PhoneCall, PhoneOff, Mic, MicOff, Volume2, UserCheck, AlertCircle } from 'lucide-react';
+import { FloatingCallWidget } from '../components/call-center/FloatingCallWidget';
 
 const SipPhoneContext = createContext(null);
 
@@ -511,7 +512,7 @@ export const SipPhoneProvider = ({ children }) => {
     // ----------------------------------------------------
     // Public Call Controls
     // ----------------------------------------------------
-    const makeCall = (targetNumber) => {
+    const makeCall = (targetNumber, metadata = null) => {
         if (!ua || sipStatus !== 'registered') {
             alert('SIP Phone is not registered. Status: ' + statusMessage);
             return false;
@@ -536,6 +537,21 @@ export const SipPhoneProvider = ({ children }) => {
         setCallState('calling');
         setCallDuration(0);
         setStatusMessage(`Calling ${clean}...`);
+
+        if (metadata) {
+            setCustomerInfo({
+                name: metadata.customerName || metadata.name || null,
+                orderId: metadata.orderId || null,
+                orderNumber: metadata.orderNumber || null,
+                ...metadata,
+            });
+        } else if (clean.length >= 6) {
+            api.get('/call-center/customer-lookup', { params: { phone: clean } })
+                .then(res => {
+                    if (res.data?.customer) setCustomerInfo(res.data.customer);
+                })
+                .catch(() => {});
+        }
 
         if (remoteAudioRef.current) {
             remoteAudioRef.current.play().catch(() => {});
@@ -568,6 +584,20 @@ export const SipPhoneProvider = ({ children }) => {
             alert('Failed to initiate call: ' + err.message);
             setCallState('idle');
             return false;
+        }
+    };
+
+    const serverOriginateCall = async (targetPhone) => {
+        let clean = targetPhone.replace(/[^0-9]/g, '');
+        if (clean.length < 5) return { success: false, message: 'Invalid phone number' };
+        try {
+            const res = await api.post('/call-center/originate', {
+                phone: clean,
+                extension: credentials.extension,
+            });
+            return { success: true, message: res.data?.message || 'Call initiated via ePBX server' };
+        } catch (err) {
+            return { success: false, message: err.response?.data?.message || 'Failed to originate call' };
         }
     };
 
@@ -674,6 +704,7 @@ export const SipPhoneProvider = ({ children }) => {
                 incomingCall,
                 customerInfo,
                 makeCall,
+                serverOriginateCall,
                 answerCall,
                 rejectCall,
                 hangupCall,
@@ -685,6 +716,9 @@ export const SipPhoneProvider = ({ children }) => {
         >
             {/* Hidden HTML5 Audio Element for Remote Audio Playback */}
             <audio ref={remoteAudioRef} autoPlay playsInline />
+
+            {/* Global Floating Active Outbound/Connected Call Widget */}
+            <FloatingCallWidget />
 
             {/* Global Floating Incoming Call Alert Modal */}
             {incomingCall && (

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
+import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
@@ -22,6 +23,7 @@ import {
     MapPin,
     Phone,
     PhoneCall,
+    PhoneOff,
     Package,
     Check,
     ExternalLink,
@@ -124,6 +126,15 @@ const extractOrderItems = (order) => {
 };
 
 export const WebsiteOrdersPage = () => {
+    // In-app SIP Phone for direct WebRTC calling without page navigation
+    const {
+        makeCall,
+        hangupCall,
+        callState,
+        callNumber,
+        sipStatus,
+    } = useSipPhone();
+
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -546,6 +557,49 @@ export const WebsiteOrdersPage = () => {
             alert(`❌ AI কল পাঠাতে সমস্যা হয়েছে: ${err.response?.data?.message || err.message}`);
         } finally {
             setCallingAiOrderId(null);
+        }
+    };
+
+    // Direct In-App Manual IP Call Handler (Starts WebRTC call without navigating away)
+    const handleStartManualCall = (order) => {
+        if (!order) return;
+        const rawPhone = order.customer_phone || order.customer?.phone || '';
+        const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+        if (!cleanDigits) {
+            alert('গ্রাহকের কোনো ফোন নম্বর নেই!');
+            return;
+        }
+
+        // If currently in call with this customer, clicking again hangs up
+        if (callState !== 'idle' && (callNumber === cleanDigits || (cleanDigits.length >= 10 && callNumber.endsWith(cleanDigits.slice(-10))))) {
+            hangupCall();
+            return;
+        }
+
+        // If in call with another customer, confirm before switching
+        if (callState !== 'idle') {
+            const proceed = window.confirm(
+                `অন্য একটি নম্বরে (${callNumber}) কল চলছে। আপনি কি বর্তমান কলটি কেটে এই গ্রাহককে কল দিতে চান?`
+            );
+            if (!proceed) return;
+            hangupCall();
+        }
+
+        const customerName = order.customer?.name || 'সম্মানিত গ্রাহক';
+
+        if (sipStatus === 'registered') {
+            makeCall(cleanDigits, {
+                customerName,
+                orderId: order.id,
+                orderNumber: order.order_number,
+            });
+        } else {
+            const openNewTab = window.confirm(
+                `ইন-ব্রাউজার ফোন স্ট্যাটাস: ${sipStatus}।\n\nনতুন ব্রাউজার ট্যাবে ফুল ডায়লার ওপেন করে কল দিতে চান? (আপনার বর্তমান পেজটি যেমন আছে তেমনই থাকবে)`
+            );
+            if (openNewTab) {
+                window.open(`/call-center/ip-call?phone=${encodeURIComponent(cleanDigits)}&autocall=true`, '_blank');
+            }
         }
     };
 
@@ -1040,14 +1094,25 @@ export const WebsiteOrdersPage = () => {
                                                 </div>
                                                 <div className="text-slate-400 font-mono text-[11px] flex items-center gap-1.5 mt-0.5">
                                                     {order.customer_phone ? (
-                                                        <Link
-                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
-                                                            className="font-semibold text-emerald-400 hover:text-emerald-300 hover:underline flex items-center gap-1"
-                                                            title="IP Calling ডায়ালারে কল দিন (ePBX)"
-                                                        >
-                                                            <PhoneCall className="w-3 h-3 text-emerald-400" />
-                                                            <span>{order.customer_phone}</span>
-                                                        </Link>
+                                                        (() => {
+                                                            const cleanPhone = order.customer_phone.replace(/[^0-9]/g, '');
+                                                            const isInCall = callState !== 'idle' && (callNumber === cleanPhone || (cleanPhone.length >= 10 && callNumber.endsWith(cleanPhone.slice(-10))));
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleStartManualCall(order)}
+                                                                    className={`font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                                                                        isInCall
+                                                                            ? 'text-rose-400 hover:text-rose-300 animate-pulse font-bold'
+                                                                            : 'text-emerald-400 hover:text-emerald-300 hover:underline'
+                                                                    }`}
+                                                                    title={isInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'সরাসরি ইন-ব্রাউজার কল দিন (পেজ পরিবর্তন হবে না)'}
+                                                                >
+                                                                    {isInCall ? <PhoneOff className="w-3 h-3 text-rose-400" /> : <PhoneCall className="w-3 h-3 text-emerald-400" />}
+                                                                    <span>{order.customer_phone}</span>
+                                                                </button>
+                                                            );
+                                                        })()
                                                     ) : (
                                                         <span className="text-slate-500">N/A</span>
                                                     )}
@@ -1255,14 +1320,25 @@ export const WebsiteOrdersPage = () => {
                                                         ) : null}
 
                                                         {order.customer_phone && (
-                                                            <Link
-                                                                to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/30 transition-all cursor-pointer"
-                                                                title="এজেন্ট এক্সটেনশন থেকে সরাসরি ম্যানুয়াল কথা বলুন (IP Phone)"
-                                                            >
-                                                                <PhoneCall className="w-3 h-3" />
-                                                                <span>ম্যানুয়াল কল</span>
-                                                            </Link>
+                                                            (() => {
+                                                                const cleanPhone = order.customer_phone.replace(/[^0-9]/g, '');
+                                                                const isInCall = callState !== 'idle' && (callNumber === cleanPhone || (cleanPhone.length >= 10 && callNumber.endsWith(cleanPhone.slice(-10))));
+                                                                return (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleStartManualCall(order)}
+                                                                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                                                            isInCall
+                                                                                ? 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 animate-pulse shadow-md shadow-rose-950/40'
+                                                                                : 'text-emerald-300 hover:text-white bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/30'
+                                                                        }`}
+                                                                        title={isInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'এজেন্ট এক্সটেনশন থেকে সরাসরি ইন-ব্রাউজার কল দিন'}
+                                                                    >
+                                                                        {isInCall ? <PhoneOff className="w-3 h-3" /> : <PhoneCall className="w-3 h-3" />}
+                                                                        <span>{isInCall ? 'কল কাটুন' : 'ম্যানুয়াল কল'}</span>
+                                                                    </button>
+                                                                );
+                                                            })()
                                                         )}
                                                     </div>
 
@@ -1307,13 +1383,24 @@ export const WebsiteOrdersPage = () => {
                                             <td className="p-3 text-right">
                                                 <div className="flex items-center justify-end gap-1">
                                                     {order.customer_phone && (
-                                                        <Link
-                                                            to={`/call-center/ip-call?phone=${encodeURIComponent(order.customer_phone)}`}
-                                                            className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer inline-flex items-center"
-                                                            title="IP Phone দিয়ে কল করুন (ePBX)"
-                                                        >
-                                                            <PhoneCall className="w-4 h-4" />
-                                                        </Link>
+                                                        (() => {
+                                                            const cleanPhone = order.customer_phone.replace(/[^0-9]/g, '');
+                                                            const isInCall = callState !== 'idle' && (callNumber === cleanPhone || (cleanPhone.length >= 10 && callNumber.endsWith(cleanPhone.slice(-10))));
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleStartManualCall(order)}
+                                                                    className={`p-1.5 rounded-lg transition-colors cursor-pointer inline-flex items-center ${
+                                                                        isInCall
+                                                                            ? 'text-rose-400 bg-rose-500/20 hover:bg-rose-500/30 animate-pulse'
+                                                                            : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'
+                                                                    }`}
+                                                                    title={isInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'IP Phone দিয়ে সরাসরি ব্রাউজারে কল করুন'}
+                                                                >
+                                                                    {isInCall ? <PhoneOff className="w-4 h-4" /> : <PhoneCall className="w-4 h-4" />}
+                                                                </button>
+                                                            );
+                                                        })()
                                                     )}
                                                     <button
                                                         type="button"
@@ -1544,13 +1631,25 @@ export const WebsiteOrdersPage = () => {
                                 <div>
                                     Phone: <strong className="text-emerald-400 font-mono font-bold text-xs">{selectedOrder.customer_phone}</strong>
                                     {selectedOrder.customer_phone && (
-                                        <Link
-                                            to={`/call-center/ip-call?phone=${encodeURIComponent(selectedOrder.customer_phone)}`}
-                                            className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition-colors"
-                                            title="IP Calling ডায়ালারে লোড করুন"
-                                        >
-                                            <PhoneCall className="w-3 h-3" /> Call
-                                        </Link>
+                                        (() => {
+                                            const cleanPhone = selectedOrder.customer_phone.replace(/[^0-9]/g, '');
+                                            const isInCall = callState !== 'idle' && (callNumber === cleanPhone || (cleanPhone.length >= 10 && callNumber.endsWith(cleanPhone.slice(-10))));
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleStartManualCall(selectedOrder)}
+                                                    className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold transition-colors cursor-pointer ${
+                                                        isInCall
+                                                            ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40 animate-pulse'
+                                                            : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                                                    }`}
+                                                    title={isInCall ? 'কথা বলা চলছে (কল কাটতে ক্লিক করুন)' : 'সরাসরি ব্রাউজারে কল দিন (পেজ চেঞ্জ হবে না)'}
+                                                >
+                                                    {isInCall ? <PhoneOff className="w-3 h-3" /> : <PhoneCall className="w-3 h-3" />}
+                                                    <span>{isInCall ? 'End Call' : 'Call'}</span>
+                                                </button>
+                                            );
+                                        })()
                                     )}
                                 </div>
                                 <div className="col-span-2">
