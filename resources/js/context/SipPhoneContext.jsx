@@ -37,6 +37,8 @@ export const SipPhoneProvider = ({ children }) => {
     const speakerGainRef = useRef(2.0); // 2x gain boost for clear laptop speaker output
     const ringOscillatorRef = useRef(null);
     const ringIntervalRef = useRef(null);
+    const ringbackIntervalRef = useRef(null);
+    const currentCallNumberRef = useRef('');
     const pendingOriginateRef = useRef(null); // { targetNumber, timestamp }
 
     // ----------------------------------------------------
@@ -95,6 +97,48 @@ export const SipPhoneProvider = ({ children }) => {
         if (ringIntervalRef.current) {
             clearInterval(ringIntervalRef.current);
             ringIntervalRef.current = null;
+        }
+    };
+
+    // Play ringback tone for outbound calls (caller hears ringing in headset/speakers)
+    const startRingbackTone = () => {
+        try {
+            stopRingbackTone();
+            const ctx = initAudioContext();
+            if (!ctx) return;
+
+            const playTone = () => {
+                if (!audioContextRef.current) return;
+                const osc1 = ctx.createOscillator();
+                const osc2 = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc1.frequency.value = 440;
+                osc2.frequency.value = 480;
+                gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.6);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc1.start();
+                osc2.start();
+                osc1.stop(ctx.currentTime + 1.6);
+                osc2.stop(ctx.currentTime + 1.6);
+            };
+
+            playTone();
+            ringbackIntervalRef.current = setInterval(playTone, 3500);
+        } catch (e) {
+            console.error('Ringback tone error:', e);
+        }
+    };
+
+    const stopRingbackTone = () => {
+        if (ringbackIntervalRef.current) {
+            clearInterval(ringbackIntervalRef.current);
+            ringbackIntervalRef.current = null;
         }
     };
 
@@ -393,6 +437,9 @@ export const SipPhoneProvider = ({ children }) => {
     // Attach Audio & Session Event Listeners
     // ----------------------------------------------------
     const attachSessionListeners = (session) => {
+        if (!session || session._nexflow_listeners_attached) return;
+        session._nexflow_listeners_attached = true;
+
         setActiveSession(session);
         setIsMuted(false);
 
@@ -417,14 +464,15 @@ export const SipPhoneProvider = ({ children }) => {
 
         session.on('progress', () => {
             setCallState('ringing');
-            setStatusMessage('Ringing customer phone...');
+            setStatusMessage('গ্রাহকের ফোনে রিং হচ্ছে...');
         });
 
         session.on('accepted', () => {
             stopRingtone();
+            stopRingbackTone();
             setIncomingCall(null);
             setCallState('connected');
-            setStatusMessage('Connected');
+            setStatusMessage('সংযুক্ত (কথা বলুন)');
             if (!sessionStartTimeRef.current) {
                 sessionStartTimeRef.current = Date.now();
             }
@@ -438,9 +486,10 @@ export const SipPhoneProvider = ({ children }) => {
 
         session.on('confirmed', () => {
             stopRingtone();
+            stopRingbackTone();
             setIncomingCall(null);
             setCallState('connected');
-            setStatusMessage('Connected');
+            setStatusMessage('সংযুক্ত (কথা বলুন)');
             if (!sessionStartTimeRef.current) {
                 sessionStartTimeRef.current = Date.now();
             }
@@ -453,16 +502,24 @@ export const SipPhoneProvider = ({ children }) => {
         });
 
         session.on('ended', () => {
+            stopRingbackTone();
             handleCallTermination('completed', session);
         });
 
         session.on('failed', (e) => {
-            handleCallTermination('failed', session, e?.cause || 'Call Failed');
+            stopRingbackTone();
+            console.warn('[SIP] Call Failed event details:', e);
+            let cause = e?.cause || 'Call Failed';
+            if (e?.response?.status_code) {
+                cause = `SIP ${e.response.status_code}: ${e.response.reason_phrase || cause}`;
+            }
+            handleCallTermination('failed', session, cause);
         });
     };
 
     const handleCallTermination = (status, session, errorMsg = null) => {
         stopRingtone();
+        stopRingbackTone();
         cleanupAudioRouting();
         pendingOriginateRef.current = null;
         setCallState('ended');
@@ -472,13 +529,19 @@ export const SipPhoneProvider = ({ children }) => {
         if (errorMsg) {
             let userFriendlyMsg = errorMsg;
             if (errorMsg.includes('User Denied Media Access') || errorMsg.includes('NotAllowedError')) {
-                userFriendlyMsg = 'মাইক্রোফোন পারমিশন এলাউ (Allow) করা নেই। ব্রাউজারে মাইক্রোফোন পারমিশন দিন।';
-            } else if (errorMsg.includes('Busy')) {
-                userFriendlyMsg = 'গ্রাহক ব্যস্ত রয়েছে (Busy)।';
-            } else if (errorMsg.includes('Not Found') || errorMsg.includes('Unavailable')) {
-                userFriendlyMsg = 'নম্বরটি সংযোগ করা যায়নি বা ভুল নম্বর।';
+                userFriendlyMsg = 'মাইক্রোফোন পারমিশন দেওয়া নেই। ব্রাউজারে মাইক্রোফোন এলাউ (Allow) করুন।';
+            } else if (errorMsg.includes('Busy') || errorMsg.includes('486')) {
+                userFriendlyMsg = 'গ্রাহক বর্তমানে ব্যস্ত রয়েছে (Line Busy)।';
+            } else if (errorMsg.includes('Not Found') || errorMsg.includes('404')) {
+                userFriendlyMsg = 'ফোন নম্বরটি সংযোগ করা যায়নি বা ভুল নম্বর।';
+            } else if (errorMsg.includes('Unavailable') || errorMsg.includes('480')) {
+                userFriendlyMsg = 'গ্রাহকের ফোন বন্ধ বা নেটওয়ার্কের বাইরে রয়েছে।';
+            } else if (errorMsg.includes('Rejected') || errorMsg.includes('603')) {
+                userFriendlyMsg = 'গ্রাহক কলটি কেটে দিয়েছেন (Call Declined)।';
+            } else if (errorMsg.includes('Canceled') || errorMsg.includes('487')) {
+                userFriendlyMsg = 'কল বাতিল করা হয়েছে।';
             }
-            setStatusMessage(`কল শেষ: ${userFriendlyMsg}`);
+            setStatusMessage(`কল সমাপ্ত: ${userFriendlyMsg}`);
         } else {
             setStatusMessage('কল সমাপ্ত হয়েছে');
         }
@@ -492,7 +555,7 @@ export const SipPhoneProvider = ({ children }) => {
         setCallDuration(durationSecs);
 
         // Save Call Detail Record to backend
-        const phone = session?.remote_identity?.uri?.user || callNumber;
+        const phone = session?.remote_identity?.uri?.user || currentCallNumberRef.current || callNumber;
         if (phone && phone.length >= 5) {
             api.post('/call-center/logs', {
                 direction: session?.direction || callDirection,
@@ -512,31 +575,44 @@ export const SipPhoneProvider = ({ children }) => {
     // ----------------------------------------------------
     // Public Call Controls
     // ----------------------------------------------------
-    const makeCall = (targetNumber, metadata = null) => {
+    const makeCall = async (targetNumber, metadata = null) => {
         if (!ua || sipStatus !== 'registered') {
-            alert('SIP Phone is not registered. Status: ' + statusMessage);
+            alert('SIP Phone connects offline. Status: ' + statusMessage);
             return false;
         }
 
         let clean = targetNumber.replace(/[^0-9]/g, '');
-        if (clean.startsWith('880') && clean.length === 13) {
+        if (clean.startsWith('88') && clean.length >= 12) {
             clean = clean.substring(2);
         }
-        if (clean.length === 10 && clean.startsWith('1')) {
+        if (!clean.startsWith('0') && clean.length === 10) {
             clean = '0' + clean;
         }
 
-        if (clean.length < 3) {
-            alert('Please enter a valid phone number.');
+        if (clean.length < 5) {
+            alert('সঠিক ফোন নম্বর প্রদান করুন।');
+            return false;
+        }
+
+        // Pre-validate microphone permissions to prevent silent "Call Failed" aborts
+        try {
+            if (navigator.mediaDevices?.getUserMedia) {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            }
+        } catch (micErr) {
+            console.warn('[SIP] Microphone access prompt/denied:', micErr);
+            alert('⚠️ মাইক্রোফোন পারমিশন এলাউ (Allow) করা নেই!\nদয়া করে ব্রাউজারের অ্যাড্রেস বার থেকে Microphone পারমিশন "Allow" করুন।');
             return false;
         }
 
         initAudioContext();
+        currentCallNumberRef.current = clean;
         setCallNumber(clean);
         setCallDirection('outbound');
         setCallState('calling');
         setCallDuration(0);
-        setStatusMessage(`Calling ${clean}...`);
+        setStatusMessage(`ডায়াল হচ্ছে: ${clean}...`);
 
         if (metadata) {
             setCustomerInfo({
@@ -553,9 +629,7 @@ export const SipPhoneProvider = ({ children }) => {
                 .catch(() => {});
         }
 
-        if (remoteAudioRef.current) {
-            remoteAudioRef.current.play().catch(() => {});
-        }
+        startRingbackTone();
 
         const options = {
             mediaConstraints: {
@@ -580,8 +654,9 @@ export const SipPhoneProvider = ({ children }) => {
             attachSessionListeners(session);
             return true;
         } catch (err) {
+            stopRingbackTone();
             console.error('Call origination failed:', err);
-            alert('Failed to initiate call: ' + err.message);
+            alert('কল শুরু করতে সমস্যা হয়েছে: ' + err.message);
             setCallState('idle');
             return false;
         }
@@ -651,6 +726,7 @@ export const SipPhoneProvider = ({ children }) => {
 
     const hangupCall = () => {
         stopRingtone();
+        stopRingbackTone();
         cleanupAudioRouting();
         pendingOriginateRef.current = null;
         if (activeSession) {

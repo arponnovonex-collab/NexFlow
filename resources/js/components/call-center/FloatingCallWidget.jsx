@@ -14,6 +14,9 @@ import {
     Hash,
     Radio,
     Clock,
+    RefreshCw,
+    X,
+    PhoneForwarded,
 } from 'lucide-react';
 
 export const FloatingCallWidget = () => {
@@ -29,10 +32,13 @@ export const FloatingCallWidget = () => {
         hangupCall,
         toggleMute,
         sendDTMF,
+        makeCall,
+        serverOriginateCall,
     } = useSipPhone();
 
     const [isMinimized, setIsMinimized] = useState(false);
     const [showKeypad, setShowKeypad] = useState(false);
+    const [serverCalling, setServerCalling] = useState(false);
 
     // If phone is idle, don't show the widget
     if (callState === 'idle') {
@@ -59,6 +65,25 @@ export const FloatingCallWidget = () => {
         ['7', '8', '9'],
         ['*', '0', '#'],
     ];
+
+    const handleServerCall = async () => {
+        if (!callNumber || serverCalling) return;
+        setServerCalling(true);
+        try {
+            const res = await serverOriginateCall(callNumber);
+            alert(res.message || 'সার্ভার কল শুরু হয়েছে!');
+        } catch (e) {
+            alert('সার্ভার কল ব্যর্থ হয়েছে');
+        } finally {
+            setServerCalling(false);
+        }
+    };
+
+    const handleRedial = () => {
+        if (callNumber) {
+            makeCall(callNumber, customerInfo);
+        }
+    };
 
     // Minimized Floating Pill View
     if (isMinimized) {
@@ -93,7 +118,7 @@ export const FloatingCallWidget = () => {
                         <button
                             type="button"
                             onClick={() => setIsMinimized(false)}
-                            className="p-1 rounded-md hover:bg-slate-800 text-slate-300"
+                            className="p-1 rounded-md hover:bg-slate-800 text-slate-300 cursor-pointer"
                             title="বড় করুন"
                         >
                             <Maximize2 className="w-3.5 h-3.5" />
@@ -101,7 +126,7 @@ export const FloatingCallWidget = () => {
                         <button
                             type="button"
                             onClick={hangupCall}
-                            className="p-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow"
+                            className="p-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow cursor-pointer"
                             title="কল শেষ করুন"
                         >
                             <PhoneOff className="w-3.5 h-3.5" />
@@ -132,7 +157,7 @@ export const FloatingCallWidget = () => {
                         </div>
                         <div className="min-w-0">
                             <h4 className="text-xs font-extrabold text-white truncate flex items-center gap-1.5">
-                                <span>WebPhone</span>
+                                <span>ePBX WebPhone</span>
                                 <span className="text-[10px] font-mono text-indigo-300 font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">
                                     Ext {credentials.extension}
                                 </span>
@@ -179,7 +204,7 @@ export const FloatingCallWidget = () => {
 
                         <div className="text-right shrink-0">
                             <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
                                     isConnected
                                         ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
                                         : isCalling
@@ -197,7 +222,7 @@ export const FloatingCallWidget = () => {
                                     }`}
                                 />
                                 {isConnected
-                                    ? 'সংযুক্ত (Connected)'
+                                    ? 'কথা বলা চলছে'
                                     : callState === 'ringing'
                                     ? 'রিং হচ্ছে...'
                                     : callState === 'calling'
@@ -212,14 +237,15 @@ export const FloatingCallWidget = () => {
                     </div>
 
                     {statusMessage && (
-                        <p className="text-[11px] text-slate-400 pt-1 border-t border-slate-850/60 truncate">
-                            {statusMessage}
+                        <p className="text-[11px] text-slate-300 pt-1.5 border-t border-slate-800 flex items-center gap-1 font-medium">
+                            <Radio className="w-3 h-3 text-indigo-400 shrink-0 animate-pulse" />
+                            <span className="truncate">{statusMessage}</span>
                         </p>
                     )}
                 </div>
 
                 {/* Keypad Drawer (DTMF) */}
-                {showKeypad && (
+                {showKeypad && !isEnded && (
                     <div className="p-2 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 animate-in fade-in duration-150">
                         <div className="grid grid-cols-3 gap-1.5">
                             {keypadKeys.flat().map((key) => (
@@ -227,7 +253,7 @@ export const FloatingCallWidget = () => {
                                     key={key}
                                     type="button"
                                     onClick={() => sendDTMF(key)}
-                                    className="py-1.5 rounded-lg bg-slate-800/80 hover:bg-indigo-600 text-slate-200 hover:text-white font-mono font-bold text-xs border border-slate-700/60 transition-colors"
+                                    className="py-1.5 rounded-lg bg-slate-800/80 hover:bg-indigo-600 text-slate-200 hover:text-white font-mono font-bold text-xs border border-slate-700/60 transition-colors cursor-pointer"
                                 >
                                     {key}
                                 </button>
@@ -237,54 +263,85 @@ export const FloatingCallWidget = () => {
                 )}
 
                 {/* Action Buttons Toolbar */}
-                <div className="flex items-center gap-2 pt-1">
-                    {/* Mute Button */}
-                    <button
-                        type="button"
-                        onClick={toggleMute}
-                        disabled={!isConnected}
-                        className={`flex-1 py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            !isConnected
-                                ? 'opacity-50 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
-                                : isMuted
-                                ? 'bg-amber-500/20 border-amber-500 text-amber-300 hover:bg-amber-500/30'
-                                : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-200'
-                        }`}
-                        title={isMuted ? 'আনমিউট করুন' : 'মাইক্রোফোন মিউট করুন'}
-                    >
-                        {isMuted ? <MicOff className="w-3.5 h-3.5 text-amber-400" /> : <Mic className="w-3.5 h-3.5" />}
-                        <span>{isMuted ? 'Unmute' : 'Mute'}</span>
-                    </button>
+                {isEnded ? (
+                    <div className="space-y-2 pt-1">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleRedial}
+                                className="flex-1 py-2 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 transition-all cursor-pointer"
+                            >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>পুনরায় ডায়াল</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleServerCall}
+                                disabled={serverCalling}
+                                className="flex-1 py-2 px-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-indigo-950/40 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                                {serverCalling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PhoneForwarded className="w-3.5 h-3.5" />}
+                                <span>সার্ভার কল</span>
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={hangupCall}
+                            className="w-full py-1.5 text-center text-slate-400 hover:text-slate-200 text-[11px] font-medium"
+                        >
+                            উইন্ডো বন্ধ করুন
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2 pt-1">
+                        {/* Mute Button */}
+                        <button
+                            type="button"
+                            onClick={toggleMute}
+                            disabled={!isConnected}
+                            className={`flex-1 py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                !isConnected
+                                    ? 'opacity-50 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
+                                    : isMuted
+                                    ? 'bg-amber-500/20 border-amber-500 text-amber-300 hover:bg-amber-500/30'
+                                    : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-200'
+                            }`}
+                            title={isMuted ? 'আনমিউট করুন' : 'মাইক্রোফোন মিউট করুন'}
+                        >
+                            {isMuted ? <MicOff className="w-3.5 h-3.5 text-amber-400" /> : <Mic className="w-3.5 h-3.5" />}
+                            <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+                        </button>
 
-                    {/* Keypad Toggle Button */}
-                    <button
-                        type="button"
-                        onClick={() => setShowKeypad(!showKeypad)}
-                        disabled={!isConnected}
-                        className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                            !isConnected
-                                ? 'opacity-50 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
-                                : showKeypad
-                                ? 'bg-indigo-600 border-indigo-500 text-white'
-                                : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-200'
-                        }`}
-                        title="DTMF Keypad"
-                    >
-                        <Hash className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Keypad</span>
-                    </button>
+                        {/* Keypad Toggle Button */}
+                        <button
+                            type="button"
+                            onClick={() => setShowKeypad(!showKeypad)}
+                            disabled={!isConnected}
+                            className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                                !isConnected
+                                    ? 'opacity-50 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
+                                    : showKeypad
+                                    ? 'bg-indigo-600 border-indigo-500 text-white'
+                                    : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-200'
+                            }`}
+                            title="DTMF Keypad"
+                        >
+                            <Hash className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Keypad</span>
+                        </button>
 
-                    {/* Hangup / End Call Button */}
-                    <button
-                        type="button"
-                        onClick={hangupCall}
-                        className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/60 transition-all active:scale-95 cursor-pointer"
-                        title="কল শেষ করুন"
-                    >
-                        <PhoneOff className="w-3.5 h-3.5" />
-                        <span>কল শেষ করুন</span>
-                    </button>
-                </div>
+                        {/* Hangup / End Call Button */}
+                        <button
+                            type="button"
+                            onClick={hangupCall}
+                            className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/60 transition-all active:scale-95 cursor-pointer"
+                            title="কল কেটে দিন"
+                        >
+                            <PhoneOff className="w-3.5 h-3.5" />
+                            <span>{isCalling ? 'কল বাতিল' : 'কল কাটুন'}</span>
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

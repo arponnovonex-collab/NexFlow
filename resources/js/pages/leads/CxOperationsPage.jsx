@@ -716,7 +716,10 @@ export const CxOperationsPage = () => {
         callState,
         callNumber,
         sipStatus,
+        serverOriginateCall,
     } = useSipPhone();
+
+    const lastCallInitiatedAtRef = useRef(0);
 
     const [cxData, setCxData] = useState({
         duplicate_groups: [],
@@ -909,9 +912,18 @@ export const CxOperationsPage = () => {
             return;
         }
 
-        // If currently in call with this customer, clicking again hangs up
+        const now = Date.now();
+        // Prevent accidental rapid double clicks (within 2 seconds)
+        if (now - lastCallInitiatedAtRef.current < 2000) {
+            console.log('[Call] Ignoring rapid click debounce');
+            return;
+        }
+
+        // If currently in call with this customer, clicking again hangs up only if call is active and was initiated > 2.5s ago
         if (callState !== 'idle' && (callNumber === cleanDigits || (cleanDigits.length >= 10 && callNumber.endsWith(cleanDigits.slice(-10))))) {
-            hangupCall();
+            if (now - lastCallInitiatedAtRef.current > 2500) {
+                hangupCall();
+            }
             return;
         }
 
@@ -924,6 +936,8 @@ export const CxOperationsPage = () => {
             hangupCall();
         }
 
+        lastCallInitiatedAtRef.current = now;
+
         const customerName = resolveCustomerName(order);
 
         if (sipStatus === 'registered') {
@@ -933,11 +947,15 @@ export const CxOperationsPage = () => {
                 orderNumber: order.order_number,
             });
         } else {
-            // Fallback: inform user and allow opening dialer in a new tab without losing current CX page
-            const openNewTab = window.confirm(
-                `ইন-ব্রাউজার ফোন স্ট্যাটাস: ${sipStatus}।\n\nআপনি কি নতুন ব্রাউজার ট্যাবে ফুল ডায়লার ওপেন করে কল দিতে চান? (আপনার বর্তমান CX পেজটি যেমন আছে তেমনই থাকবে)`
+            // Fallback: inform user and offer instant Server Originate Call or open dialer
+            const proceed = window.confirm(
+                `ইন-ব্রাউজার ফোন স্ট্যাটাস: ${sipStatus === 'connecting' ? 'কানেক্ট হচ্ছে...' : 'অফলাইন'}।\n\nআপনি কি সার্ভার থেকে সরাসরি গ্রাহককে কল (Click-to-Call) দিতে চান? (OK চাপলে সার্ভার কল শুরু হবে, Cancel চাপলে ফুল ডায়লার ট্যাবে খুলবে)`
             );
-            if (openNewTab) {
+            if (proceed) {
+                serverOriginateCall(cleanDigits)
+                    .then(res => alert(res.message || 'সার্ভার কল শুরু হয়েছে!'))
+                    .catch(() => alert('সার্ভার কল ব্যর্থ হয়েছে'));
+            } else {
                 window.open(`/call-center/ip-call?phone=${encodeURIComponent(cleanDigits)}&autocall=true`, '_blank');
             }
         }
