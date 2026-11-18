@@ -225,8 +225,13 @@ class BulkSmsService
         $template = $settings->auto_sms_template ?: "Dear {customer_name}, apnar order #{order_id} grohon kora hoyeche. Total: {total_amount} TK. Dhonnobad NexFlow.";
 
         $productName = $order->product?->name ?? 'Product';
+        if (! empty($order->items_data) && is_array($order->items_data)) {
+            $itemCount = count($order->items_data);
+            $firstItemName = $order->items_data[0]['name'] ?? $productName;
+            $productName = $itemCount > 1 ? "{$firstItemName} সহ মোট {$itemCount}টি পণ্য" : $firstItemName;
+        }
         $variantText = '';
-        if ($order->variant) {
+        if ($order->variant && empty($order->items_data)) {
             $parts = [];
             if ($order->variant->size) $parts[] = $order->variant->size;
             if ($order->variant->color) $parts[] = $order->variant->color;

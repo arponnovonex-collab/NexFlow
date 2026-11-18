@@ -118,22 +118,97 @@ class OrderController extends Controller
             'customer_name' => 'nullable|string|max:255',
             'customer_email' => 'nullable|string|email|max:255',
             'conversation_id' => 'nullable|exists:conversations,id',
-            'product_id' => 'required|exists:products,id',
+            'product_id' => 'nullable|exists:products,id',
             'variant_id' => 'nullable|exists:product_variants,id',
             'size' => 'nullable|string|max:50',
             'color' => 'nullable|string|max:50',
             'order_attributes' => 'nullable|array',
-            'quantity' => 'required|integer|min:1',
-            'unit_price' => 'required|numeric|min:0',
+            'quantity' => 'nullable|integer|min:1',
+            'unit_price' => 'nullable|numeric|min:0',
             'delivery_charge' => 'required|numeric|min:0',
             'customer_address' => 'required|string',
             'customer_phone' => 'required|string',
             'notes' => 'nullable|string',
             'order_number' => 'nullable|string|max:50',
+            'items_data' => 'nullable|array',
         ]);
 
+        if (empty($validated['product_id']) && (empty($validated['items_data']) || ! is_array($validated['items_data']))) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'কমপক্ষে একটি প্রোডাক্ট সিলেক্ট করা আবশ্যক।',
+            ], 422);
+        }
+
         $user = $request->user();
-        $total = ($validated['unit_price'] * $validated['quantity']) + $validated['delivery_charge'];
+
+        // Process items_data if provided for multi-item orders
+        $cleanedItems = [];
+        $totalQty = 0;
+        $itemsTotal = 0;
+
+        if (! empty($validated['items_data']) && is_array($validated['items_data'])) {
+            foreach ($validated['items_data'] as $it) {
+                $pId = ! empty($it['product_id']) ? (int) $it['product_id'] : null;
+                $prod = $pId ? Product::find($pId) : null;
+                $pName = ! empty($it['name']) ? $it['name'] : ($prod?->name ?? 'Product');
+                $q = max(1, (int) ($it['quantity'] ?? 1));
+                $p = isset($it['price']) ? (float) $it['price'] : (float) ($prod?->selling_price ?? $prod?->regular_price ?? 0);
+                $sz = ! empty($it['size']) ? trim($it['size']) : null;
+                $col = ! empty($it['color']) ? trim($it['color']) : null;
+                $varId = ! empty($it['variant_id']) ? (int) $it['variant_id'] : null;
+
+                $totalQty += $q;
+                $itemsTotal += ($q * $p);
+
+                $cleanedItems[] = [
+                    'product_id' => $pId,
+                    'variant_id' => $varId,
+                    'name' => $pName,
+                    'sku' => $it['sku'] ?? $prod?->sku ?? null,
+                    'size' => $sz,
+                    'color' => $col,
+                    'quantity' => $q,
+                    'price' => $p,
+                    'subtotal' => $q * $p,
+                ];
+            }
+        }
+
+        if (! empty($cleanedItems)) {
+            $firstItem = $cleanedItems[0];
+            $productId = $firstItem['product_id'] ?? ($validated['product_id'] ?? null);
+            $variantId = $firstItem['variant_id'] ?? ($validated['variant_id'] ?? null);
+            $size = $firstItem['size'] ?? ($validated['size'] ?? null);
+            $color = $firstItem['color'] ?? ($validated['color'] ?? null);
+            $quantity = $totalQty;
+            $unitPrice = $firstItem['price'];
+            $total = $itemsTotal + (float) $validated['delivery_charge'];
+            $itemsData = $cleanedItems;
+        } else {
+            $productId = $validated['product_id'];
+            $variantId = $validated['variant_id'] ?? null;
+            $size = $validated['size'] ?? null;
+            $color = $validated['color'] ?? null;
+            $quantity = (int) ($validated['quantity'] ?? 1);
+            $unitPrice = (float) ($validated['unit_price'] ?? 0);
+            $total = ($unitPrice * $quantity) + (float) $validated['delivery_charge'];
+
+            $prod = $productId ? Product::find($productId) : null;
+            $itemsData = [
+                [
+                    'product_id' => $productId,
+                    'variant_id' => $variantId,
+                    'name' => $prod?->name ?? 'Product',
+                    'sku' => $prod?->sku ?? null,
+                    'size' => $size,
+                    'color' => $color,
+                    'quantity' => $quantity,
+                    'price' => $unitPrice,
+                    'subtotal' => $quantity * $unitPrice,
+                ],
+            ];
+        }
 
         // Determine or create customer
         $customerId = $validated['customer_id'] ?? null;
@@ -180,11 +255,9 @@ class OrderController extends Controller
             }
         }
 
-        // Determine size & color
-        $size = $validated['size'] ?? null;
-        $color = $validated['color'] ?? null;
-        if (! empty($validated['variant_id'])) {
-            $variant = \App\Models\ProductVariant::find($validated['variant_id']);
+        // Fallback size & color from variant if not explicitly set
+        if (! empty($variantId)) {
+            $variant = \App\Models\ProductVariant::find($variantId);
             if ($variant) {
                 $size = $size ?: $variant->size;
                 $color = $color ?: $variant->color;
@@ -206,15 +279,16 @@ class OrderController extends Controller
             'customer_id' => $customerId,
             'conversation_id' => $validated['conversation_id'] ?? null,
             'user_id' => $user->id,
-            'product_id' => $validated['product_id'],
-            'variant_id' => $validated['variant_id'] ?? null,
+            'product_id' => $productId,
+            'variant_id' => $variantId,
             'size' => $size,
             'color' => $color,
             'order_attributes' => $validated['order_attributes'] ?? null,
-            'quantity' => $validated['quantity'],
-            'unit_price' => $validated['unit_price'],
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
             'delivery_charge' => $validated['delivery_charge'],
             'total_amount' => $total,
+            'items_data' => $itemsData,
             'order_status' => 'confirmed',
             'payment_status' => 'unpaid',
             'order_source' => ! empty($validated['conversation_id']) ? 'manual_inbox' : 'web',
@@ -255,13 +329,24 @@ class OrderController extends Controller
         // Post internal note in conversation thread if linked
         if ($order->conversation_id) {
             try {
-                $variantInfo = $order->variant ? " (" . ($order->variant->size ? "Size: {$order->variant->size} " : "") . ($order->variant->color ? "Color: {$order->variant->color}" : "") . ")" : "";
+                $itemDescriptions = [];
+                if (! empty($order->items_data) && is_array($order->items_data)) {
+                    foreach ($order->items_data as $it) {
+                        $vInfo = [];
+                        if (! empty($it['size'])) $vInfo[] = "Size: {$it['size']}";
+                        if (! empty($it['color'])) $vInfo[] = "Color: {$it['color']}";
+                        $vStr = ! empty($vInfo) ? ' (' . implode(', ', $vInfo) . ')' : '';
+                        $itemDescriptions[] = ($it['name'] ?? 'Product') . "{$vStr} x" . ($it['quantity'] ?? 1);
+                    }
+                }
+                $productsSummary = ! empty($itemDescriptions) ? implode(' + ', $itemDescriptions) : ($order->product?->name ?: 'Product');
+
                 Message::create([
                     'conversation_id' => $order->conversation_id,
                     'sender_type' => 'moderator',
                     'sender_user_id' => $user->id,
                     'is_internal_note' => true,
-                    'text' => "🛍️ Order #{$order->order_number} confirmed! Product: {$order->product?->name}{$variantInfo}, Qty: {$order->quantity}, Total: ৳{$order->total_amount}. Phone: {$order->customer_phone}",
+                    'text' => "🛍️ Order #{$order->order_number} confirmed! Product(s): {$productsSummary}, Total: ৳{$order->total_amount}. Phone: {$order->customer_phone}",
                     'metadata' => [
                         'order_id' => $order->id,
                         'order_number' => $order->order_number,

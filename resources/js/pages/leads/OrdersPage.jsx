@@ -415,15 +415,37 @@ export const OrdersPage = () => {
 
                                             {/* Product & Variant */}
                                             <td className="px-3 py-3.5">
-                                                <span className="font-semibold text-slate-200 block">{o.product?.name}</span>
-                                                {variantText && (
-                                                    <span className="text-[10px] text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded font-medium inline-block mt-0.5">
-                                                        {variantText}
-                                                    </span>
+                                                {Array.isArray(o.items_data) && o.items_data.length > 1 ? (
+                                                    <div className="space-y-1">
+                                                        {o.items_data.slice(0, 3).map((it, idx) => (
+                                                            <div key={idx} className="text-xs">
+                                                                <span className="font-semibold text-slate-200">{it.name || 'Product'}</span>
+                                                                <span className="text-[10px] text-slate-400 ml-1.5">
+                                                                    {[it.size && `Size: ${it.size}`, it.color && `Color: ${it.color}`].filter(Boolean).join(', ') || ''}
+                                                                    <span className="text-indigo-300 font-medium ml-1">× {it.quantity}</span>
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                        {o.items_data.length > 3 && (
+                                                            <span className="text-[10px] text-slate-400">+{o.items_data.length - 3} more items...</span>
+                                                        )}
+                                                        <span className="text-[10px] text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded font-medium inline-block">
+                                                            📦 {o.items_data.length} Items ({o.quantity} pcs total)
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <span className="font-semibold text-slate-200 block">{o.items_data?.[0]?.name || o.product?.name || 'Product'}</span>
+                                                        {variantText && (
+                                                            <span className="text-[10px] text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded font-medium inline-block mt-0.5">
+                                                                {variantText}
+                                                            </span>
+                                                        )}
+                                                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                                                            Qty: {o.quantity} × ৳{o.unit_price}
+                                                        </span>
+                                                    </>
                                                 )}
-                                                <span className="text-[10px] text-slate-400 block mt-0.5">
-                                                    Qty: {o.quantity} × ৳{o.unit_price}
-                                                </span>
                                             </td>
 
                                             {/* Amount */}
@@ -733,35 +755,69 @@ export const OrdersPage = () => {
                                 <Package className="w-3.5 h-3.5 text-indigo-400" /> Product & Price Details (পণ্যের বিবরণ)
                             </h4>
 
-                            <div className="flex items-start justify-between gap-3 pt-1">
-                                <div>
-                                    <span className="text-sm font-bold text-slate-100 block">
-                                        {selectedOrder.product?.name || 'Product Item'}
-                                    </span>
-                                    {selectedOrder.variant && (
-                                        <div className="flex items-center gap-1.5 mt-1">
-                                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-medium border border-indigo-500/30">
-                                                {[
-                                                    selectedOrder.variant.size && `Size: ${selectedOrder.variant.size}`,
-                                                    selectedOrder.variant.color && `Color: ${selectedOrder.variant.color}`,
-                                                ].filter(Boolean).join(' | ')}
+                            {Array.isArray(selectedOrder.items_data) && selectedOrder.items_data.length > 0 ? (
+                                <div className="space-y-2 pt-1">
+                                    {selectedOrder.items_data.map((it, idx) => (
+                                        <div key={idx} className="flex items-start justify-between gap-3 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800">
+                                            <div>
+                                                <span className="text-xs font-bold text-slate-100 block">{it.name || 'Product'}</span>
+                                                <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-400">
+                                                    {it.size && (
+                                                        <span className="px-1.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30 font-medium">
+                                                            Size: {it.size}
+                                                        </span>
+                                                    )}
+                                                    {it.color && (
+                                                        <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded border border-purple-500/30 font-medium">
+                                                            Color: {it.color}
+                                                        </span>
+                                                    )}
+                                                    <span className="font-mono text-slate-300">
+                                                        Qty: {it.quantity} × ৳{it.price}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="text-xs font-bold font-mono text-emerald-400 shrink-0">
+                                                ৳{((it.quantity || 1) * (it.price || 0)).toFixed(2)}
                                             </span>
                                         </div>
-                                    )}
-                                    <span className="text-[11px] text-slate-400 block mt-1">
-                                        Unit Price: ৳{selectedOrder.unit_price} × {selectedOrder.quantity} pcs
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex items-start justify-between gap-3 pt-1">
+                                    <div>
+                                        <span className="text-sm font-bold text-slate-100 block">
+                                            {selectedOrder.product?.name || 'Product Item'}
+                                        </span>
+                                        {selectedOrder.variant && (
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-medium border border-indigo-500/30">
+                                                    {[
+                                                        selectedOrder.variant.size && `Size: ${selectedOrder.variant.size}`,
+                                                        selectedOrder.variant.color && `Color: ${selectedOrder.variant.color}`,
+                                                    ].filter(Boolean).join(' | ')}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <span className="text-[11px] text-slate-400 block mt-1">
+                                            Unit Price: ৳{selectedOrder.unit_price} × {selectedOrder.quantity} pcs
+                                        </span>
+                                    </div>
+                                    <span className="text-sm font-bold font-mono text-slate-200">
+                                        ৳{(selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}
                                     </span>
                                 </div>
-                                <span className="text-sm font-bold font-mono text-slate-200">
-                                    ৳{(selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}
-                                </span>
-                            </div>
+                            )}
 
                             {/* Pricing calculation */}
                             <div className="border-t border-slate-800 pt-2 space-y-1 text-slate-300">
                                 <div className="flex justify-between">
                                     <span className="text-slate-400">Subtotal:</span>
-                                    <span className="font-mono">৳{(selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}</span>
+                                    <span className="font-mono">
+                                        ৳{Array.isArray(selectedOrder.items_data) && selectedOrder.items_data.length > 0
+                                            ? selectedOrder.items_data.reduce((sum, it) => sum + ((it.quantity || 1) * (it.price || 0)), 0).toFixed(2)
+                                            : (selectedOrder.unit_price * selectedOrder.quantity).toFixed(2)}
+                                    </span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400">Delivery Charge:</span>

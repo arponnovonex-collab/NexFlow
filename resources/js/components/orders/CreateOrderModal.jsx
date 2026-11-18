@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import api from '../../api/client';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -17,6 +17,9 @@ import {
     Tag,
     Palette,
     Check,
+    Plus,
+    Trash2,
+    Layers,
 } from 'lucide-react';
 
 export const CreateOrderModal = ({
@@ -26,31 +29,188 @@ export const CreateOrderModal = ({
     initialData = {},
 }) => {
     const [products, setProducts] = useState([]);
-    const [globalAttributes, setGlobalAttributes] = useState([]);
     const [loadingProducts, setLoadingProducts] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
-    // Form state
+    // Customer form state
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [customerAddress, setCustomerAddress] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
     const [orderNumber, setOrderNumber] = useState('');
-    const [productId, setProductId] = useState('');
-    const [variantId, setVariantId] = useState('');
-    const [selectedSize, setSelectedSize] = useState('');
-    const [selectedColor, setSelectedColor] = useState('');
-    const [quantity, setQuantity] = useState(1);
-    const [unitPrice, setUnitPrice] = useState(0);
     const [deliveryCharge, setDeliveryCharge] = useState(60);
     const [notes, setNotes] = useState('');
 
-    const prevOpenRef = React.useRef(false);
+    // Items list state (multi-product support)
+    const [items, setItems] = useState([
+        {
+            id: 'item-1',
+            productId: '',
+            variantId: '',
+            size: '',
+            color: '',
+            quantity: 1,
+            unitPrice: 0,
+        },
+    ]);
+
+    const prevOpenRef = useRef(false);
 
     const generateOrderNumber = () => {
         const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         return `NF-${dateStr}-${randomNum}`;
+    };
+
+    // Helper to check whether a product specifically defines sizes (from variants or attributes)
+    const getProductSizeInfo = (prod) => {
+        if (!prod) return { hasSizes: false, sizes: [] };
+        const set = new Set();
+
+        if (prod.variants && Array.isArray(prod.variants)) {
+            prod.variants.forEach((v) => {
+                if (v.size && String(v.size).trim()) {
+                    set.add(String(v.size).trim());
+                }
+            });
+        }
+
+        if (prod.attributes && Array.isArray(prod.attributes)) {
+            prod.attributes.forEach((a) => {
+                const nameLower = (a.name || '').toLowerCase();
+                if (nameLower.includes('size') || nameLower.includes('সাইজ')) {
+                    (a.options || []).forEach((opt) => {
+                        if (opt && String(opt).trim()) {
+                            set.add(String(opt).trim());
+                        }
+                    });
+                }
+            });
+        }
+
+        const sizes = Array.from(set);
+        return {
+            hasSizes: sizes.length > 0,
+            sizes,
+        };
+    };
+
+    // Helper to check whether a product specifically defines colors (from variants or attributes)
+    const getProductColorInfo = (prod) => {
+        if (!prod) return { hasColors: false, colors: [] };
+        const map = new Map();
+
+        if (prod.variants && Array.isArray(prod.variants)) {
+            prod.variants.forEach((v) => {
+                if (v.color && String(v.color).trim()) {
+                    map.set(String(v.color).trim(), null);
+                }
+            });
+        }
+
+        if (prod.attributes && Array.isArray(prod.attributes)) {
+            prod.attributes.forEach((a) => {
+                const nameLower = (a.name || '').toLowerCase();
+                if (
+                    nameLower.includes('color') ||
+                    nameLower.includes('colour') ||
+                    nameLower.includes('কালার') ||
+                    nameLower.includes('রং')
+                ) {
+                    (a.options || []).forEach((opt) => {
+                        if (opt && String(opt).trim()) {
+                            map.set(String(opt).trim(), null);
+                        }
+                    });
+                }
+            });
+        }
+
+        const colors = Array.from(map.entries()).map(([name, code]) => ({ name, code }));
+        return {
+            hasColors: colors.length > 0,
+            colors,
+        };
+    };
+
+    // Construct an item initialized for a product
+    const createItemForProduct = (prod, existingItem = {}) => {
+        if (!prod) {
+            return {
+                id: existingItem.id || `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                productId: '',
+                variantId: '',
+                size: '',
+                color: '',
+                quantity: existingItem.quantity || 1,
+                unitPrice: 0,
+            };
+        }
+
+        const defaultPrice = Number(prod.selling_price || prod.regular_price || 0);
+        let varId = '';
+        let sz = existingItem.size || '';
+        let col = existingItem.color || '';
+        let price = defaultPrice;
+
+        if (prod.variants?.length > 0) {
+            // If user supplied initial size or color, try to match it
+            let match = null;
+            if (sz || col) {
+                match = prod.variants.find(
+                    (v) => (!sz || v.size === sz) && (!col || v.color === col)
+                );
+            }
+            if (!match) {
+                match = prod.variants[0];
+            }
+            varId = match.id;
+            sz = match.size || sz || '';
+            col = match.color || col || '';
+            price = Number(match.price || defaultPrice);
+        }
+
+        return {
+            id: existingItem.id || `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            productId: prod.id,
+            variantId: varId,
+            size: sz,
+            color: col,
+            quantity: existingItem.quantity || 1,
+            unitPrice: price,
+        };
+    };
+
+    // Variant matcher on size or color selection
+    const findAndApplyVariant = (item, targetSize, targetColor, prod) => {
+        if (!prod?.variants || prod.variants.length === 0) {
+            return {
+                ...item,
+                size: targetSize,
+                color: targetColor,
+            };
+        }
+
+        let match = prod.variants.find(
+            (v) => (v.size || '') === (targetSize || '') && (v.color || '') === (targetColor || '')
+        );
+
+        if (!match && targetSize) {
+            match = prod.variants.find((v) => (v.size || '') === targetSize);
+        }
+        if (!match && targetColor) {
+            match = prod.variants.find((v) => (v.color || '') === targetColor);
+        }
+
+        const defaultPrice = Number(prod.selling_price || prod.regular_price || 0);
+
+        return {
+            ...item,
+            size: targetSize,
+            color: targetColor,
+            variantId: match ? match.id : item.variantId,
+            unitPrice: match?.price ? Number(match.price) : (item.unitPrice || defaultPrice),
+        };
     };
 
     // Initialize fields ONLY when modal transitions from closed to open
@@ -61,172 +221,141 @@ export const CreateOrderModal = ({
             setCustomerAddress(initialData.customer_address || '');
             setCustomerEmail(initialData.customer_email || initialData.email || '');
             setOrderNumber(generateOrderNumber());
-            setQuantity(1);
             setDeliveryCharge(60);
             setNotes('');
-            setSelectedSize(initialData.size || '');
-            setSelectedColor(initialData.color || '');
 
-            fetchProductsAndAttributes();
+            fetchProducts();
         }
         prevOpenRef.current = isOpen;
     }, [isOpen]);
 
-    const fetchProductsAndAttributes = async () => {
+    const fetchProducts = async () => {
         setLoadingProducts(true);
         try {
-            const [prodRes, attrRes] = await Promise.all([
-                api.get('/products', { params: { per_page: 250 } }),
-                api.get('/product-attributes').catch(() => ({ data: { data: [] } })),
-            ]);
-
-            const prods = prodRes.data.data?.data || prodRes.data.data || [];
+            const res = await api.get('/products', { params: { per_page: 250 } });
+            const prods = res.data.data?.data || res.data.data || [];
             setProducts(prods);
-            setGlobalAttributes(attrRes.data?.data || []);
 
-            if (prods.length > 0 && !productId) {
-                const first = prods[0];
-                setProductId(first.id);
-                setUnitPrice(Number(first.selling_price || first.regular_price || 0));
-                autoSelectProductAttributes(first);
+            if (prods.length > 0) {
+                setItems((prev) => {
+                    const first = prods[0];
+                    return [
+                        createItemForProduct(first, {
+                            size: initialData.size || '',
+                            color: initialData.color || '',
+                        }),
+                    ];
+                });
             }
         } catch (err) {
-            console.error('Failed to load products or attributes:', err);
+            console.error('Failed to load products:', err);
         } finally {
             setLoadingProducts(false);
         }
     };
 
-    const autoSelectProductAttributes = (prod) => {
-        if (!prod) return;
-        const defaultPrice = Number(prod.selling_price || prod.regular_price || 0);
-
-        if (prod.variants?.length > 0) {
-            const firstVar = prod.variants[0];
-            setVariantId(firstVar.id);
-            setSelectedSize(firstVar.size || '');
-            setSelectedColor(firstVar.color || '');
-            setUnitPrice(Number(firstVar.price || defaultPrice));
-        } else {
-            setVariantId('');
-            setSelectedSize('');
-            setSelectedColor('');
-            setUnitPrice(defaultPrice);
-        }
-    };
-
-    // When product changes
-    const handleProductChange = (newProdId) => {
-        setProductId(newProdId);
+    // Product change for a specific item
+    const handleProductChange = (index, newProdId) => {
         const prod = products.find((p) => p.id === Number(newProdId));
-        if (prod) {
-            autoSelectProductAttributes(prod);
-        }
+        setItems((prev) => {
+            const next = [...prev];
+            next[index] = createItemForProduct(prod, {
+                ...next[index],
+                productId: Number(newProdId),
+            });
+            return next;
+        });
     };
 
-    const selectedProduct = products.find((p) => p.id === Number(productId));
-
-    // Extract available sizes from product variants & attributes
-    const availableSizes = useMemo(() => {
-        if (!selectedProduct) return [];
-        const set = new Set();
-        if (selectedProduct.variants && selectedProduct.variants.length > 0) {
-            selectedProduct.variants.forEach((v) => {
-                if (v.size && v.size.trim()) set.add(v.size.trim());
-            });
-        }
-        if (selectedProduct.attributes && Array.isArray(selectedProduct.attributes)) {
-            selectedProduct.attributes.forEach((a) => {
-                const nameLower = (a.name || '').toLowerCase();
-                if (nameLower.includes('size') || nameLower.includes('সাইজ')) {
-                    (a.options || []).forEach((opt) => opt && set.add(String(opt).trim()));
-                }
-            });
-        }
-
-        // If no product-specific sizes, fallback to global Size attribute values
-        if (set.size === 0) {
-            const sizeAttr = globalAttributes.find((a) => a.slug === 'size' || a.name.toLowerCase() === 'size');
-            if (sizeAttr?.values) {
-                sizeAttr.values.forEach((v) => v.name && set.add(v.name.trim()));
-            }
-        }
-
-        return Array.from(set);
-    }, [selectedProduct, globalAttributes]);
-
-    // Extract available colors from product variants & attributes
-    const availableColors = useMemo(() => {
-        if (!selectedProduct) return [];
-        const map = new Map(); // name -> color code
-
-        if (selectedProduct.variants && selectedProduct.variants.length > 0) {
-            selectedProduct.variants.forEach((v) => {
-                if (v.color && v.color.trim()) {
-                    map.set(v.color.trim(), null);
-                }
-            });
-        }
-        if (selectedProduct.attributes && Array.isArray(selectedProduct.attributes)) {
-            selectedProduct.attributes.forEach((a) => {
-                const nameLower = (a.name || '').toLowerCase();
-                if (nameLower.includes('color') || nameLower.includes('colour') || nameLower.includes('কালার')) {
-                    (a.options || []).forEach((opt) => opt && map.set(String(opt).trim(), null));
-                }
-            });
-        }
-
-        // If no product-specific colors, fallback to global Color attribute values
-        if (map.size === 0) {
-            const colorAttr = globalAttributes.find(
-                (a) => a.slug === 'color' || a.name.toLowerCase() === 'color' || a.type === 'color'
-            );
-            if (colorAttr?.values) {
-                colorAttr.values.forEach((v) => v.name && map.set(v.name.trim(), v.value || null));
-            }
-        }
-
-        return Array.from(map.entries()).map(([name, code]) => ({ name, code }));
-    }, [selectedProduct, globalAttributes]);
-
-    // When size is chosen
-    const handleSizeSelect = (newSize) => {
-        setSelectedSize(newSize);
-        findAndApplyVariant(newSize, selectedColor);
+    // Size select for a specific item
+    const handleSizeSelect = (index, newSize) => {
+        setItems((prev) => {
+            const next = [...prev];
+            const item = next[index];
+            const prod = products.find((p) => p.id === Number(item.productId));
+            next[index] = findAndApplyVariant(item, newSize, item.color, prod);
+            return next;
+        });
     };
 
-    // When color is chosen
-    const handleColorSelect = (newColor) => {
-        setSelectedColor(newColor);
-        findAndApplyVariant(selectedSize, newColor);
+    // Custom size text change
+    const handleCustomSizeChange = (index, val) => {
+        setItems((prev) => {
+            const next = [...prev];
+            next[index] = { ...next[index], size: val };
+            return next;
+        });
     };
 
-    const findAndApplyVariant = (targetSize, targetColor) => {
-        if (!selectedProduct?.variants || selectedProduct.variants.length === 0) return;
+    // Color select for a specific item
+    const handleColorSelect = (index, newColor) => {
+        setItems((prev) => {
+            const next = [...prev];
+            const item = next[index];
+            const prod = products.find((p) => p.id === Number(item.productId));
+            next[index] = findAndApplyVariant(item, item.size, newColor, prod);
+            return next;
+        });
+    };
 
-        // Try exact match on size & color
-        let match = selectedProduct.variants.find(
-            (v) => (v.size || '') === (targetSize || '') && (v.color || '') === (targetColor || '')
+    // Custom color text change
+    const handleCustomColorChange = (index, val) => {
+        setItems((prev) => {
+            const next = [...prev];
+            next[index] = { ...next[index], color: val };
+            return next;
+        });
+    };
+
+    // Quantity change
+    const handleQuantityChange = (index, val) => {
+        const q = Math.max(1, parseInt(val, 10) || 1);
+        setItems((prev) => {
+            const next = [...prev];
+            next[index] = { ...next[index], quantity: q };
+            return next;
+        });
+    };
+
+    // Price change
+    const handlePriceChange = (index, val) => {
+        const p = Math.max(0, parseFloat(val) || 0);
+        setItems((prev) => {
+            const next = [...prev];
+            next[index] = { ...next[index], unitPrice: p };
+            return next;
+        });
+    };
+
+    // Add another item
+    const handleAddItem = () => {
+        if (products.length === 0) return;
+        const defaultProd = products[0];
+        setItems((prev) => [...prev, createItemForProduct(defaultProd)]);
+    };
+
+    // Remove item
+    const handleRemoveItem = (index) => {
+        if (items.length <= 1) {
+            alert('কমপক্ষে একটি পণ্য অর্ডারে থাকতে হবে।');
+            return;
+        }
+        setItems((prev) => prev.filter((_, idx) => idx !== index));
+    };
+
+    // Pricing calculations
+    const itemsSubtotal = useMemo(() => {
+        return items.reduce(
+            (sum, it) => sum + (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1),
+            0
         );
+    }, [items]);
 
-        // Try partial match
-        if (!match && targetSize) {
-            match = selectedProduct.variants.find((v) => (v.size || '') === targetSize);
-        }
-        if (!match && targetColor) {
-            match = selectedProduct.variants.find((v) => (v.color || '') === targetColor);
-        }
+    const totalQuantity = useMemo(() => {
+        return items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0);
+    }, [items]);
 
-        if (match) {
-            setVariantId(match.id);
-            if (match.price) {
-                setUnitPrice(Number(match.price));
-            }
-        }
-    };
-
-    const subtotal = Number(unitPrice || 0) * Number(quantity || 1);
-    const totalPayable = subtotal + Number(deliveryCharge || 0);
+    const totalPayable = itemsSubtotal + (Number(deliveryCharge) || 0);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -238,19 +367,32 @@ export const CreateOrderModal = ({
             alert('দয়া করে ডেলিভারি ঠিকানা লিখুন।');
             return;
         }
-        if (!productId) {
-            alert('দয়া করে একটি প্রোডাক্ট সিলেক্ট করুন।');
+        if (items.length === 0) {
+            alert('দয়া করে অন্তত একটি প্রোডাক্ট যোগ করুন।');
             return;
         }
 
-        // Enforce required size & color if product has them
-        if (availableSizes.length > 0 && !selectedSize) {
-            alert('⚠️ দয়া করে প্রোডাক্টের সাইজ (Size) সিলেক্ট করুন।');
-            return;
-        }
-        if (availableColors.length > 0 && !selectedColor) {
-            alert('⚠️ দয়া করে প্রোডাক্টের কালার (Color) সিলেক্ট করুন।');
-            return;
+        // Validate each item for mandatory size / color ONLY if the product specifically defines them
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            if (!it.productId) {
+                alert(`দয়া করে #${i + 1} নম্বর আইটেমের জন্য একটি প্রোডাক্ট সিলেক্ট করুন।`);
+                return;
+            }
+            const prod = products.find((p) => p.id === Number(it.productId));
+            const prodName = prod?.name || `আইটেম #${i + 1}`;
+
+            const sizeInfo = getProductSizeInfo(prod);
+            if (sizeInfo.hasSizes && !it.size) {
+                alert(`⚠️ "${prodName}"-এর জন্য সাইজ (Size) সিলেক্ট করা আবশ্যক।`);
+                return;
+            }
+
+            const colorInfo = getProductColorInfo(prod);
+            if (colorInfo.hasColors && !it.color) {
+                alert(`⚠️ "${prodName}"-এর জন্য কালার (Color) সিলেক্ট করা আবশ্যক।`);
+                return;
+            }
         }
 
         setSubmitting(true);
@@ -263,14 +405,32 @@ export const CreateOrderModal = ({
                 customer_email: customerEmail.trim() || null,
                 conversation_id: initialData.conversation_id || null,
                 order_number: orderNumber.trim(),
-                product_id: Number(productId),
-                variant_id: variantId ? Number(variantId) : null,
-                size: selectedSize || null,
-                color: selectedColor || null,
-                quantity: Number(quantity),
-                unit_price: Number(unitPrice),
                 delivery_charge: Number(deliveryCharge),
                 notes: notes.trim(),
+
+                // Backward compatibility columns (first item values)
+                product_id: Number(items[0].productId),
+                variant_id: items[0].variantId ? Number(items[0].variantId) : null,
+                size: items[0].size || null,
+                color: items[0].color || null,
+                quantity: totalQuantity,
+                unit_price: Number(items[0].unitPrice),
+
+                // Multi-item payload
+                items_data: items.map((it) => {
+                    const p = products.find((prod) => prod.id === Number(it.productId));
+                    return {
+                        product_id: Number(it.productId),
+                        variant_id: it.variantId ? Number(it.variantId) : null,
+                        name: p?.name || 'Product',
+                        sku: p?.sku || null,
+                        size: it.size || null,
+                        color: it.color || null,
+                        quantity: Number(it.quantity),
+                        price: Number(it.unitPrice),
+                        subtotal: Number(it.quantity) * Number(it.unitPrice),
+                    };
+                }),
             };
 
             const res = await api.post('/orders', payload);
@@ -296,13 +456,18 @@ export const CreateOrderModal = ({
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="🛍️ Create Customer Order (নতুন অর্ডার)">
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title="🛍️ Create Customer Order (নতুন অর্ডার তৈরি করুন)"
+            maxWidth="max-w-2xl"
+        >
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
                 {/* Order ID banner */}
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800">
                     <div className="flex items-center gap-2">
                         <Hash className="w-4 h-4 text-indigo-400" />
-                        <span className="text-slate-400">Order ID:</span>
+                        <span className="text-slate-400 font-medium">Order ID:</span>
                         <input
                             type="text"
                             value={orderNumber}
@@ -315,14 +480,14 @@ export const CreateOrderModal = ({
                         type="button"
                         onClick={() => setOrderNumber(generateOrderNumber())}
                         title="Generate New ID"
-                        className="text-slate-400 hover:text-white p-1 hover:bg-slate-800 rounded transition-colors"
+                        className="text-slate-400 hover:text-white p-1 hover:bg-slate-800 rounded transition-colors cursor-pointer"
                     >
                         <RefreshCw className="w-3.5 h-3.5" />
                     </button>
                 </div>
 
                 {/* Customer Information Section */}
-                <div className="space-y-2.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="space-y-2.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
                     <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
                         <User className="w-3.5 h-3.5 text-indigo-400" /> Customer Details (গ্রাহকের তথ্য)
                     </h4>
@@ -379,7 +544,7 @@ export const CreateOrderModal = ({
                                 Delivery Address (ডেলিভারি ঠিকানা) <span className="text-rose-400">*</span>
                             </label>
                             <textarea
-                                rows={1}
+                                rows={2}
                                 required
                                 placeholder="House, Road, Area, Thana, District..."
                                 value={customerAddress}
@@ -390,179 +555,267 @@ export const CreateOrderModal = ({
                     </div>
                 </div>
 
-                {/* Product & Attributes Selection */}
-                <div className="space-y-3 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <h4 className="font-semibold text-slate-200 flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                            <Package className="w-3.5 h-3.5 text-indigo-400" />
-                            <span>Product & Attributes (পণ্য, সাইজ ও কালার)</span>
-                        </div>
-                        {selectedProduct?.wc_product_id && (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                🌐 Website Synced
-                            </span>
-                        )}
-                    </h4>
+                {/* Ordered Items Section */}
+                <div className="space-y-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Ordered Items (অর্ডারের পণ্যসমূহ)</span>
+                        </h4>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                            {items.length} {items.length > 1 ? 'Items' : 'Item'} ({totalQuantity} pcs)
+                        </span>
+                    </div>
 
                     {loadingProducts ? (
-                        <div className="text-slate-400 text-xs py-2 text-center flex items-center justify-center gap-2">
+                        <div className="text-slate-400 text-xs py-4 text-center flex items-center justify-center gap-2">
                             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                             <span>Loading products catalog...</span>
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {/* Product Dropdown */}
-                            <div>
-                                <label className="block text-[11px] text-slate-400 mb-1">Select Product</label>
-                                <select
-                                    value={productId}
-                                    onChange={(e) => handleProductChange(e.target.value)}
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
-                                >
-                                    {products.map((p) => (
-                                        <option key={p.id} value={p.id}>
-                                            {p.name} {p.sku ? `(${p.sku})` : ''} — ৳{p.selling_price || p.regular_price}
-                                            {p.wc_product_id ? ' [WooCommerce]' : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                            {items.map((item, index) => {
+                                const prod = products.find((p) => p.id === Number(item.productId));
+                                const sizeInfo = getProductSizeInfo(prod);
+                                const colorInfo = getProductColorInfo(prod);
+                                const lineSubtotal =
+                                    (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0);
 
-                            {/* Size Selection */}
-                            <div>
-                                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                        <Tag className="w-3 h-3 text-indigo-400" />
-                                        <span>Size (সাইজ) {availableSizes.length > 0 && <span className="text-rose-400">*</span>}</span>
-                                    </div>
-                                    {selectedSize && (
-                                        <span className="text-indigo-400 font-bold font-mono text-[11px]">
-                                            Selected: {selectedSize}
-                                        </span>
-                                    )}
-                                </label>
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3 relative transition-all"
+                                    >
+                                        {/* Item card header */}
+                                        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                                    Item #{index + 1}
+                                                </span>
+                                                {prod?.wc_product_id && (
+                                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                        🌐 Website Synced
+                                                    </span>
+                                                )}
+                                            </div>
 
-                                {availableSizes.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {availableSizes.map((sz) => {
-                                            const isSelected = selectedSize === sz;
-                                            return (
+                                            {items.length > 1 && (
                                                 <button
-                                                    key={sz}
                                                     type="button"
-                                                    onClick={() => handleSizeSelect(sz)}
-                                                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                                                        isSelected
-                                                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400'
-                                                            : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
-                                                    }`}
+                                                    onClick={() => handleRemoveItem(index)}
+                                                    className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-2 py-0.5 rounded text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                                    title="Remove this item"
                                                 >
-                                                    {sz}
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    <span>মুছে ফেলুন</span>
                                                 </button>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. S, M, L, XL, 32 (optional custom size)"
-                                        value={selectedSize}
-                                        onChange={(e) => setSelectedSize(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
-                                    />
-                                )}
-                            </div>
+                                            )}
+                                        </div>
 
-                            {/* Color Selection */}
-                            <div>
-                                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                        <Palette className="w-3 h-3 text-purple-400" />
-                                        <span>Color (কালার) {availableColors.length > 0 && <span className="text-rose-400">*</span>}</span>
-                                    </div>
-                                    {selectedColor && (
-                                        <span className="text-purple-400 font-bold text-[11px]">
-                                            Selected: {selectedColor}
-                                        </span>
-                                    )}
-                                </label>
+                                        {/* Product Dropdown */}
+                                        <div>
+                                            <label className="block text-[11px] text-slate-400 mb-1">
+                                                Select Product (পণ্য নির্বাচন করুন)
+                                            </label>
+                                            <select
+                                                value={item.productId}
+                                                onChange={(e) => handleProductChange(index, e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                                            >
+                                                {products.map((p) => (
+                                                    <option key={p.id} value={p.id}>
+                                                        {p.name} {p.sku ? `(${p.sku})` : ''} — ৳
+                                                        {p.selling_price || p.regular_price}
+                                                        {p.wc_product_id ? ' [WooCommerce]' : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
 
-                                {availableColors.length > 0 ? (
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {availableColors.map((col) => {
-                                            const isSelected = selectedColor === col.name;
-                                            return (
-                                                <button
-                                                    key={col.name}
-                                                    type="button"
-                                                    onClick={() => handleColorSelect(col.name)}
-                                                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                                                        isSelected
-                                                            ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-400'
-                                                            : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
-                                                    }`}
-                                                >
-                                                    {col.code && (
-                                                        <span
-                                                            className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
-                                                            style={{ backgroundColor: col.code }}
-                                                        />
+                                        {/* Size Selection: Mandatory if product defines size, else Optional */}
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Tag className="w-3 h-3 text-indigo-400" />
+                                                    <span>Size (সাইজ)</span>
+                                                    {sizeInfo.hasSizes ? (
+                                                        <span className="text-rose-400 font-bold">*</span>
+                                                    ) : (
+                                                        <span className="text-slate-500 font-normal text-[10px]">
+                                                            (ঐচ্ছিক / Optional)
+                                                        </span>
                                                     )}
-                                                    <span>{col.name}</span>
-                                                    {isSelected && <Check className="w-3 h-3 ml-0.5" />}
-                                                </button>
-                                            );
-                                        })}
+                                                </div>
+                                                {item.size && (
+                                                    <span className="text-indigo-400 font-bold font-mono text-[11px]">
+                                                        Selected: {item.size}
+                                                    </span>
+                                                )}
+                                            </label>
+
+                                            {sizeInfo.hasSizes ? (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {sizeInfo.sizes.map((sz) => {
+                                                        const isSelected = item.size === sz;
+                                                        return (
+                                                            <button
+                                                                key={sz}
+                                                                type="button"
+                                                                onClick={() => handleSizeSelect(index, sz)}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                                                    isSelected
+                                                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400'
+                                                                        : 'bg-slate-900 border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {sz}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. S, M, L, XL, 32 (প্রয়োজনে সাইজ লিখুন, ঐচ্ছিক)"
+                                                    value={item.size || ''}
+                                                    onChange={(e) => handleCustomSizeChange(index, e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                                                />
+                                            )}
+                                        </div>
+
+                                        {/* Color Selection: Mandatory if product defines color, else Optional */}
+                                        <div>
+                                            <label className="block text-[11px] font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Palette className="w-3 h-3 text-purple-400" />
+                                                    <span>Color (কালার)</span>
+                                                    {colorInfo.hasColors ? (
+                                                        <span className="text-rose-400 font-bold">*</span>
+                                                    ) : (
+                                                        <span className="text-slate-500 font-normal text-[10px]">
+                                                            (ঐচ্ছিক / Optional)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {item.color && (
+                                                    <span className="text-purple-400 font-bold text-[11px]">
+                                                        Selected: {item.color}
+                                                    </span>
+                                                )}
+                                            </label>
+
+                                            {colorInfo.hasColors ? (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {colorInfo.colors.map((col) => {
+                                                        const isSelected = item.color === col.name;
+                                                        return (
+                                                            <button
+                                                                key={col.name}
+                                                                type="button"
+                                                                onClick={() => handleColorSelect(index, col.name)}
+                                                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                                                    isSelected
+                                                                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-400'
+                                                                        : 'bg-slate-900 border border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {col.code && (
+                                                                    <span
+                                                                        className="w-2.5 h-2.5 rounded-full border border-white/20 shrink-0"
+                                                                        style={{ backgroundColor: col.code }}
+                                                                    />
+                                                                )}
+                                                                <span>{col.name}</span>
+                                                                {isSelected && <Check className="w-3 h-3 ml-0.5" />}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g. Black, Red, Olive, Navy (প্রয়োজনে কালার লিখুন, ঐচ্ছিক)"
+                                                    value={item.color || ''}
+                                                    onChange={(e) => handleCustomColorChange(index, e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                                                />
+                                            )}
+                                        </div>
+
+                                        {/* Quantity & Unit Price */}
+                                        <div className="grid grid-cols-3 gap-2.5 pt-1 items-end">
+                                            <div>
+                                                <label className="block text-[11px] text-slate-400 mb-1">
+                                                    Quantity (পরিমাণ)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity}
+                                                    onChange={(e) => handleQuantityChange(index, e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-bold"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[11px] text-slate-400 mb-1">
+                                                    Unit Price (৳)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={item.unitPrice}
+                                                    onChange={(e) => handlePriceChange(index, e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-bold text-emerald-400"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-[11px] text-slate-400 mb-1">
+                                                    Item Total
+                                                </label>
+                                                <div className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono font-bold text-emerald-400">
+                                                    ৳{lineSubtotal.toFixed(2)}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Black, Red, Olive, Navy (optional custom color)"
-                                        value={selectedColor}
-                                        onChange={(e) => setSelectedColor(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
-                                    />
-                                )}
-                            </div>
+                                );
+                            })}
 
-                            {/* Quantity & Unit Price */}
-                            <div className="grid grid-cols-2 gap-2.5 pt-1">
-                                <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Quantity (পরিমাণ)</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={quantity}
-                                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-bold"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Unit Price (৳)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={unitPrice}
-                                        onChange={(e) => setUnitPrice(parseFloat(e.target.value) || 0)}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none font-bold text-emerald-400"
-                                    />
-                                </div>
-                            </div>
+                            {/* + Add Another Item Button */}
+                            <button
+                                type="button"
+                                onClick={handleAddItem}
+                                className="w-full py-2.5 px-3 border border-dashed border-indigo-500/40 hover:border-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 text-indigo-300 hover:text-white rounded-xl flex items-center justify-center gap-2 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                            >
+                                <Plus className="w-4 h-4 text-indigo-400" />
+                                <span>+ আরেকটি পণ্য যোগ করুন (Add Another Item)</span>
+                            </button>
                         </div>
                     )}
                 </div>
 
-                {/* Delivery & Pricing */}
-                <div className="space-y-2.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                    <div className="flex items-center justify-between">
+                {/* Delivery & Pricing Summary */}
+                <div className="space-y-2.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span>Products Subtotal ({items.length} items, {totalQuantity} pcs):</span>
+                        <span className="font-mono font-semibold text-slate-200">
+                            ৳{itemsSubtotal.toFixed(2)}
+                        </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
                         <span className="text-slate-400 text-xs">Delivery Charge:</span>
                         <div className="flex items-center gap-1.5">
                             <button
                                 type="button"
                                 onClick={() => setDeliveryCharge(60)}
                                 className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                                    deliveryCharge === 60 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-800 text-slate-300'
+                                    deliveryCharge === 60
+                                        ? 'bg-indigo-600 text-white font-bold'
+                                        : 'bg-slate-800 text-slate-300'
                                 }`}
                             >
                                 Dhaka ৳60
@@ -571,7 +824,9 @@ export const CreateOrderModal = ({
                                 type="button"
                                 onClick={() => setDeliveryCharge(120)}
                                 className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                                    deliveryCharge === 120 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-800 text-slate-300'
+                                    deliveryCharge === 120
+                                        ? 'bg-indigo-600 text-white font-bold'
+                                        : 'bg-slate-800 text-slate-300'
                                 }`}
                             >
                                 Outside ৳120
@@ -580,7 +835,9 @@ export const CreateOrderModal = ({
                                 type="button"
                                 onClick={() => setDeliveryCharge(0)}
                                 className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                                    deliveryCharge === 0 ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-800 text-slate-300'
+                                    deliveryCharge === 0
+                                        ? 'bg-emerald-600 text-white font-bold'
+                                        : 'bg-slate-800 text-slate-300'
                                 }`}
                             >
                                 Free ৳0
@@ -589,7 +846,7 @@ export const CreateOrderModal = ({
                     </div>
 
                     <div className="pt-2 border-t border-slate-800 flex items-center justify-between font-bold">
-                        <span className="text-slate-300">Total Payable (সর্বমোট):</span>
+                        <span className="text-slate-300 text-xs">Total Payable (সর্বমোট):</span>
                         <span className="text-base text-emerald-400 font-extrabold font-mono">
                             ৳{totalPayable.toFixed(2)}
                         </span>
@@ -609,7 +866,13 @@ export const CreateOrderModal = ({
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                    <Button variant="ghost" size="sm" type="button" onClick={onClose} disabled={submitting}>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        onClick={onClose}
+                        disabled={submitting}
+                    >
                         Cancel
                     </Button>
                     <Button
@@ -619,7 +882,7 @@ export const CreateOrderModal = ({
                         loading={submitting}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
                     >
-                        Confirm & Place Order
+                        Confirm & Place Order (৳{totalPayable.toFixed(2)})
                     </Button>
                 </div>
             </form>
