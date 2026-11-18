@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { Card } from '../../components/common/Card';
@@ -705,6 +705,8 @@ export const CxOperationsPage = () => {
     });
 
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const hasLoadedRef = useRef(false);
     const [activeTab, setActiveTab] = useState('all'); // all, duplicates, multi_qty, resolved, cancelled
     const [search, setSearch] = useState('');
     const [days, setDays] = useState(10);
@@ -739,9 +741,15 @@ export const CxOperationsPage = () => {
     // Steadfast Courier dispatch state
     const [dispatchingId, setDispatchingId] = useState(null);
 
-    const fetchCxOrders = async () => {
-        try {
+    const fetchCxOrders = async (isSilent = false) => {
+        const shouldShowFullSpinner = !isSilent && !hasLoadedRef.current;
+        if (shouldShowFullSpinner) {
             setLoading(true);
+        } else {
+            setRefreshing(true);
+        }
+
+        try {
             const params = {
                 tab: activeTab,
                 days: days,
@@ -758,29 +766,33 @@ export const CxOperationsPage = () => {
                     other_resolved_orders: d.other_resolved_orders || [],
                 });
                 setMeta(res.data.meta || {});
+                hasLoadedRef.current = true;
             }
         } catch (err) {
             console.error('Failed to load CX operations orders:', err);
         } finally {
-            setLoading(false);
+            if (shouldShowFullSpinner) {
+                setLoading(false);
+            }
+            setRefreshing(false);
         }
     };
 
     useEffect(() => {
-        fetchCxOrders();
+        fetchCxOrders(hasLoadedRef.current);
     }, [activeTab, days]);
 
-    // Live auto-refresh CX data periodically
+    // Live auto-refresh CX data periodically (completely silent, zero flicker, smooth updates)
     useEffect(() => {
         const interval = setInterval(() => {
-            if (!document.hidden && !loading) {
-                fetchCxOrders();
+            if (!document.hidden) {
+                fetchCxOrders(true);
             }
-        }, 30000);
+        }, 20000);
 
         const handleVisibilityChange = () => {
             if (!document.hidden) {
-                fetchCxOrders();
+                fetchCxOrders(true);
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -789,11 +801,26 @@ export const CxOperationsPage = () => {
             clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [activeTab, days, loading]);
+    }, [activeTab, days, search]);
+
+    // Fast silent polling every 4s while any AI call is actively calling
+    const hasActiveAiCalls =
+        cxData.duplicate_groups.some((g) => g.orders?.some((o) => o.ai_call_status === 'calling')) ||
+        cxData.multi_qty_orders.some((o) => o.ai_call_status === 'calling');
+
+    useEffect(() => {
+        if (!hasActiveAiCalls) return;
+        const fastInterval = setInterval(() => {
+            if (!document.hidden) {
+                fetchCxOrders(true);
+            }
+        }, 4000);
+        return () => clearInterval(fastInterval);
+    }, [hasActiveAiCalls, activeTab, days, search]);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
-        fetchCxOrders();
+        fetchCxOrders(false);
     };
 
     // Quick Action on single order: Confirm, Set Qty to 1, Cancel, or Resolve
@@ -804,7 +831,7 @@ export const CxOperationsPage = () => {
             const res = await api.post(`/orders/${orderId}/cx-action`, payload);
 
             if (res.data.status === 'success') {
-                await fetchCxOrders();
+                await fetchCxOrders(true);
             }
         } catch (err) {
             alert('Action failed: ' + (err.response?.data?.message || err.message));
@@ -831,7 +858,7 @@ export const CxOperationsPage = () => {
             const res = await api.post(`/orders/${order.id}/ai-call`);
             if (res.data.status === 'success') {
                 alert(`✅ ${res.data.message || 'AI কল সফলভাবে ডায়াল করা হচ্ছে!'}`);
-                await fetchCxOrders();
+                await fetchCxOrders(true);
             } else {
                 alert(`❌ ${res.data.message || 'AI কল ব্যর্থ হয়েছে'}`);
             }
@@ -854,7 +881,7 @@ export const CxOperationsPage = () => {
 
             const res = await api.post('/orders/cx-resolve-group', payload);
             if (res.data.status === 'success') {
-                await fetchCxOrders();
+                await fetchCxOrders(true);
             }
         } catch (err) {
             alert('Resolve failed: ' + (err.response?.data?.message || err.message));
@@ -976,7 +1003,7 @@ export const CxOperationsPage = () => {
                 alert(`✅ Order #${editingOrder.order_number} updated successfully!`);
                 setEditModalOpen(false);
                 setEditingOrder(null);
-                fetchCxOrders();
+                fetchCxOrders(true);
             }
         } catch (err) {
             alert('Failed to update order: ' + (err.response?.data?.message || err.message));
@@ -1016,7 +1043,7 @@ export const CxOperationsPage = () => {
             if (res.data.status === 'success') {
                 const tracking = res.data.data?.tracking_code || '';
                 alert(`✅ Order #${order.order_number} successfully dispatched to Steadfast!\nTracking Code: ${tracking}`);
-                fetchCxOrders();
+                fetchCxOrders(true);
             }
         } catch (err) {
             alert(`❌ Steadfast Dispatch Error: ${err.response?.data?.message || err.message}`);
@@ -1065,8 +1092,8 @@ export const CxOperationsPage = () => {
                         variant="secondary"
                         size="sm"
                         icon={RefreshCw}
-                        loading={loading}
-                        onClick={fetchCxOrders}
+                        loading={refreshing}
+                        onClick={() => fetchCxOrders(true)}
                         title="রিলোড করুন"
                     >
                         Refresh
