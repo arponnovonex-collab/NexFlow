@@ -845,9 +845,82 @@ class OrderController extends Controller
             return $digits;
         };
 
-        // Attach normalized phone and resolution status to each order
+        // Helper to resolve genuine customer name from relations, wc_raw_data billing/shipping, etc.
+        $resolveCustomerName = function ($ord) {
+            if ($ord->customer && ! empty($ord->customer->name)) {
+                $cName = trim($ord->customer->name);
+                if ($cName !== 'Customer' && $cName !== 'Website Customer' && $cName !== 'Guest Customer') {
+                    return $cName;
+                }
+            }
+            $raw = is_array($ord->wc_raw_data) ? $ord->wc_raw_data : [];
+            $bFirst = trim($raw['billing']['first_name'] ?? ($raw['shipping']['first_name'] ?? ''));
+            $bLast = trim($raw['billing']['last_name'] ?? ($raw['shipping']['last_name'] ?? ''));
+            $bFull = trim("{$bFirst} {$bLast}");
+            if (! empty($bFull) && $bFull !== 'Customer') {
+                return $bFull;
+            }
+            return $ord->customer?->name ?: ($ord->customer_name ?? 'সম্মানিত গ্রাহক');
+        };
+
+        // Helper to extract items with normalized product and size
+        $extractOrderItems = function ($order) {
+            $rawItems = $order->items_data;
+            if (empty($rawItems) && is_array($order->wc_raw_data) && ! empty($order->wc_raw_data['line_items'])) {
+                $rawItems = $order->wc_raw_data['line_items'];
+            }
+            $items = [];
+            if (! empty($rawItems) && is_array($rawItems)) {
+                foreach ($rawItems as $it) {
+                    $pId = $it['product_id'] ?? null;
+                    $name = $it['name'] ?? $it['product_name'] ?? $order->product?->name ?? 'Product';
+                    $size = trim((string) ($it['size'] ?? ''));
+                    $color = trim((string) ($it['color'] ?? ''));
+                    $qty = (int) ($it['quantity'] ?? $it['qty'] ?? 1);
+
+                    // check meta_data for size
+                    if (empty($size) && ! empty($it['meta_data']) && is_array($it['meta_data'])) {
+                        foreach ($it['meta_data'] as $m) {
+                            $k = strtolower((string) ($m['key'] ?? $m['display_key'] ?? ''));
+                            $v = trim((string) ($m['value'] ?? $m['display_value'] ?? ''));
+                            if (str_contains($k, 'size') || str_contains($k, 'সাইজ')) {
+                                $size = $v;
+                                break;
+                            }
+                        }
+                    }
+                    if (empty($size) && count($rawItems) === 1 && ! empty($order->size)) {
+                        $size = trim((string) $order->size);
+                    }
+
+                    $items[] = [
+                        'product_id' => $pId,
+                        'name' => $name,
+                        'size' => $size,
+                        'color' => $color,
+                        'quantity' => $qty,
+                    ];
+                }
+            } else {
+                $items[] = [
+                    'product_id' => $order->product_id,
+                    'name' => $order->product?->name ?? 'Product',
+                    'size' => trim((string) ($order->size ?? '')),
+                    'color' => trim((string) ($order->color ?? '')),
+                    'quantity' => (int) ($order->quantity ?? 1),
+                ];
+            }
+            return $items;
+        };
+
+        // Attach normalized phone, display customer name, and resolution status to each order
         foreach ($rawOrders as $order) {
             $order->normalized_phone = $normalizePhone($order->customer_phone ?: $order->customer?->phone);
+            $order->customer_display_name = $resolveCustomerName($order);
+            if ($order->customer && ($order->customer->name === 'Customer' || empty($order->customer->name))) {
+                $order->customer->name = $order->customer_display_name;
+            }
+
             $raw = is_array($order->wc_raw_data) ? $order->wc_raw_data : [];
             $order->is_cx_resolved = ! empty($raw['is_cx_resolved']) 
                 || str_contains((string) $order->notes, '[CX Resolved') 
@@ -856,27 +929,37 @@ class OrderController extends Controller
                 || str_contains((string) $order->notes, '[CX Edit');
         }
 
-        // Group orders by normalized phone + product
-        $phoneProductGroups = [];
+        // Group orders by normalized phone + product + size
+        // If the customer ordered different products or multiple different sizes, they are NOT duplicates!
+        $phoneProductSizeGroups = [];
         foreach ($rawOrders as $ord) {
             $norm = $ord->normalized_phone;
             if (empty($norm)) continue;
 
-            $prodKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_' . Str::slug($ord->product?->name ?: ($ord->items_data[0]['name'] ?? 'product'));
-            $groupKey = $norm . '__' . $prodKey;
+            $items = $extractOrderItems($ord);
+            $seenKeys = [];
 
-            if (! isset($phoneProductGroups[$groupKey])) {
-                $phoneProductGroups[$groupKey] = [];
+            foreach ($items as $it) {
+                $prodKey = $it['product_id'] ? 'pid_' . $it['product_id'] : 'pname_' . Str::slug($it['name']);
+                $sizeKey = strtolower(trim((string) $it['size']));
+                $groupKey = $norm . '__' . $prodKey . '__' . $sizeKey;
+
+                if (! in_array($groupKey, $seenKeys)) {
+                    $seenKeys[] = $groupKey;
+                    if (! isset($phoneProductSizeGroups[$groupKey])) {
+                        $phoneProductSizeGroups[$groupKey] = [];
+                    }
+                    $phoneProductSizeGroups[$groupKey][] = $ord;
+                }
             }
-            $phoneProductGroups[$groupKey][] = $ord;
         }
 
         $duplicateOrderIds = [];
         $duplicateGroups = [];
         $groupIndex = 1;
 
-        foreach ($phoneProductGroups as $groupKey => $groupList) {
-            // If there are 2 or more orders for this customer and product in the window
+        foreach ($phoneProductSizeGroups as $groupKey => $groupList) {
+            // If there are 2 or more orders for this customer for the EXACT SAME product AND EXACT SAME size
             if (count($groupList) >= 2) {
                 foreach ($groupList as $ord) {
                     $duplicateOrderIds[$ord->id] = true;
@@ -914,7 +997,7 @@ class OrderController extends Controller
                 $duplicateGroups[] = [
                     'group_id' => 'dup_grp_' . $groupIndex++,
                     'group_key' => $groupKey,
-                    'customer_name' => $firstOrder->customer?->name ?: 'Customer',
+                    'customer_name' => $resolveCustomerName($firstOrder),
                     'customer_phone' => $firstOrder->customer_phone ?: $firstOrder->customer?->phone ?: '',
                     'normalized_phone' => $firstOrder->normalized_phone,
                     'customer_address' => $firstOrder->customer_address ?: '',
@@ -933,23 +1016,37 @@ class OrderController extends Controller
         }
 
         // Standalone multi-quantity orders (not part of duplicate groups)
+        // ONLY flagged if the customer ordered quantity >= 2 for the EXACT SAME product AND EXACT SAME size.
+        // Orders with multiple different sizes or different products are NOT problems and are excluded.
         $standaloneMultiQtyOrders = [];
         foreach ($rawOrders as $order) {
             if (isset($duplicateOrderIds[$order->id])) {
                 continue;
             }
 
-            $isMultiQty = ($order->quantity > 1);
-            if (! $isMultiQty && is_array($order->items_data) && ! empty($order->items_data)) {
-                foreach ($order->items_data as $item) {
-                    if (($item['quantity'] ?? 1) > 1) {
-                        $isMultiQty = true;
-                        break;
-                    }
+            $items = $extractOrderItems($order);
+            $hasSameProductSameSizeMultiQty = false;
+            $productSizeCounts = [];
+
+            foreach ($items as $it) {
+                $pKey = $it['product_id'] ? 'pid_' . $it['product_id'] : 'pname_' . Str::slug($it['name']);
+                $sKey = strtolower(trim((string) $it['size']));
+                $key = $pKey . '__' . $sKey;
+
+                $qty = (int) ($it['quantity'] ?? 1);
+                if ($qty >= 2) {
+                    $hasSameProductSameSizeMultiQty = true;
+                    break;
+                }
+
+                $productSizeCounts[$key] = ($productSizeCounts[$key] ?? 0) + $qty;
+                if ($productSizeCounts[$key] >= 2) {
+                    $hasSameProductSameSizeMultiQty = true;
+                    break;
                 }
             }
 
-            if ($isMultiQty) {
+            if ($hasSameProductSameSizeMultiQty) {
                 $order->is_multi_qty = true;
                 $standaloneMultiQtyOrders[] = $order;
             }
@@ -1938,16 +2035,55 @@ class OrderController extends Controller
 
             $relatedOrders = $relQuery->get(['id', 'customer_id', 'customer_phone', 'product_id', 'quantity', 'items_data', 'wc_raw_data', 'notes', 'order_status', 'created_at']);
 
+            $extractSize = function ($it, $defaultSize) {
+                $size = trim((string) ($it['size'] ?? ''));
+                if (empty($size) && ! empty($it['meta_data']) && is_array($it['meta_data'])) {
+                    foreach ($it['meta_data'] as $m) {
+                        $k = strtolower((string) ($m['key'] ?? $m['display_key'] ?? ''));
+                        $v = trim((string) ($m['value'] ?? $m['display_value'] ?? ''));
+                        if (str_contains($k, 'size') || str_contains($k, 'সাইজ')) {
+                            $size = $v;
+                            break;
+                        }
+                    }
+                }
+                return ! empty($size) ? $size : trim((string) $defaultSize);
+            };
+
             $groups = [];
             foreach ($relatedOrders as $ord) {
                 $norm = $normalizePhone($ord->customer_phone);
                 if (empty($norm)) continue;
-                $pKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_' . Str::slug($ord->items_data[0]['name'] ?? 'product');
-                $k = $norm . '__' . $pKey;
-                if (! isset($groups[$k])) {
-                    $groups[$k] = [];
+
+                $rawItems = $ord->items_data;
+                if (empty($rawItems) && is_array($ord->wc_raw_data) && ! empty($ord->wc_raw_data['line_items'])) {
+                    $rawItems = $ord->wc_raw_data['line_items'];
                 }
-                $groups[$k][] = $ord;
+
+                $seenKeys = [];
+                if (! empty($rawItems) && is_array($rawItems)) {
+                    foreach ($rawItems as $it) {
+                        $pId = $it['product_id'] ?? null;
+                        $name = $it['name'] ?? $it['product_name'] ?? 'product';
+                        $size = $extractSize($it, $ord->size ?? '');
+                        $pKey = $pId ? 'pid_' . $pId : 'pname_' . Str::slug($name);
+                        $sKey = strtolower($size);
+                        $k = $norm . '__' . $pKey . '__' . $sKey;
+
+                        if (! in_array($k, $seenKeys)) {
+                            $seenKeys[] = $k;
+                            if (! isset($groups[$k])) {
+                                $groups[$k] = [];
+                            }
+                            $groups[$k][] = $ord;
+                        }
+                    }
+                } else {
+                    $pKey = $ord->product_id ? 'pid_' . $ord->product_id : 'pname_product';
+                    $sKey = strtolower(trim((string) ($ord->size ?? '')));
+                    $k = $norm . '__' . $pKey . '__' . $sKey;
+                    $groups[$k][] = $ord;
+                }
             }
 
             $groupResolvedMap = [];
@@ -1987,15 +2123,35 @@ class OrderController extends Controller
             $isDuplicate = isset($duplicateMap[$order->id]);
             $isConflictResolved = ! empty($groupResolvedMap[$order->id]);
 
-            // Check multi-quantity (double or multiple quantity in same order)
-            $isMultiQty = ($order->quantity > 1);
-            if (! $isMultiQty && is_array($order->items_data) && ! empty($order->items_data)) {
-                foreach ($order->items_data as $item) {
-                    if (($item['quantity'] ?? 1) > 1) {
+            // Check multi-quantity: ONLY true if the customer ordered quantity >= 2 of the EXACT SAME product & size
+            $isMultiQty = false;
+            $rawItems = $order->items_data;
+            if (empty($rawItems) && is_array($order->wc_raw_data) && ! empty($order->wc_raw_data['line_items'])) {
+                $rawItems = $order->wc_raw_data['line_items'];
+            }
+
+            if (! empty($rawItems) && is_array($rawItems)) {
+                $itemCounts = [];
+                foreach ($rawItems as $it) {
+                    $pId = $it['product_id'] ?? null;
+                    $name = $it['name'] ?? $it['product_name'] ?? 'product';
+                    $size = $extractSize($it, $order->size ?? '');
+                    $pKey = $pId ? 'pid_' . $pId : 'pname_' . Str::slug($name);
+                    $key = $pKey . '__' . strtolower($size);
+
+                    $q = (int) ($it['quantity'] ?? $it['qty'] ?? 1);
+                    if ($q >= 2) {
+                        $isMultiQty = true;
+                        break;
+                    }
+                    $itemCounts[$key] = ($itemCounts[$key] ?? 0) + $q;
+                    if ($itemCounts[$key] >= 2) {
                         $isMultiQty = true;
                         break;
                     }
                 }
+            } else {
+                $isMultiQty = ((int) ($order->quantity ?? 1)) >= 2;
             }
 
             // Check if resolved by CX Operation or conflict resolved

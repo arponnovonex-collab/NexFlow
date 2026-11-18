@@ -33,6 +33,30 @@ import {
 } from 'lucide-react';
 
 /**
+ * Helper to robustly resolve customer name from order, customer relation, or WooCommerce raw billing/shipping.
+ */
+const resolveCustomerName = (order) => {
+    if (!order) return 'সম্মানিত গ্রাহক';
+    if (order.customer_display_name && order.customer_display_name !== 'Customer') {
+        return order.customer_display_name;
+    }
+    const cName = order.customer?.name?.trim();
+    if (cName && cName.toLowerCase() !== 'customer' && cName.toLowerCase() !== 'website customer' && cName.toLowerCase() !== 'guest customer') {
+        return cName;
+    }
+    const raw = order.wc_raw_data;
+    if (raw && typeof raw === 'object') {
+        const bFirst = raw.billing?.first_name || raw.shipping?.first_name || '';
+        const bLast = raw.billing?.last_name || raw.shipping?.last_name || '';
+        const bFull = `${bFirst} ${bLast}`.trim();
+        if (bFull && bFull.toLowerCase() !== 'customer') {
+            return bFull;
+        }
+    }
+    return cName || order.customer_name || 'সম্মানিত গ্রাহক';
+};
+
+/**
  * Helper to robustly extract order items with Name, Size, Color, Quantity, and Price.
  */
 const extractOrderItems = (order) => {
@@ -274,54 +298,53 @@ const OrderCard = ({
                     </div>
                 </div>
 
-                {/* Standalone Customer Row (If not in duplicate group) */}
-                {!isDuplicateSubCard && (
-                    <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800">
-                        <div className="min-w-0">
-                            <span className="text-xs font-bold text-white truncate block">
-                                {order.customer?.name || 'Customer'}
-                            </span>
-                            <span className="text-[11px] font-mono text-indigo-300">
-                                {rawPhone || 'No Phone'}
-                            </span>
-                        </div>
-                        {rawPhone && (
-                            <div className="flex items-center gap-1.5 shrink-0">
-                                {onTriggerAiCall && !isCancelled && (
-                                    <button
-                                        type="button"
-                                        onClick={() => onTriggerAiCall(order)}
-                                        disabled={actionLoadingId === `ai-${order.id}`}
-                                        className="p-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                                        title="AI ভয়েস ভেরিফিকেশন কল দিন"
-                                    >
-                                        {actionLoadingId === `ai-${order.id}` ? (
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        ) : (
-                                            <Bot className="w-3.5 h-3.5" />
-                                        )}
-                                    </button>
-                                )}
-                                <Link
-                                    to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
-                                    className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
-                                    title="IP কল দিন"
-                                >
-                                    <PhoneCall className="w-3.5 h-3.5" />
-                                </Link>
-                                <a
-                                    href={`https://wa.me/${waPhone}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                                    title="WhatsApp"
-                                >
-                                    <MessageCircle className="w-3.5 h-3.5" />
-                                </a>
-                            </div>
-                        )}
+                {/* Customer Information Row */}
+                <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+                    <div className="min-w-0">
+                        <span className="text-xs font-bold text-white truncate flex items-center gap-1.5" title={resolveCustomerName(order)}>
+                            <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                            <span className="truncate">{resolveCustomerName(order)}</span>
+                        </span>
+                        <span className="text-[11px] font-mono text-indigo-300 block mt-0.5">
+                            {rawPhone || 'No Phone'}
+                        </span>
                     </div>
-                )}
+                    {rawPhone && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            {onTriggerAiCall && !isCancelled && (
+                                <button
+                                    type="button"
+                                    onClick={() => onTriggerAiCall(order)}
+                                    disabled={actionLoadingId === `ai-${order.id}`}
+                                    className="p-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                    title="AI ভয়েস ভেরিফিকেশন কল দিন"
+                                >
+                                    {actionLoadingId === `ai-${order.id}` ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Bot className="w-3.5 h-3.5" />
+                                    )}
+                                </button>
+                            )}
+                            <Link
+                                to={`/call-center/ip-call?phone=${encodeURIComponent(rawPhone)}`}
+                                className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1"
+                                title="IP কল দিন"
+                            >
+                                <PhoneCall className="w-3.5 h-3.5" />
+                            </Link>
+                            <a
+                                href={`https://wa.me/${waPhone}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                                title="WhatsApp"
+                            >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                            </a>
+                        </div>
+                    )}
+                </div>
 
                 {/* Product & Attribute Specs */}
                 <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-2">
@@ -799,7 +822,7 @@ export const CxOperationsPage = () => {
         }
 
         const confirmCall = window.confirm(
-            `📞 AI Order Verification Call\n\nগ্রাহক: ${order.customer?.name || 'Customer'}\nফোন: ${phone}\nঅর্ডার: #${order.order_number}\n\nসিস্টেম গ্রাহককে কল করে পণ্য নিশ্চিত (১) বা বাতিল (২) করতে বলবে। কল পাঠাতে চান?`
+            `📞 AI Order Verification Call\n\nগ্রাহক: ${resolveCustomerName(order)}\nফোন: ${phone}\nঅর্ডার: #${order.order_number}\n\nসিস্টেম গ্রাহককে কল করে পণ্য নিশ্চিত (১) বা বাতিল (২) করতে বলবে। কল পাঠাতে চান?`
         );
         if (!confirmCall) return;
 
@@ -854,7 +877,7 @@ export const CxOperationsPage = () => {
             quantity: totalQty || order.quantity || 1,
             delivery_charge: delivery,
             total_amount: totalAmount,
-            customer_name: order.customer?.name || '',
+            customer_name: resolveCustomerName(order),
             customer_phone: order.customer_phone || order.customer?.phone || '',
             customer_address: order.customer_address || '',
             customer_email: order.customer_email || order.customer?.email || '',
@@ -1236,7 +1259,7 @@ export const CxOperationsPage = () => {
                                                 <div>
                                                     <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="text-base font-extrabold text-white">
-                                                            {group.customer_name}
+                                                            {group.customer_name || resolveCustomerName(group.orders?.[0])}
                                                         </span>
                                                         <span className="text-xs font-mono font-bold text-rose-300 bg-rose-950/80 px-2.5 py-0.5 rounded border border-rose-500/30">
                                                             {rawPhone || 'No Phone'}
@@ -1379,7 +1402,7 @@ export const CxOperationsPage = () => {
                         <div className="space-y-3">
                             <h3 className="text-sm font-bold text-cyan-300 flex items-center gap-1.5 px-1">
                                 <Package className="w-4 h-4 text-cyan-400" />
-                                <span>বাল্ক কোয়ান্টিটি অর্ডারসমূহ (Cart Quantity &gt; 1)</span>
+                                <span>একই পণ্য ও সাইজে একাধিক কোয়ান্টিটি (Same Product & Size Qty &ge; 2)</span>
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
