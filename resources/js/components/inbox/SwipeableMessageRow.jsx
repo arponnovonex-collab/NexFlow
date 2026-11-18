@@ -544,10 +544,19 @@ export const SwipeableMessageRow = ({
 
                     {/* Grouped Reactions Pill Badge */}
                     {(() => {
-                        const reactionsList = Array.isArray(msg.metadata?.reactions)
-                            ? msg.metadata.reactions
-                            : [];
-                        if (reactionsList.length === 0) return null;
+                        let reactionsList = msg.metadata?.reactions;
+                        if (typeof msg.metadata === 'string') {
+                            try {
+                                const parsed = JSON.parse(msg.metadata);
+                                reactionsList = parsed?.reactions;
+                            } catch (e) {}
+                        }
+                        if (typeof reactionsList === 'string') {
+                            try {
+                                reactionsList = JSON.parse(reactionsList);
+                            } catch (e) {}
+                        }
+                        if (!Array.isArray(reactionsList) || reactionsList.length === 0) return null;
 
                         const grouped = {};
                         reactionsList.forEach((r) => {
@@ -660,7 +669,14 @@ export const SwipeableMessageRow = ({
                                 }`}
                             >
                                 {QUICK_EMOJIS.map((emoji) => {
-                                    const isUserReacted = (msg.metadata?.reactions || []).some(
+                                    let reactionsList = msg.metadata?.reactions;
+                                    if (typeof msg.metadata === 'string') {
+                                        try {
+                                            const parsed = JSON.parse(msg.metadata);
+                                            reactionsList = parsed?.reactions;
+                                        } catch (e) {}
+                                    }
+                                    const isUserReacted = (Array.isArray(reactionsList) ? reactionsList : []).some(
                                         (r) =>
                                             r.emoji === emoji &&
                                             (r.user_id === currentUserId || (r.by === 'moderator' && (!r.user_id || r.user_id === currentUserId)))

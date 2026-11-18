@@ -396,9 +396,16 @@ export const UnifiedInboxPage = () => {
         if (!targetMsg || !activeConversation) return;
 
         // Current reactions list
-        const currentReactions = Array.isArray(targetMsg.metadata?.reactions)
-            ? [...targetMsg.metadata.reactions]
-            : [];
+        let currentReactions = targetMsg.metadata?.reactions;
+        if (typeof targetMsg.metadata === 'string') {
+            try {
+                const parsed = JSON.parse(targetMsg.metadata);
+                currentReactions = parsed?.reactions;
+            } catch (e) {}
+        }
+        if (!Array.isArray(currentReactions)) {
+            currentReactions = [];
+        }
 
         // Check if current user already reacted
         const existingIdx = currentReactions.findIndex(
@@ -439,20 +446,28 @@ export const UnifiedInboxPage = () => {
             ];
         }
 
-        // Optimistic UI update
-        setMessages((prev) =>
-            prev.map((m) =>
+        // Optimistic UI update in activeConversation
+        setActiveConversation((prev) => {
+            if (!prev) return prev;
+            const updatedMessages = (prev.messages || []).map((m) =>
                 m.id === targetMsg.id
                     ? {
                           ...m,
                           metadata: {
-                              ...(m.metadata || {}),
+                              ...(typeof m.metadata === 'object' && m.metadata !== null ? m.metadata : {}),
                               reactions: newReactions,
                           },
                       }
                     : m
-            )
-        );
+            );
+            if (convMessagesCacheRef.current) {
+                convMessagesCacheRef.current[prev.id] = updatedMessages;
+            }
+            return {
+                ...prev,
+                messages: updatedMessages,
+            };
+        });
 
         // Send to backend API
         try {
@@ -462,16 +477,24 @@ export const UnifiedInboxPage = () => {
             );
             if (res.data?.data) {
                 const serverMsg = res.data.data;
-                setMessages((prev) =>
-                    prev.map((m) =>
+                setActiveConversation((prev) => {
+                    if (!prev) return prev;
+                    const updatedMessages = (prev.messages || []).map((m) =>
                         m.id === serverMsg.id
                             ? {
                                   ...m,
                                   metadata: serverMsg.metadata,
                               }
                             : m
-                    )
-                );
+                    );
+                    if (convMessagesCacheRef.current) {
+                        convMessagesCacheRef.current[prev.id] = updatedMessages;
+                    }
+                    return {
+                        ...prev,
+                        messages: updatedMessages,
+                    };
+                });
             }
         } catch (err) {
             console.error('Failed to react to message:', err);
