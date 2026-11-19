@@ -1133,6 +1133,16 @@ class OrderController extends Controller
                 }
 
                 $retainedOrder->update($updateData);
+
+                if ($retainedOrder->wc_order_id) {
+                    try {
+                        app(\App\Services\WooCommerceService::class)->updateOrderStatusInWooCommerce(
+                            (int) $retainedOrder->wc_order_id,
+                            $updateData['order_status'] ?? $retainedOrder->order_status,
+                            $noteMsg
+                        );
+                    } catch (\Throwable $e) {}
+                }
             }
         }
     }
@@ -1299,23 +1309,41 @@ class OrderController extends Controller
 
         $order->update($validated);
 
+        $wcSynced = null;
+        $wcMessage = null;
+
         if ($order->wc_order_id) {
             try {
                 $wcRes = app(\App\Services\WooCommerceService::class)->updateOrderInWooCommerce(
                     $order,
                     $validated
                 );
-                if (! ($wcRes['success'] ?? false)) {
-                    \Log::warning("WooCommerce update returned false for #{$order->order_number}: " . ($wcRes['message'] ?? ''));
+                $wcSynced = $wcRes['success'] ?? false;
+                $wcMessage = $wcRes['message'] ?? null;
+                if (! $wcSynced) {
+                    \Log::warning("WooCommerce update returned false for #{$order->order_number}: " . ($wcMessage ?? ''));
                 }
             } catch (\Throwable $e) {
                 \Log::error("Failed to sync order #{$order->order_number} to WooCommerce: " . $e->getMessage());
+                $wcSynced = false;
+                $wcMessage = $e->getMessage();
+            }
+        }
+
+        $userMsg = "Order #{$order->order_number} সফলভাবে আপডেট হয়েছে!";
+        if ($order->wc_order_id) {
+            if ($wcSynced) {
+                $userMsg = "✅ Order #{$order->order_number} সফলভাবে আপডেট এবং WooCommerce ওয়েবসাইটে সিঙ্ক করা হয়েছে!";
+            } else {
+                $userMsg = "⚠️ Order #{$order->order_number} NexFlow-এ আপডেট হয়েছে, তবে ওয়েবসাইটে সিঙ্ক হতে সমস্যা হয়েছে: " . ($wcMessage ?: 'ত্রুটি');
             }
         }
 
         return response()->json([
             'status' => 'success',
-            'message' => "Order #{$order->order_number} updated successfully!",
+            'message' => $userMsg,
+            'wc_synced' => $wcSynced,
+            'wc_message' => $wcMessage,
             'data' => $order->fresh(['customer', 'product', 'variant']),
         ]);
     }

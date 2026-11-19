@@ -102,9 +102,13 @@ const extractOrderItems = (order) => {
             if (!size && rawItems.length === 1 && order.size) size = order.size;
             if (!color && rawItems.length === 1 && order.color) color = order.color;
 
+            const isRealWcId = item.id && !isNaN(item.id) && String(item.id).length < 10;
+
             return {
                 id: item.id || idx,
+                wc_line_item_id: isRealWcId ? Number(item.id) : null,
                 product_id: item.product_id || null,
+                variation_id: item.variation_id || null,
                 name: name,
                 size: size,
                 color: color,
@@ -116,7 +120,10 @@ const extractOrderItems = (order) => {
 
     return [
         {
-            id: 1,
+            id: 'item_1',
+            wc_line_item_id: null,
+            product_id: order?.product?.wc_product_id || order?.product_id || null,
+            variation_id: order?.variant_id || null,
             name: order?.product?.name || 'Product',
             size: order?.size || '',
             color: order?.color || '',
@@ -269,12 +276,17 @@ export const WebsiteOrdersPage = () => {
     const handleAddItem = (preset = null) => {
         setEditForm((prev) => {
             const newItem = {
-                id: Date.now() + Math.random(),
+                id: 'new_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7),
+                is_new: true,
+                wc_line_item_id: null,
+                product_id: preset?.product_id || preset?.wc_product_id || preset?.id || null,
+                wc_product_id: preset?.wc_product_id || null,
+                variation_id: preset?.variation_id || null,
                 name: preset?.name || '',
                 size: preset?.size || '',
                 color: preset?.color || '',
                 quantity: preset?.quantity || 1,
-                price: preset?.price !== undefined ? parseFloat(preset.price) : 0,
+                price: preset?.price !== undefined ? parseFloat(preset.price) : (parseFloat(preset?.selling_price) || 0),
             };
             const updatedItems = [...prev.items, newItem];
             const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
@@ -333,7 +345,7 @@ export const WebsiteOrdersPage = () => {
 
             const res = await api.put(`/orders/${editingOrder.id}`, payload);
             if (res.data.status === 'success') {
-                alert(`✅ Order #${editingOrder.order_number} সফলভাবে আপডেট এবং WooCommerce-এ সেভ করা হয়েছে!`);
+                alert(res.data.message || `✅ Order #${editingOrder.order_number} সফলভাবে আপডেট এবং WooCommerce-এ সেভ করা হয়েছে!`);
                 setEditModalOpen(false);
                 setEditingOrder(null);
                 fetchOrders(page, perPage, true);

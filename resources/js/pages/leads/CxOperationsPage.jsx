@@ -122,9 +122,13 @@ const extractOrderItems = (order) => {
             if (!size && rawItems.length === 1 && order.size) size = order.size;
             if (!color && rawItems.length === 1 && order.color) color = order.color;
 
+            const isRealWcId = item.id && !isNaN(item.id) && String(item.id).length < 10;
+
             return {
                 id: item.id || idx,
+                wc_line_item_id: isRealWcId ? Number(item.id) : null,
                 product_id: item.product_id || null,
+                variation_id: item.variation_id || null,
                 name: name,
                 size: size,
                 color: color,
@@ -136,7 +140,10 @@ const extractOrderItems = (order) => {
 
     return [
         {
-            id: 1,
+            id: 'item_1',
+            wc_line_item_id: null,
+            product_id: order.product?.wc_product_id || order.product_id || null,
+            variation_id: order.variant_id || null,
             name: order.product?.name || 'Product',
             size: order.size || '',
             color: order.color || '',
@@ -1030,8 +1037,12 @@ export const CxOperationsPage = () => {
     const handleAddItem = (preset = null) => {
         setEditForm((prev) => {
             const newItem = {
-                id: Date.now() + Math.random(),
-                product_id: preset?.product_id || preset?.id || null,
+                id: 'new_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7),
+                is_new: true,
+                wc_line_item_id: null,
+                product_id: preset?.product_id || preset?.wc_product_id || preset?.id || null,
+                wc_product_id: preset?.wc_product_id || null,
+                variation_id: preset?.variation_id || null,
                 name: preset?.name || '',
                 size: preset?.size || '',
                 color: preset?.color || '',
@@ -1063,7 +1074,9 @@ export const CxOperationsPage = () => {
         setEditForm((prev) => {
             const mergedItems = [...prev.items, ...siblingItems.map((it) => ({
                 ...it,
-                id: Date.now() + Math.random(),
+                id: 'new_' + Date.now() + '_' + Math.random().toString(36).substr(2, 7),
+                is_new: true,
+                wc_line_item_id: null,
             }))];
 
             const totalQty = mergedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
@@ -1170,7 +1183,7 @@ export const CxOperationsPage = () => {
 
             const res = await api.put(`/orders/${editingOrder.id}`, payload);
             if (res.data.status === 'success') {
-                alert(`✅ Order #${editingOrder.order_number} updated successfully!`);
+                alert(res.data.message || `✅ Order #${editingOrder.order_number} updated successfully!`);
                 setEditModalOpen(false);
                 setEditingOrder(null);
                 fetchCxOrders(true);
@@ -1821,7 +1834,8 @@ export const CxOperationsPage = () => {
                                                         if (selectedProd) {
                                                             handleItemChange(idx, 'name', selectedProd.name);
                                                             handleItemChange(idx, 'price', parseFloat(selectedProd.selling_price) || 0);
-                                                            handleItemChange(idx, 'product_id', selectedProd.id);
+                                                            handleItemChange(idx, 'product_id', selectedProd.wc_product_id || selectedProd.id);
+                                                            handleItemChange(idx, 'wc_product_id', selectedProd.wc_product_id || null);
                                                         }
                                                     }}
                                                     className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-cyan-200 focus:outline-none focus:border-cyan-500 cursor-pointer"

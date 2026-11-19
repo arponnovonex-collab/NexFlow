@@ -851,8 +851,9 @@ class WooCommerceService
 
         // 1. Status sync
         $status = $changes['order_status'] ?? $order->order_status;
+        $targetWcStatus = null;
         if (! empty($status)) {
-            $payload['status'] = match ($status) {
+            $targetWcStatus = match ($status) {
                 'pending_confirmation' => 'on-hold',
                 'confirmed' => 'confirmed',
                 'processing' => 'processing',
@@ -862,6 +863,7 @@ class WooCommerceService
                 'returned' => 'refunded',
                 default => 'processing',
             };
+            $payload['status'] = $targetWcStatus;
         }
 
         // 2. Customer billing & shipping address sync
@@ -913,9 +915,33 @@ class WooCommerceService
             $wcLineItemsPayload = [];
             $keptItemIds = [];
 
+            // Existing line items on this WooCommerce order
+            $origLineItems = $order->wc_raw_data['line_items'] ?? [];
+            $origLineItemMap = [];
+            if (is_array($origLineItems)) {
+                foreach ($origLineItems as $origLi) {
+                    $origId = (int) ($origLi['id'] ?? 0);
+                    if ($origId > 0) {
+                        $origLineItemMap[$origId] = $origLi;
+                    }
+                }
+            }
+
             foreach ($newItems as $it) {
                 $liId = $it['id'] ?? null;
-                $qty = (int) ($it['quantity'] ?? 1);
+                $wcLiId = $it['wc_line_item_id'] ?? null;
+                $isExplicitlyNew = ! empty($it['is_new']) || (is_string($liId) && str_starts_with($liId, 'new_'));
+
+                $matchedOrigId = null;
+                if (! $isExplicitlyNew) {
+                    if (! empty($wcLiId) && isset($origLineItemMap[(int) $wcLiId])) {
+                        $matchedOrigId = (int) $wcLiId;
+                    } elseif (! empty($liId) && is_numeric($liId) && isset($origLineItemMap[(int) $liId])) {
+                        $matchedOrigId = (int) $liId;
+                    }
+                }
+
+                $qty = max(1, (int) ($it['quantity'] ?? 1));
                 $unitPrice = (float) ($it['price'] ?? 0);
                 $itemTotal = $qty * $unitPrice;
 
@@ -923,13 +949,36 @@ class WooCommerceService
                     'quantity' => $qty,
                 ];
 
-                if (! empty($liId) && is_numeric($liId)) {
-                    $lineItemEntry['id'] = (int) $liId;
-                    $keptItemIds[] = (int) $liId;
-                } elseif (! empty($it['product_id'])) {
-                    $lineItemEntry['product_id'] = (int) $it['product_id'];
-                    if (! empty($it['variation_id'])) {
-                        $lineItemEntry['variation_id'] = (int) $it['variation_id'];
+                if ($matchedOrigId) {
+                    // Updating an existing line item on this WooCommerce order
+                    $lineItemEntry['id'] = $matchedOrigId;
+                    $keptItemIds[] = $matchedOrigId;
+                } else {
+                    // Adding a NEW line item (do NOT pass 'id', as that causes invalid item ID in WooCommerce)
+                    $wcPid = null;
+                    $wcVarId = ! empty($it['variation_id']) ? (int) $it['variation_id'] : null;
+
+                    if (! empty($it['wc_product_id'])) {
+                        $wcPid = (int) $it['wc_product_id'];
+                    } elseif (! empty($it['product_id'])) {
+                        $localProd = \App\Models\Product::where('id', $it['product_id'])
+                            ->orWhere('wc_product_id', $it['product_id'])
+                            ->first();
+                        if ($localProd && ! empty($localProd->wc_product_id)) {
+                            $wcPid = (int) $localProd->wc_product_id;
+                        } elseif (is_numeric($it['product_id'])) {
+                            $wcPid = (int) $it['product_id'];
+                        }
+                    }
+
+                    if (! empty($wcPid)) {
+                        $lineItemEntry['product_id'] = $wcPid;
+                    }
+                    if (! empty($wcVarId)) {
+                        $lineItemEntry['variation_id'] = $wcVarId;
+                    }
+                    if (! empty($it['name'])) {
+                        $lineItemEntry['name'] = (string) $it['name'];
                     }
                 }
 
@@ -954,16 +1003,12 @@ class WooCommerceService
             }
 
             // Remove line items that were deleted in NexFlow
-            $origLineItems = $order->wc_raw_data['line_items'] ?? [];
-            if (is_array($origLineItems) && ! empty($origLineItems)) {
-                foreach ($origLineItems as $origLi) {
-                    $origId = (int) ($origLi['id'] ?? 0);
-                    if ($origId > 0 && ! in_array($origId, $keptItemIds, true)) {
-                        $wcLineItemsPayload[] = [
-                            'id' => $origId,
-                            'quantity' => 0,
-                        ];
-                    }
+            foreach (array_keys($origLineItemMap) as $origId) {
+                if (! in_array($origId, $keptItemIds, true)) {
+                    $wcLineItemsPayload[] = [
+                        'id' => $origId,
+                        'quantity' => 0,
+                    ];
                 }
             }
 
@@ -975,18 +1020,26 @@ class WooCommerceService
         // 5. Shipping lines (Delivery Charge)
         $deliveryCharge = isset($changes['delivery_charge']) ? (float) $changes['delivery_charge'] : (float) $order->delivery_charge;
         if ($deliveryCharge >= 0) {
+            $shippingTitle = match ((int) $deliveryCharge) {
+                80 => 'Inside Dhaka (৳80)',
+                130 => 'Outside Dhaka (৳130)',
+                0 => 'Free Delivery (৳0)',
+                default => "Delivery Charge (৳{$deliveryCharge})",
+            };
+
             $origShippingLines = $order->wc_raw_data['shipping_lines'] ?? [];
             if (is_array($origShippingLines) && ! empty($origShippingLines) && ! empty($origShippingLines[0]['id'])) {
                 $payload['shipping_lines'] = [
                     [
                         'id' => (int) $origShippingLines[0]['id'],
+                        'method_title' => $shippingTitle,
                         'total' => number_format($deliveryCharge, 2, '.', ''),
                     ],
                 ];
             } else {
                 $payload['shipping_lines'] = [
                     [
-                        'method_title' => 'Delivery Charge',
+                        'method_title' => $shippingTitle,
                         'method_id' => 'flat_rate',
                         'total' => number_format($deliveryCharge, 2, '.', ''),
                     ],
@@ -996,9 +1049,17 @@ class WooCommerceService
 
         $cleanUrl = rtrim(trim($settings->store_url), '/');
         try {
-            $res = Http::timeout(15)
+            $res = Http::timeout(20)
                 ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
                 ->put("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}", $payload);
+
+            // If failed due to custom 'confirmed' status not existing in WooCommerce, retry with 'processing'
+            if (! $res->successful() && $targetWcStatus === 'confirmed') {
+                $payload['status'] = 'processing';
+                $res = Http::timeout(20)
+                    ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
+                    ->put("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}", $payload);
+            }
 
             if ($res->successful()) {
                 $updatedWcData = $res->json();
@@ -1021,7 +1082,48 @@ class WooCommerceService
                         $updatedWcData[$k] = $existingRaw[$k];
                     }
                 }
-                $order->update(['wc_raw_data' => $updatedWcData]);
+
+                // Refresh items_data with fresh WooCommerce line_items so future edits have WooCommerce line item IDs
+                $freshLineItems = [];
+                if (! empty($updatedWcData['line_items']) && is_array($updatedWcData['line_items'])) {
+                    foreach ($updatedWcData['line_items'] as $freshLi) {
+                        $itemSize = null;
+                        $itemColor = null;
+                        $itemVarParts = [];
+                        foreach ($freshLi['meta_data'] ?? [] as $meta) {
+                            $k = strtolower($meta['key'] ?? $meta['display_key'] ?? '');
+                            $v = trim((string) ($meta['value'] ?? $meta['display_value'] ?? ''));
+                            if (empty($v) || is_array($v)) continue;
+                            if (str_contains($k, 'size') || str_contains($k, 'সাইজ')) {
+                                $itemSize = $v;
+                                $itemVarParts[] = 'Size: ' . $v;
+                            } elseif (str_contains($k, 'color') || str_contains($k, 'colour') || str_contains($k, 'কালার')) {
+                                $itemColor = $v;
+                                $itemVarParts[] = 'Color: ' . $v;
+                            }
+                        }
+                        $freshLineItems[] = [
+                            'id' => $freshLi['id'] ?? null,
+                            'product_id' => $freshLi['product_id'] ?? null,
+                            'variation_id' => $freshLi['variation_id'] ?? null,
+                            'name' => $freshLi['name'] ?? 'Product',
+                            'size' => $itemSize,
+                            'color' => $itemColor,
+                            'variation' => implode(', ', $itemVarParts),
+                            'quantity' => (int) ($freshLi['quantity'] ?? 1),
+                            'price' => (float) ($freshLi['price'] ?? 0),
+                            'total' => (float) ($freshLi['total'] ?? 0),
+                            'sku' => $freshLi['sku'] ?? '',
+                            'meta_data' => $freshLi['meta_data'] ?? [],
+                        ];
+                    }
+                }
+
+                $orderUpdateData = ['wc_raw_data' => $updatedWcData];
+                if (! empty($freshLineItems)) {
+                    $orderUpdateData['items_data'] = $freshLineItems;
+                }
+                $order->update($orderUpdateData);
 
                 return [
                     'success' => true,
@@ -1030,7 +1132,7 @@ class WooCommerceService
                 ];
             }
 
-            Log::warning("WooCommerce update order #{$wcOrderId} response: " . $res->body());
+            Log::warning("WooCommerce update order #{$wcOrderId} response ({$res->status()}): " . $res->body());
 
             return [
                 'success' => false,
@@ -1050,7 +1152,7 @@ class WooCommerceService
     /**
      * Push status update back to WooCommerce store.
      */
-    public function updateOrderStatusInWooCommerce(int $wcOrderId, string $nexflowStatus): bool
+    public function updateOrderStatusInWooCommerce(int $wcOrderId, string $nexflowStatus, ?string $customNote = null): bool
     {
         $settings = $this->getSettings();
         if (! $settings->is_enabled || empty($settings->store_url)) {
@@ -1077,10 +1179,10 @@ class WooCommerceService
                 ]);
 
             if ($res->successful()) {
-                $noteText = match ($wcStatus) {
-                    'confirmed' => '✅ [ePBX AI Call] গ্রাহক ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
-                    'cancelled' => '❌ [ePBX AI Call] গ্রাহক ফোনে ২ চেপে অর্ডার বাতিল করেছেন।',
-                    default => "[ePBX AI Call] অর্ডার স্ট্যাটাস '{$wcStatus}'-এ আপডেট করা হয়েছে।",
+                $noteText = $customNote ?: match ($wcStatus) {
+                    'confirmed' => '✅ [NexFlow CRM] অর্ডার কনফার্ম করা হয়েছে।',
+                    'cancelled' => '❌ [NexFlow CRM] অর্ডার বাতিল করা হয়েছে।',
+                    default => "[NexFlow CRM] অর্ডার স্ট্যাটাস '{$wcStatus}'-এ আপডেট করা হয়েছে।",
                 };
 
                 try {
@@ -1106,10 +1208,11 @@ class WooCommerceService
 
                 if ($retryRes->successful()) {
                     try {
+                        $fallbackNote = $customNote ?: '✅ [NexFlow CRM] অর্ডার কনফার্ম করা হয়েছে।';
                         Http::timeout(10)
                             ->withBasicAuth($settings->consumer_key, $settings->consumer_secret)
                             ->post("{$cleanUrl}/wp-json/wc/v3/orders/{$wcOrderId}/notes", [
-                                'note' => '✅ [ePBX AI Call] গ্রাহক ফোনে ১ চেপে অর্ডার কনফার্ম করেছেন।',
+                                'note' => $fallbackNote,
                             ]);
                     } catch (\Throwable) {}
 
