@@ -63,7 +63,10 @@ class OrderController extends Controller
             $dt = Carbon::parse($request->date, 'Asia/Dhaka');
             $startUtc = $dt->copy()->startOfDay()->setTimezone('UTC');
             $endUtc = $dt->copy()->endOfDay()->setTimezone('UTC');
-            $query->whereBetween('created_at', [$startUtc, $endUtc]);
+            $query->where(function ($q) use ($startUtc, $endUtc, $request) {
+                $q->whereBetween('created_at', [$startUtc, $endUtc])
+                  ->orWhereDate('created_at', $request->date);
+            });
         } elseif ($request->filled('start_date') || $request->filled('end_date')) {
             $startUtc = $request->filled('start_date')
                 ? Carbon::parse($request->start_date, 'Asia/Dhaka')->startOfDay()->setTimezone('UTC')
@@ -71,7 +74,12 @@ class OrderController extends Controller
             $endUtc = $request->filled('end_date')
                 ? Carbon::parse($request->end_date, 'Asia/Dhaka')->endOfDay()->setTimezone('UTC')
                 : Carbon::now('Asia/Dhaka')->endOfDay()->setTimezone('UTC');
-            $query->whereBetween('created_at', [$startUtc, $endUtc]);
+            $sDate = $request->input('start_date', '2020-01-01');
+            $eDate = $request->input('end_date', Carbon::now('Asia/Dhaka')->format('Y-m-d'));
+            $query->where(function ($q) use ($startUtc, $endUtc, $sDate, $eDate) {
+                $q->whereBetween('created_at', [$startUtc, $endUtc])
+                  ->orWhereBetween(DB::raw('DATE(created_at)'), [$sDate, $eDate]);
+            });
         }
 
         if ($request->filled('search')) {
@@ -226,7 +234,10 @@ class OrderController extends Controller
                 $dt = Carbon::parse($request->date, 'Asia/Dhaka');
                 $startUtc = $dt->copy()->startOfDay()->setTimezone('UTC');
                 $endUtc = $dt->copy()->endOfDay()->setTimezone('UTC');
-                $query->whereBetween('created_at', [$startUtc, $endUtc]);
+                $query->where(function ($q) use ($startUtc, $endUtc, $request) {
+                    $q->whereBetween('created_at', [$startUtc, $endUtc])
+                      ->orWhereDate('created_at', $request->date);
+                });
             } elseif ($request->filled('start_date') || $request->filled('end_date')) {
                 $startUtc = $request->filled('start_date')
                     ? Carbon::parse($request->start_date, 'Asia/Dhaka')->startOfDay()->setTimezone('UTC')
@@ -234,7 +245,12 @@ class OrderController extends Controller
                 $endUtc = $request->filled('end_date')
                     ? Carbon::parse($request->end_date, 'Asia/Dhaka')->endOfDay()->setTimezone('UTC')
                     : Carbon::now('Asia/Dhaka')->endOfDay()->setTimezone('UTC');
-                $query->whereBetween('created_at', [$startUtc, $endUtc]);
+                $sDate = $request->input('start_date', '2020-01-01');
+                $eDate = $request->input('end_date', Carbon::now('Asia/Dhaka')->format('Y-m-d'));
+                $query->where(function ($q) use ($startUtc, $endUtc, $sDate, $eDate) {
+                    $q->whereBetween('created_at', [$startUtc, $endUtc])
+                      ->orWhereBetween(DB::raw('DATE(created_at)'), [$sDate, $eDate]);
+                });
             }
 
             if ($request->filled('search')) {
@@ -299,6 +315,22 @@ class OrderController extends Controller
             $dateSuffix = 'All_Time_' . Carbon::now('Asia/Dhaka')->format('Y-m-d');
         }
         $filename = "Problem_Free_Orders_{$dateSuffix}.csv";
+
+        if ($request->query('format') === 'json' || $request->input('format') === 'json') {
+            $rows = [];
+            $query->chunk(250, function ($orders) use (&$rows, $contactPhone, $defaultContactName) {
+                foreach ($orders as $order) {
+                    $rows[] = $this->buildProblemFreeExportRow($order, $contactPhone, $defaultContactName);
+                }
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'total' => count($rows),
+                'filename' => "Problem_Free_Orders_{$dateSuffix}.xlsx",
+                'data' => $rows,
+            ]);
+        }
 
         return response()->streamDownload(function () use ($query, $contactPhone, $defaultContactName) {
             $handle = fopen('php://output', 'w');

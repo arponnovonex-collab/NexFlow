@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import api from '../../api/client';
 import { useSipPhone } from '../../context/SipPhoneContext';
 import { Card } from '../../components/common/Card';
@@ -293,7 +294,7 @@ export const ProblemFreeOrdersPage = () => {
         }
     };
 
-    // Execute Export Orders to CSV (matches exact courier format)
+    // Execute Export Orders to Excel (.xlsx) (matches exact courier format)
     const handleExecuteExport = async () => {
         if (exportStatuses.length === 0) {
             alert('কমপক্ষে একটি স্ট্যাটাস সিলেক্ট করুন!');
@@ -304,6 +305,7 @@ export const ProblemFreeOrdersPage = () => {
             setExporting(true);
             const params = new URLSearchParams();
             params.append('problem_free', '1');
+            params.append('format', 'json');
 
             if (exportSource !== 'all') {
                 params.append('source', exportSource);
@@ -324,18 +326,50 @@ export const ProblemFreeOrdersPage = () => {
                 params.append('order_ids', selectedOrderIds.join(','));
             }
 
-            const res = await api.get(`/orders/export-problem-free?${params.toString()}`, {
-                responseType: 'blob',
-            });
+            const res = await api.get(`/orders/export-problem-free?${params.toString()}`);
+            const rawRows = res.data?.data || [];
 
-            const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
+            if (rawRows.length === 0) {
+                alert('নির্বাচিত তারিখ ও স্ট্যাটাসের কোনো সমস্যারহিত অর্ডার পাওয়া যায়নি।');
+                return;
+            }
+
+            const header = [
+                'Invoice',
+                'Name',
+                'Address',
+                'Phone',
+                'Amount',
+                'Note',
+                'Contact Name',
+                'Contact Phone',
+                'Lot',
+                'Delivery Type',
+            ];
+
+            const worksheetData = [header, ...rawRows];
+            const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+
+            // Configure generous column widths so Excel displays every column nicely
+            ws['!cols'] = [
+                { wch: 45 }, // Invoice (Product | Variation | Qty)
+                { wch: 24 }, // Name
+                { wch: 45 }, // Address
+                { wch: 18 }, // Phone
+                { wch: 14 }, // Amount
+                { wch: 25 }, // Note
+                { wch: 16 }, // Contact Name
+                { wch: 16 }, // Contact Phone
+                { wch: 8 },  // Lot
+                { wch: 14 }, // Delivery Type
+            ];
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Problem Free Orders');
 
             let dateLabel = '';
             if (exportStartDate && exportEndDate) {
-                dateLabel = `${exportStartDate}_to_${exportEndDate}`;
+                dateLabel = exportStartDate === exportEndDate ? exportStartDate : `${exportStartDate}_to_${exportEndDate}`;
             } else if (exportStartDate) {
                 dateLabel = `from_${exportStartDate}`;
             } else if (exportEndDate) {
@@ -345,11 +379,9 @@ export const ProblemFreeOrdersPage = () => {
             }
 
             const scopeLabel = isSelectedOnly ? `_${selectedOrderIds.length}_orders` : '';
-            a.download = `Problem_Free_Orders_${dateLabel}${scopeLabel}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
+            const filename = `Problem_Free_Orders_${dateLabel}${scopeLabel}.xlsx`;
+
+            XLSX.writeFile(wb, filename);
 
             setExportModalOpen(false);
         } catch (err) {
@@ -579,7 +611,7 @@ export const ProblemFreeOrdersPage = () => {
                         <span>
                             {selectedOrderIds.length > 0
                                 ? `নির্বাচিত ${selectedOrderIds.length}টি Export`
-                                : 'Export Orders (CSV)'}
+                                : 'Export Orders (.xlsx)'}
                         </span>
                     </button>
 
@@ -848,7 +880,7 @@ export const ProblemFreeOrdersPage = () => {
                             ) : (
                                 <Download className="w-3.5 h-3.5" />
                             )}
-                            <span>শিট ডাউনলোড (CSV)</span>
+                            <span>শিট ডাউনলোড (.xlsx)</span>
                         </button>
                     </div>
                 </div>
@@ -1338,7 +1370,7 @@ export const ProblemFreeOrdersPage = () => {
                 <Modal
                     isOpen={exportModalOpen}
                     onClose={() => setExportModalOpen(false)}
-                    title="সমস্যারহিত অর্ডার এক্সপোর্ট (CSV Sheet Export)"
+                    title="সমস্যারহিত অর্ডার এক্সপোর্ট (Excel .xlsx Sheet)"
                     maxWidth="max-w-xl"
                 >
                     <div className="space-y-5 text-xs text-slate-200">
@@ -1590,7 +1622,7 @@ export const ProblemFreeOrdersPage = () => {
                         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
                             <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
                                 <FileSpreadsheet className="w-3.5 h-3.5 text-teal-400" />
-                                <span>কুরিয়ার ফরম্যাট: ১০টি কলামে CSV শিট তৈরি হবে</span>
+                                <span>কুরিয়ার ফরম্যাট: ১০টি কলামসহ আসল Microsoft Excel (.xlsx) ফাইল তৈরি হবে</span>
                             </div>
                             <p className="text-[10px] text-slate-500">
                                 Invoice (Product | Variation | Qty), Name, Address, Phone, Amount, Note, Contact Name, Contact Phone, Lot, Delivery Type
@@ -1621,7 +1653,7 @@ export const ProblemFreeOrdersPage = () => {
                                 ) : (
                                     <>
                                         <Download className="w-3.5 h-3.5" />
-                                        <span>এক্সপোর্ট করুন (CSV Download)</span>
+                                        <span>এক্সপোর্ট করুন (.xlsx Download)</span>
                                     </>
                                 )}
                             </button>
