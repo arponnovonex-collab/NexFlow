@@ -127,6 +127,14 @@ const resolveCustomerName = (order) => {
     return cName || order.customer_name || 'সম্মানিত গ্রাহক';
 };
 
+const ALL_EXPORT_STATUSES = [
+    { id: 'processing', label: 'প্রসেসিং (Processing)', color: 'border-amber-500/40 text-amber-300 bg-amber-500/10' },
+    { id: 'confirmed', label: 'কনফার্মড (Confirmed)', color: 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10' },
+    { id: 'pending', label: 'পেন্ডিং (Pending)', color: 'border-sky-500/40 text-sky-300 bg-sky-500/10' },
+    { id: 'shipped', label: 'কুরিয়ারে পাঠানো (Shipped)', color: 'border-indigo-500/40 text-indigo-300 bg-indigo-500/10' },
+    { id: 'delivered', label: 'ডেলিভারড (Delivered)', color: 'border-teal-500/40 text-teal-300 bg-teal-500/10' },
+];
+
 export const ProblemFreeOrdersPage = () => {
     const {
         makeCall,
@@ -154,6 +162,14 @@ export const ProblemFreeOrdersPage = () => {
     const [dateFilter, setDateFilter] = useState('');
     const [exporting, setExporting] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
+
+    // Export Modal State (Date range and Status selection)
+    const [exportModalOpen, setExportModalOpen] = useState(false);
+    const [exportStartDate, setExportStartDate] = useState('');
+    const [exportEndDate, setExportEndDate] = useState('');
+    const [exportStatuses, setExportStatuses] = useState(ALL_EXPORT_STATUSES.map((s) => s.id));
+    const [exportSource, setExportSource] = useState('all');
+    const [exportScope, setExportScope] = useState('all'); // 'all' or 'selected'
 
     // Pagination
     const [page, setPage] = useState(1);
@@ -248,23 +264,64 @@ export const ProblemFreeOrdersPage = () => {
         return () => clearInterval(interval);
     }, [autoRefresh, page, statusFilter, sourceFilter, search, dateFilter]);
 
-    // Export Orders to CSV (matches exact courier format)
-    const handleExportOrders = async (exportType = 'auto') => {
+    // Open Export Orders Modal (with Date Range and Status selectors)
+    const handleOpenExportModal = (forceScope = null) => {
+        const today = new Date().toLocaleDateString('en-CA');
+        setExportStartDate(dateFilter || today);
+        setExportEndDate(dateFilter || today);
+        setExportStatuses(ALL_EXPORT_STATUSES.map((s) => s.id)); // Default: all statuses selected!
+        setExportSource(sourceFilter || 'all');
+        if (forceScope) {
+            setExportScope(forceScope);
+        } else {
+            setExportScope(selectedOrderIds.length > 0 ? 'selected' : 'all');
+        }
+        setExportModalOpen(true);
+    };
+
+    const handleToggleExportStatus = (statusId) => {
+        setExportStatuses((prev) =>
+            prev.includes(statusId) ? prev.filter((s) => s !== statusId) : [...prev, statusId]
+        );
+    };
+
+    const handleSelectAllExportStatuses = () => {
+        if (exportStatuses.length === ALL_EXPORT_STATUSES.length) {
+            setExportStatuses([]);
+        } else {
+            setExportStatuses(ALL_EXPORT_STATUSES.map((s) => s.id));
+        }
+    };
+
+    // Execute Export Orders to CSV (matches exact courier format)
+    const handleExecuteExport = async () => {
+        if (exportStatuses.length === 0) {
+            alert('কমপক্ষে একটি স্ট্যাটাস সিলেক্ট করুন!');
+            return;
+        }
+
         try {
             setExporting(true);
             const params = new URLSearchParams();
             params.append('problem_free', '1');
-            if (sourceFilter !== 'all') params.append('source', sourceFilter);
-            if (statusFilter) params.append('order_status', statusFilter);
+
+            if (exportSource !== 'all') {
+                params.append('source', exportSource);
+            }
+
+            if (exportStatuses.length === ALL_EXPORT_STATUSES.length) {
+                params.append('statuses', 'all');
+            } else {
+                params.append('statuses', exportStatuses.join(','));
+            }
+
+            if (exportStartDate) params.append('start_date', exportStartDate);
+            if (exportEndDate) params.append('end_date', exportEndDate);
             if (search) params.append('search', search);
-            if (dateFilter) params.append('date', dateFilter);
 
-            const targetIds = exportType === 'selected' || (exportType === 'auto' && selectedOrderIds.length > 0)
-                ? selectedOrderIds
-                : [];
-
-            if (targetIds.length > 0) {
-                params.append('order_ids', targetIds.join(','));
+            const isSelectedOnly = exportScope === 'selected' && selectedOrderIds.length > 0;
+            if (isSelectedOnly) {
+                params.append('order_ids', selectedOrderIds.join(','));
             }
 
             const res = await api.get(`/orders/export-problem-free?${params.toString()}`, {
@@ -275,13 +332,26 @@ export const ProblemFreeOrdersPage = () => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            const dateStr = dateFilter || new Date().toISOString().split('T')[0];
-            const countLabel = targetIds.length > 0 ? `_${targetIds.length}_orders` : '';
-            a.download = `Problem_Free_Orders_${dateStr}${countLabel}.csv`;
+
+            let dateLabel = '';
+            if (exportStartDate && exportEndDate) {
+                dateLabel = `${exportStartDate}_to_${exportEndDate}`;
+            } else if (exportStartDate) {
+                dateLabel = `from_${exportStartDate}`;
+            } else if (exportEndDate) {
+                dateLabel = `to_${exportEndDate}`;
+            } else {
+                dateLabel = 'All_Dates';
+            }
+
+            const scopeLabel = isSelectedOnly ? `_${selectedOrderIds.length}_orders` : '';
+            a.download = `Problem_Free_Orders_${dateLabel}${scopeLabel}.csv`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
+
+            setExportModalOpen(false);
         } catch (err) {
             console.error('Export failed:', err);
             alert('অর্ডার শিট এক্সপোর্ট করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।');
@@ -496,10 +566,10 @@ export const ProblemFreeOrdersPage = () => {
                     {/* Export Orders Button */}
                     <button
                         type="button"
-                        onClick={() => handleExportOrders('auto')}
+                        onClick={() => handleOpenExportModal()}
                         disabled={exporting}
                         className="px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-950/40 transition-all cursor-pointer disabled:opacity-50"
-                        title="সমস্যারহিত অর্ডারের শিট ডাউনলোড করুন"
+                        title="সমস্যারহিত অর্ডারের শিট এক্সপোর্ট করুন"
                     >
                         {exporting ? (
                             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -516,7 +586,7 @@ export const ProblemFreeOrdersPage = () => {
                     {selectedOrderIds.length > 0 && (
                         <button
                             type="button"
-                            onClick={() => handleExportOrders('all')}
+                            onClick={() => handleOpenExportModal('all')}
                             disabled={exporting}
                             className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                             title="ফিল্টার করা সকল অর্ডার এক্সপোর্ট করুন"
@@ -768,10 +838,10 @@ export const ProblemFreeOrdersPage = () => {
                         <span>মোট: <b className="text-white font-mono">{pagination.total}</b> টি</span>
                         <button
                             type="button"
-                            onClick={() => handleExportOrders('auto')}
+                            onClick={() => handleOpenExportModal()}
                             disabled={exporting}
                             className="px-3 py-1.5 rounded-lg bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                            title="এই ফিল্টারের সমস্যারহিত অর্ডার শিট ডাউনলোড করুন"
+                            title="কাস্টম তারিখ ও স্ট্যাটাস সিলেক্ট করে শিট ডাউনলোড করুন"
                         >
                             {exporting ? (
                                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -1258,6 +1328,303 @@ export const ProblemFreeOrdersPage = () => {
                             >
                                 {savingEdit ? 'সংরক্ষণ হচ্ছে...' : 'সংরক্ষণ করুন'}
                             </Button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* Export Order Popup Modal */}
+            {exportModalOpen && (
+                <Modal
+                    isOpen={exportModalOpen}
+                    onClose={() => setExportModalOpen(false)}
+                    title="সমস্যারহিত অর্ডার এক্সপোর্ট (CSV Sheet Export)"
+                    maxWidth="max-w-xl"
+                >
+                    <div className="space-y-5 text-xs text-slate-200">
+                        {/* Scope notice if rows selected */}
+                        {selectedOrderIds.length > 0 && (
+                            <div className="p-3 rounded-xl bg-teal-950/50 border border-teal-500/30 flex items-center justify-between gap-3">
+                                <div>
+                                    <span className="font-bold text-teal-300 block">
+                                        বর্তমানে টেবিল থেকে {selectedOrderIds.length}টি অর্ডার সিলেক্ট করা আছে
+                                    </span>
+                                    <span className="text-[11px] text-slate-400">
+                                        আপনি কি শুধু নির্বাচিত অর্ডারগুলো এক্সপোর্ট করতে চান নাকি ফিল্টার অনুযায়ী সব?
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => setExportScope('selected')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                                            exportScope === 'selected'
+                                                ? 'bg-teal-600 text-white shadow'
+                                                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-700'
+                                        }`}
+                                    >
+                                        সিলেক্টেড ({selectedOrderIds.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setExportScope('all')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                                            exportScope === 'all'
+                                                ? 'bg-teal-600 text-white shadow'
+                                                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-700'
+                                        }`}
+                                    >
+                                        সকল ফিল্টার্ড
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Date Range: কত তারিখ থেকে কত তারিখ */}
+                        <div className="space-y-2">
+                            <label className="font-bold text-slate-300 flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                    <Calendar className="w-4 h-4 text-teal-400" />
+                                    <span>অর্ডারের তারিখ পরিসীমা (কত তারিখ থেকে কত তারিখ):</span>
+                                </span>
+                                {(exportStartDate || exportEndDate) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setExportStartDate('');
+                                            setExportEndDate('');
+                                        }}
+                                        className="text-[11px] text-rose-400 hover:text-rose-300 cursor-pointer"
+                                    >
+                                        তারিখ মুছুন (সব তারিখ)
+                                    </button>
+                                )}
+                            </label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <span className="text-[11px] text-slate-400 block mb-1">শুরু তারিখ (From):</span>
+                                    <input
+                                        type="date"
+                                        value={exportStartDate}
+                                        onChange={(e) => setExportStartDate(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-teal-500 [color-scheme:dark] cursor-pointer"
+                                    />
+                                </div>
+                                <div>
+                                    <span className="text-[11px] text-slate-400 block mb-1">শেষ তারিখ (To):</span>
+                                    <input
+                                        type="date"
+                                        value={exportEndDate}
+                                        onChange={(e) => setExportEndDate(e.target.value)}
+                                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-teal-500 [color-scheme:dark] cursor-pointer"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Quick Presets */}
+                            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                                <span className="text-[10px] text-slate-500 uppercase font-semibold">কুইক সিলেক্ট:</span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const today = new Date().toLocaleDateString('en-CA');
+                                        setExportStartDate(today);
+                                        setExportEndDate(today);
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    আজকে
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const yest = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+                                        setExportStartDate(yest);
+                                        setExportEndDate(yest);
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    গতকাল
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const d3 = new Date(Date.now() - 3 * 86400000).toLocaleDateString('en-CA');
+                                        const today = new Date().toLocaleDateString('en-CA');
+                                        setExportStartDate(d3);
+                                        setExportEndDate(today);
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    গত ৩ দিন
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const d7 = new Date(Date.now() - 7 * 86400000).toLocaleDateString('en-CA');
+                                        const today = new Date().toLocaleDateString('en-CA');
+                                        setExportStartDate(d7);
+                                        setExportEndDate(today);
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    গত ৭ দিন
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const now = new Date();
+                                        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA');
+                                        const today = now.toLocaleDateString('en-CA');
+                                        setExportStartDate(firstDay);
+                                        setExportEndDate(today);
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    এই মাস
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setExportStartDate('');
+                                        setExportEndDate('');
+                                    }}
+                                    className="px-2 py-0.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 cursor-pointer"
+                                >
+                                    সব সময়
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Status Selection: কোন কোন স্ট্যাটাসের শিট এক্সপোর্ট করতে চাই */}
+                        <div className="space-y-2 pt-2 border-t border-slate-800">
+                            <div className="flex items-center justify-between">
+                                <label className="font-bold text-slate-300 flex items-center gap-1.5">
+                                    <Filter className="w-4 h-4 text-teal-400" />
+                                    <span>কোন কোন স্ট্যাটাসের অর্ডার এক্সপোর্ট করতে চান:</span>
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAllExportStatuses}
+                                    className="text-[11px] text-teal-400 hover:text-teal-300 font-semibold cursor-pointer"
+                                >
+                                    {exportStatuses.length === ALL_EXPORT_STATUSES.length
+                                        ? 'সব আনচেক করুন'
+                                        : 'সবগুলো সিলেক্ট করুন'}
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                                ডিফল্টভাবে সকল স্ট্যাটাস নির্বাচিত থাকে। যে যে স্ট্যাটাস প্রয়োজন শুধু সেগুলো চেক রাখতে পারেন:
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                                {ALL_EXPORT_STATUSES.map((st) => {
+                                    const isChecked = exportStatuses.includes(st.id);
+                                    return (
+                                        <label
+                                            key={st.id}
+                                            onClick={() => handleToggleExportStatus(st.id)}
+                                            className={`p-2.5 rounded-xl border flex items-center gap-2.5 cursor-pointer transition-all select-none ${
+                                                isChecked
+                                                    ? `${st.color} border-opacity-60 shadow-sm`
+                                                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:bg-slate-900'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => {}} // handled by parent onClick
+                                                className="rounded border-slate-700 bg-slate-900 text-teal-600 focus:ring-0 cursor-pointer"
+                                            />
+                                            <span className="font-semibold text-xs">{st.label}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Source Selection: ওয়েবসাইট / এনগেজমেন্ট */}
+                        <div className="space-y-2 pt-2 border-t border-slate-800">
+                            <label className="font-bold text-slate-300 block">
+                                অর্ডারের উৎস (Source):
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setExportSource('all')}
+                                    className={`p-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                                        exportSource === 'all'
+                                            ? 'bg-teal-600 text-white border-teal-500 shadow'
+                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    সব উৎস
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setExportSource('website')}
+                                    className={`p-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                                        exportSource === 'website'
+                                            ? 'bg-cyan-600 text-white border-cyan-500 shadow'
+                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-cyan-300'
+                                    }`}
+                                >
+                                    <Globe className="w-3.5 h-3.5" />
+                                    <span>ওয়েবসাইট</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setExportSource('engagement')}
+                                    className={`p-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1 cursor-pointer transition-all ${
+                                        exportSource === 'engagement'
+                                            ? 'bg-emerald-600 text-white border-emerald-500 shadow'
+                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-emerald-300'
+                                    }`}
+                                >
+                                    <ShoppingBag className="w-3.5 h-3.5" />
+                                    <span>এনগেজমেন্ট</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Output Format info */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-teal-400" />
+                                <span>কুরিয়ার ফরম্যাট: ১০টি কলামে CSV শিট তৈরি হবে</span>
+                            </div>
+                            <p className="text-[10px] text-slate-500">
+                                Invoice (Product | Variation | Qty), Name, Address, Phone, Amount, Note, Contact Name, Contact Phone, Lot, Delivery Type
+                            </p>
+                        </div>
+
+                        {/* Modal Action Buttons */}
+                        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                            <button
+                                type="button"
+                                onClick={() => setExportModalOpen(false)}
+                                disabled={exporting}
+                                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                            >
+                                বাতিল
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleExecuteExport}
+                                disabled={exporting || exportStatuses.length === 0}
+                                className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-950/40 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                                {exporting ? (
+                                    <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>শিট তৈরি হচ্ছে...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download className="w-3.5 h-3.5" />
+                                        <span>এক্সপোর্ট করুন (CSV Download)</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </Modal>

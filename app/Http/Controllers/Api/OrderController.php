@@ -183,7 +183,15 @@ class OrderController extends Controller
     {
         $query = Order::with(['customer', 'product', 'variant', 'conversation.socialAccount']);
 
-        if ($request->filled('order_status')) {
+        if ($request->filled('statuses') && $request->statuses !== 'all') {
+            $statusList = is_array($request->statuses)
+                ? $request->statuses
+                : explode(',', (string) $request->statuses);
+            $statusList = array_filter(array_map('trim', $statusList));
+            if (! empty($statusList)) {
+                $query->whereIn('order_status', $statusList);
+            }
+        } elseif ($request->filled('order_status') && $request->order_status !== 'all') {
             $query->where('order_status', $request->order_status);
         } else {
             $query->where('order_status', '!=', 'cancelled');
@@ -279,9 +287,17 @@ class OrderController extends Controller
             ? $courierSettings->contact_name
             : 'Zavaani';
 
-        $dateSuffix = $request->filled('date')
-            ? $request->date
-            : Carbon::now('Asia/Dhaka')->format('Y-m-d');
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $dateSuffix = $request->start_date . '_to_' . $request->end_date;
+        } elseif ($request->filled('start_date')) {
+            $dateSuffix = 'from_' . $request->start_date;
+        } elseif ($request->filled('end_date')) {
+            $dateSuffix = 'to_' . $request->end_date;
+        } elseif ($request->filled('date')) {
+            $dateSuffix = $request->date;
+        } else {
+            $dateSuffix = 'All_Time_' . Carbon::now('Asia/Dhaka')->format('Y-m-d');
+        }
         $filename = "Problem_Free_Orders_{$dateSuffix}.csv";
 
         return response()->streamDownload(function () use ($query, $contactPhone, $defaultContactName) {
@@ -2482,7 +2498,8 @@ class OrderController extends Controller
                     || str_contains((string) $ord->notes, '[CX Review: Quantity adjusted')
                     || str_contains((string) $ord->notes, '[CX Verified')
                     || str_contains((string) $ord->notes, '[CX Edit')
-                    || str_contains((string) $ord->notes, '[CX Cancelled');
+                    || str_contains((string) $ord->notes, '[CX Cancelled')
+                    || in_array($ord->order_status, ['confirmed', 'shipped', 'delivered', 'completed']);
 
                 if ($isResolved) {
                     $resolvedMap[$ord->id] = true;
@@ -2554,20 +2571,21 @@ class OrderController extends Controller
 
             $duplicateProblemIds = [];
             foreach ($groups as $group) {
-                if (count($group) >= 2) {
-                    $anyResolved = false;
-                    foreach ($group as $gOrd) {
-                        if (! empty($resolvedMap[$gOrd->id])) {
-                            $anyResolved = true;
-                            break;
-                        }
+                $activeInGroup = array_filter($group, fn($gOrd) => $gOrd->order_status !== 'cancelled');
+                if (count($activeInGroup) <= 1) {
+                    continue;
+                }
+
+                $anyResolved = false;
+                foreach ($activeInGroup as $gOrd) {
+                    if (! empty($resolvedMap[$gOrd->id])) {
+                        $anyResolved = true;
+                        break;
                     }
-                    if (! $anyResolved) {
-                        foreach ($group as $gOrd) {
-                            if ($gOrd->order_status !== 'cancelled') {
-                                $duplicateProblemIds[$gOrd->id] = true;
-                            }
-                        }
+                }
+                if (! $anyResolved) {
+                    foreach ($activeInGroup as $gOrd) {
+                        $duplicateProblemIds[$gOrd->id] = true;
                     }
                 }
             }
@@ -2702,8 +2720,8 @@ class OrderController extends Controller
                     }
                 }
 
-                // If all orders in group were cancelled, or group was explicitly resolved by CX agent:
-                $isGroupConflictResolved = (count($activeInGroup) === 0 && count($cancelledInGroup) >= 2) || $anyResolvedInGroup;
+                // If at most 1 active order remains, or group was explicitly resolved by CX agent:
+                $isGroupConflictResolved = count($activeInGroup) <= 1 || $anyResolvedInGroup;
 
                 if ($isGroupConflictResolved) {
                     foreach ($group as $gOrd) {
