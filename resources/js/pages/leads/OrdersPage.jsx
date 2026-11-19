@@ -6,6 +6,7 @@ import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
+import { EditOrderModal } from '../../components/orders/EditOrderModal';
 import {
     ShoppingBag,
     Search,
@@ -22,6 +23,7 @@ import {
     Package,
     RefreshCw,
     Eye,
+    Edit,
     CheckSquare,
     Square,
     AlertCircle,
@@ -36,6 +38,8 @@ export const OrdersPage = () => {
     const [statusFilter, setStatusFilter] = useState('');
     const [createOrderModalOpen, setCreateOrderModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [editingOrder, setEditingOrder] = useState(null);
 
     // Steadfast bulk and single dispatch state
     const [selectedOrderIds, setSelectedOrderIds] = useState([]);
@@ -532,17 +536,33 @@ export const OrdersPage = () => {
                                                 {new Date(o.created_at).toLocaleDateString()}
                                             </td>
 
-                                            {/* Action Column (Details only) */}
+                                            {/* Action Column (Edit & Details) */}
                                             <td className="px-3 py-3.5 text-right whitespace-nowrap">
-                                                <Button
-                                                    variant="secondary"
-                                                    size="xs"
-                                                    icon={Eye}
-                                                    onClick={() => setSelectedOrder(o)}
-                                                    className="text-indigo-400 hover:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium"
-                                                >
-                                                    Details
-                                                </Button>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="xs"
+                                                        icon={Edit}
+                                                        onClick={() => {
+                                                            setEditingOrder(o);
+                                                            setEditModalOpen(true);
+                                                        }}
+                                                        className="text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer font-medium"
+                                                        title="অর্ডারটি এডিট করুন (ডেলিভারি চার্জ, কোয়ান্টিটি, ঠিকানা ইত্যাদি)"
+                                                    >
+                                                        Edit
+                                                    </Button>
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="xs"
+                                                        icon={Eye}
+                                                        onClick={() => setSelectedOrder(o)}
+                                                        className="text-indigo-400 hover:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/10 cursor-pointer font-medium"
+                                                        title="বিস্তারিত দেখুন"
+                                                    >
+                                                        Details
+                                                    </Button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -858,9 +878,26 @@ export const OrdersPage = () => {
                                 </select>
                             </div>
 
-                            <Button variant="primary" size="sm" onClick={() => setSelectedOrder(null)}>
-                                Close Details
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    icon={Edit}
+                                    onClick={() => {
+                                        const target = selectedOrder;
+                                        setSelectedOrder(null);
+                                        setEditingOrder(target);
+                                        setEditModalOpen(true);
+                                    }}
+                                    className="text-amber-400 border-amber-500/40 hover:bg-amber-500/10 font-bold cursor-pointer"
+                                    title="অর্ডারটি এডিট করুন"
+                                >
+                                    Edit Order
+                                </Button>
+                                <Button variant="primary" size="sm" onClick={() => setSelectedOrder(null)}>
+                                    Close Details
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -871,6 +908,22 @@ export const OrdersPage = () => {
                 isOpen={createOrderModalOpen}
                 onClose={() => setCreateOrderModalOpen(false)}
                 onOrderCreated={() => fetchOrders()}
+            />
+
+            {/* Edit Order Modal */}
+            <EditOrderModal
+                isOpen={editModalOpen}
+                onClose={() => {
+                    setEditModalOpen(false);
+                    setEditingOrder(null);
+                }}
+                order={editingOrder}
+                onOrderUpdated={(updatedOrder) => {
+                    setOrders((prev) =>
+                        prev.map((o) => (o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o))
+                    );
+                    fetchOrders();
+                }}
             />
         </div>
     );

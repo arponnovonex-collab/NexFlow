@@ -121,7 +121,7 @@ class ConversationController extends Controller
         $conversation->load([
             'customer.channelIdentities',
             'customer.orders' => function ($q) {
-                $q->latest('created_at')->select('id', 'customer_id', 'shipping_address', 'billing_address', 'customer_phone', 'customer_name', 'created_at')->take(1);
+                $q->latest('created_at')->take(1);
             },
             'socialAccount',
             'assignedUser:id,name,role',

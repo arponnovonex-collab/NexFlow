@@ -7,6 +7,7 @@ import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
+import { EditOrderModal } from '../../components/orders/EditOrderModal';
 import { CustomerAvatar } from '../../components/common/CustomerAvatar';
 import { Facebook, Instagram } from '../../components/common/SocialIcons';
 import { MediaPickerModal } from '../../components/media/MediaPickerModal';
@@ -41,6 +42,7 @@ import {
     PanelRightClose,
     PanelRightOpen,
     GripVertical,
+    Edit,
     Edit3,
     Users,
     ArrowLeft,
@@ -707,6 +709,8 @@ export const UnifiedInboxPage = () => {
     // Modals
     const [followupModal, setFollowupModal] = useState(false);
     const [orderModal, setOrderModal] = useState(false);
+    const [editInboxModalOpen, setEditInboxModalOpen] = useState(false);
+    const [editingInboxOrder, setEditingInboxOrder] = useState(null);
     const [followupForm, setFollowupForm] = useState({
         followup_date: new Date().toISOString().split('T')[0],
         followup_time: '14:00',
@@ -1616,6 +1620,44 @@ export const UnifiedInboxPage = () => {
                         <span className="font-semibold text-emerald-400">
                             {activeConversation.lead.related_product.selling_price} BDT
                         </span>
+                    </div>
+                </div>
+            )}
+
+            {/* Customer Recent Orders */}
+            {activeConversation?.customer?.orders && activeConversation.customer.orders.length > 0 && (
+                <div className="border border-slate-800 rounded-xl p-3 bg-slate-900/60 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                            Recent Order (সাম্প্রতিক অর্ডার)
+                        </span>
+                        <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                            ৳{activeConversation.customer.orders[0].total_amount || 0}
+                        </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-xs font-bold text-slate-200 font-mono">
+                                #{activeConversation.customer.orders[0].order_number || activeConversation.customer.orders[0].id}
+                            </p>
+                            <span className="text-[10px] text-slate-400 capitalize">
+                                Status: <b className="text-indigo-300">{activeConversation.customer.orders[0].order_status}</b>
+                            </span>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="xs"
+                            icon={Edit}
+                            onClick={() => {
+                                setEditingInboxOrder(activeConversation.customer.orders[0]);
+                                setEditInboxModalOpen(true);
+                            }}
+                            className="text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10 cursor-pointer font-medium"
+                            title="অর্ডারটি এডিট করুন"
+                        >
+                            Edit Order
+                        </Button>
                     </div>
                 </div>
             )}
@@ -2709,6 +2751,22 @@ export const UnifiedInboxPage = () => {
                     };
                 }, [orderModal, activeConversation?.id, activeConversation?.customer?.name, activeConversation?.customer?.phone, activeConversation?.customer?.orders])}
                 onOrderCreated={(newOrder) => {
+                    if (activeConversation) {
+                        loadConversationDetails(activeConversation.id);
+                    }
+                    fetchConversations(true);
+                }}
+            />
+
+            {/* Edit Order Modal */}
+            <EditOrderModal
+                isOpen={editInboxModalOpen}
+                onClose={() => {
+                    setEditInboxModalOpen(false);
+                    setEditingInboxOrder(null);
+                }}
+                order={editingInboxOrder}
+                onOrderUpdated={(updatedOrder) => {
                     if (activeConversation) {
                         loadConversationDetails(activeConversation.id);
                     }
