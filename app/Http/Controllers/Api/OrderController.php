@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\CourierSetting;
 use App\Models\Lead;
 use App\Models\LeadStatusHistory;
 use App\Models\Message;
@@ -56,6 +57,21 @@ class OrderController extends Controller
             } elseif ($source === 'website') {
                 $query->whereIn('order_source', ['woocommerce', 'web']);
             }
+        }
+
+        if ($request->filled('date')) {
+            $dt = Carbon::parse($request->date, 'Asia/Dhaka');
+            $startUtc = $dt->copy()->startOfDay()->setTimezone('UTC');
+            $endUtc = $dt->copy()->endOfDay()->setTimezone('UTC');
+            $query->whereBetween('created_at', [$startUtc, $endUtc]);
+        } elseif ($request->filled('start_date') || $request->filled('end_date')) {
+            $startUtc = $request->filled('start_date')
+                ? Carbon::parse($request->start_date, 'Asia/Dhaka')->startOfDay()->setTimezone('UTC')
+                : Carbon::create(2020, 1, 1);
+            $endUtc = $request->filled('end_date')
+                ? Carbon::parse($request->end_date, 'Asia/Dhaka')->endOfDay()->setTimezone('UTC')
+                : Carbon::now('Asia/Dhaka')->endOfDay()->setTimezone('UTC');
+            $query->whereBetween('created_at', [$startUtc, $endUtc]);
         }
 
         if ($request->filled('search')) {
@@ -119,17 +135,35 @@ class OrderController extends Controller
 
         $stats = null;
         if ($request->boolean('problem_free')) {
-            $stats = Cache::remember('problem_free_order_stats', 30, function () use ($problemIds) {
+            $dateKey = $request->input('date', '') . '_' . $request->input('start_date', '') . '_' . $request->input('end_date', '');
+            $stats = Cache::remember('problem_free_order_stats_' . md5($dateKey), 20, function () use ($problemIds, $request) {
+                $baseQ = Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds);
+                if ($request->filled('date')) {
+                    $dt = Carbon::parse($request->date, 'Asia/Dhaka');
+                    $baseQ->whereBetween('created_at', [
+                        $dt->copy()->startOfDay()->setTimezone('UTC'),
+                        $dt->copy()->endOfDay()->setTimezone('UTC'),
+                    ]);
+                } elseif ($request->filled('start_date') || $request->filled('end_date')) {
+                    $startUtc = $request->filled('start_date')
+                        ? Carbon::parse($request->start_date, 'Asia/Dhaka')->startOfDay()->setTimezone('UTC')
+                        : Carbon::create(2020, 1, 1);
+                    $endUtc = $request->filled('end_date')
+                        ? Carbon::parse($request->end_date, 'Asia/Dhaka')->endOfDay()->setTimezone('UTC')
+                        : Carbon::now('Asia/Dhaka')->endOfDay()->setTimezone('UTC');
+                    $baseQ->whereBetween('created_at', [$startUtc, $endUtc]);
+                }
+
                 return [
-                    'total' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->count(),
-                    'website' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->whereIn('order_source', ['woocommerce', 'web'])->count(),
-                    'engagement' => Order::where('order_status', '!=', 'cancelled')->whereNotIn('id', $problemIds)->where(function ($sq) {
+                    'total' => (clone $baseQ)->count(),
+                    'website' => (clone $baseQ)->whereIn('order_source', ['woocommerce', 'web'])->count(),
+                    'engagement' => (clone $baseQ)->where(function ($sq) {
                         $sq->whereIn('order_source', ['manual_inbox', 'import', 'crm'])
                             ->orWhereNull('order_source')
                             ->orWhere('order_source', '!=', 'woocommerce');
                     })->count(),
-                    'confirmed' => Order::where('order_status', 'confirmed')->whereNotIn('id', $problemIds)->count(),
-                    'processing' => Order::whereIn('order_status', ['processing', 'pending'])->whereNotIn('id', $problemIds)->count(),
+                    'confirmed' => (clone $baseQ)->where('order_status', 'confirmed')->count(),
+                    'processing' => (clone $baseQ)->whereIn('order_status', ['processing', 'pending'])->count(),
                 ];
             });
         }
@@ -139,6 +173,394 @@ class OrderController extends Controller
             'data' => $orders,
             'stats' => $stats,
         ]);
+    }
+
+    /**
+     * Export problem-free orders to CSV matching the standard courier format.
+     * Header: Invoice, Name, Address, Phone, Amount, Note, Contact Name, Contact Phone, Lot, Delivery Type
+     */
+    public function exportProblemFree(Request $request)
+    {
+        $query = Order::with(['customer', 'product', 'variant', 'conversation.socialAccount']);
+
+        if ($request->filled('order_status')) {
+            $query->where('order_status', $request->order_status);
+        } else {
+            $query->where('order_status', '!=', 'cancelled');
+        }
+
+        if ($request->filled('order_ids')) {
+            $ids = is_array($request->order_ids) ? $request->order_ids : explode(',', (string) $request->order_ids);
+            $ids = array_filter(array_map('intval', $ids));
+            if (! empty($ids)) {
+                $query->whereIn('id', $ids);
+            }
+        } else {
+            $problemIds = $this->getUnresolvedProblemOrderIds(15);
+            if (! empty($problemIds)) {
+                $query->whereNotIn('id', $problemIds);
+            }
+
+            if ($request->filled('source') && $request->source !== 'all') {
+                $source = $request->source;
+                if ($source === 'engagement') {
+                    $query->where(function ($sq) {
+                        $sq->whereIn('order_source', ['manual_inbox', 'import', 'crm'])
+                            ->orWhereNull('order_source')
+                            ->orWhere('order_source', '!=', 'woocommerce');
+                    });
+                } elseif ($source === 'website') {
+                    $query->whereIn('order_source', ['woocommerce', 'web']);
+                }
+            }
+
+            if ($request->filled('date')) {
+                $dt = Carbon::parse($request->date, 'Asia/Dhaka');
+                $startUtc = $dt->copy()->startOfDay()->setTimezone('UTC');
+                $endUtc = $dt->copy()->endOfDay()->setTimezone('UTC');
+                $query->whereBetween('created_at', [$startUtc, $endUtc]);
+            } elseif ($request->filled('start_date') || $request->filled('end_date')) {
+                $startUtc = $request->filled('start_date')
+                    ? Carbon::parse($request->start_date, 'Asia/Dhaka')->startOfDay()->setTimezone('UTC')
+                    : Carbon::create(2020, 1, 1);
+                $endUtc = $request->filled('end_date')
+                    ? Carbon::parse($request->end_date, 'Asia/Dhaka')->endOfDay()->setTimezone('UTC')
+                    : Carbon::now('Asia/Dhaka')->endOfDay()->setTimezone('UTC');
+                $query->whereBetween('created_at', [$startUtc, $endUtc]);
+            }
+
+            if ($request->filled('search')) {
+                $rawSearch = trim($request->search);
+                $cleanDigits = preg_replace('/[^0-9]/', '', $rawSearch);
+                $cleanNum = ltrim($rawSearch, '#');
+
+                $query->where(function ($q) use ($rawSearch, $cleanDigits, $cleanNum) {
+                    $q->where('order_number', 'like', "%{$rawSearch}%")
+                        ->orWhere('order_number', 'like', "%{$cleanNum}%");
+
+                    if (! empty($cleanNum) && is_numeric($cleanNum)) {
+                        $q->orWhere('wc_order_id', (int) $cleanNum);
+                    }
+
+                    $q->orWhere('customer_phone', 'like', "%{$rawSearch}%");
+                    if (! empty($cleanDigits)) {
+                        $lastDigits = strlen($cleanDigits) >= 10 ? substr($cleanDigits, -10) : $cleanDigits;
+                        $q->orWhere('customer_phone', 'like', "%{$cleanDigits}%")
+                            ->orWhere('customer_phone', 'like', "%{$lastDigits}%");
+                    }
+
+                    $q->orWhere('customer_address', 'like', "%{$rawSearch}%")
+                        ->orWhere('customer_email', 'like', "%{$rawSearch}%")
+                        ->orWhere('size', 'like', "%{$rawSearch}%")
+                        ->orWhere('color', 'like', "%{$rawSearch}%");
+
+                    $q->orWhereHas('customer', function ($cq) use ($rawSearch, $cleanDigits) {
+                        $cq->where('name', 'like', "%{$rawSearch}%")
+                            ->orWhere('phone', 'like', "%{$rawSearch}%");
+                        if (! empty($cleanDigits)) {
+                            $lastDigits = strlen($cleanDigits) >= 10 ? substr($cleanDigits, -10) : $cleanDigits;
+                            $cq->orWhere('phone', 'like', "%{$cleanDigits}%")
+                                ->orWhere('phone', 'like', "%{$lastDigits}%");
+                        }
+                    });
+                });
+            }
+        }
+
+        if ($request->query('source') === 'website') {
+            $query->orderByDesc('wc_order_id')->orderByDesc('created_at');
+        } else {
+            $query->orderByDesc('created_at')->orderByDesc('id');
+        }
+
+        $courierSettings = CourierSetting::where('provider', 'steadfast')->first();
+        $contactPhone = ! empty($courierSettings?->contact_phone) ? $courierSettings->contact_phone : '01333-447475';
+        $defaultContactName = ! empty($courierSettings?->contact_name) && strtolower($courierSettings->contact_name) !== 'auliro'
+            ? $courierSettings->contact_name
+            : 'Zavaani';
+
+        $dateSuffix = $request->filled('date')
+            ? $request->date
+            : Carbon::now('Asia/Dhaka')->format('Y-m-d');
+        $filename = "Problem_Free_Orders_{$dateSuffix}.csv";
+
+        return response()->streamDownload(function () use ($query, $contactPhone, $defaultContactName) {
+            $handle = fopen('php://output', 'w');
+
+            // UTF-8 BOM for Excel / Google Sheets
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            fputcsv($handle, [
+                'Invoice',
+                'Name',
+                'Address',
+                'Phone',
+                'Amount',
+                'Note',
+                'Contact Name',
+                'Contact Phone',
+                'Lot',
+                'Delivery Type',
+            ]);
+
+            $query->chunk(200, function ($orders) use ($handle, $contactPhone, $defaultContactName) {
+                foreach ($orders as $order) {
+                    $row = $this->buildProblemFreeExportRow($order, $contactPhone, $defaultContactName);
+                    fputcsv($handle, $row);
+                }
+            });
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'no-store, no-cache',
+        ]);
+    }
+
+    /**
+     * Build one row for Problem-Free orders CSV export.
+     */
+    public function buildProblemFreeExportRow(Order $order, string $contactPhone, string $defaultContactName): array
+    {
+        $itemExtraction = $this->extractCleanOrderItems($order);
+        $invoice = $itemExtraction['invoice_string'];
+        $lot = $itemExtraction['total_lot'];
+
+        $name = $this->resolveCustomerDisplayName($order);
+        $address = $this->resolveCustomerAddress($order);
+        $phone = trim((string) ($order->customer_phone ?: ($order->customer?->phone ?: '')));
+        $amount = number_format((float) ($order->total_amount ?? 0), 2, '.', '');
+        $note = trim((string) ($order->notes ?: ''));
+
+        $pageName = $order->conversation?->socialAccount?->name;
+        $contactName = ! empty($pageName) ? $pageName : $defaultContactName;
+
+        $deliveryType = 'Home';
+        if (! empty($order->shipping_method_title) && (str_contains(strtolower($order->shipping_method_title), 'point') || str_contains(strtolower($order->shipping_method_title), 'hub') || str_contains(strtolower($order->shipping_method_title), 'pickup'))) {
+            $deliveryType = 'Point';
+        }
+
+        return [
+            $invoice,
+            $name,
+            $address,
+            $phone,
+            $amount,
+            $note,
+            $contactName,
+            $contactPhone,
+            $lot,
+            $deliveryType,
+        ];
+    }
+
+    /**
+     * Extract and format order items with product variation and quantity.
+     * Quantity > 1 is appended. Multiple items are chained with " | ".
+     */
+    public function extractCleanOrderItems(Order $order): array
+    {
+        $rawItems = $order->items_data;
+        if (empty($rawItems) && is_array($order->wc_raw_data) && ! empty($order->wc_raw_data['line_items'])) {
+            $rawItems = $order->wc_raw_data['line_items'];
+        }
+
+        $formattedItems = [];
+        $totalLot = 0;
+
+        if (! empty($rawItems) && is_array($rawItems)) {
+            foreach ($rawItems as $item) {
+                $parsed = $this->formatSingleExportItem($item, $order);
+                $formattedItems[] = $parsed['item_string'];
+                $totalLot += $parsed['quantity'];
+            }
+        } else {
+            $fallbackItem = [
+                'name' => $order->product?->name ?: 'Product',
+                'size' => $order->size,
+                'color' => $order->color,
+                'quantity' => $order->quantity ?: 1,
+            ];
+            $parsed = $this->formatSingleExportItem($fallbackItem, $order);
+            $formattedItems[] = $parsed['item_string'];
+            $totalLot = $parsed['quantity'];
+        }
+
+        return [
+            'invoice_string' => implode(' | ', $formattedItems),
+            'total_lot' => max(1, $totalLot),
+        ];
+    }
+
+    /**
+     * Format a single line item for export: Product Name | Product Variation | Quantity (if > 1).
+     */
+    public function formatSingleExportItem(array $item, ?Order $order = null): array
+    {
+        $rawName = trim((string) ($item['name'] ?? $item['product_name'] ?? ''));
+        if (empty($rawName) && $order && $order->product) {
+            $rawName = $order->product->name;
+        }
+        if (empty($rawName)) {
+            $rawName = 'Product';
+        }
+
+        $size = null;
+        $color = null;
+        $otherVars = [];
+
+        if (! empty($item['meta_data']) && is_array($item['meta_data'])) {
+            foreach ($item['meta_data'] as $meta) {
+                $key = strtolower($meta['key'] ?? $meta['display_key'] ?? '');
+                $dispKey = trim((string) ($meta['display_key'] ?? ''));
+                $val = trim((string) ($meta['value'] ?? $meta['display_value'] ?? ''));
+                $dispVal = trim((string) ($meta['display_value'] ?? $meta['value'] ?? ''));
+                if (empty($val) || is_array($meta['value'] ?? null)) {
+                    continue;
+                }
+
+                if (str_contains($key, 'size') || str_contains($key, 'সাইজ')) {
+                    $size = ! empty($dispVal) ? $dispVal : $val;
+                } elseif (str_contains($key, 'color') || str_contains($key, 'colour') || str_contains($key, 'কালার')) {
+                    $color = ! empty($dispVal) ? $dispVal : $val;
+                } elseif (! empty($dispKey) && ! str_starts_with($meta['key'] ?? '', '_')) {
+                    $otherVars[] = "{$dispKey}: {$dispVal}";
+                }
+            }
+        }
+
+        if (! $size && ! empty($item['size'])) {
+            $size = trim($item['size']);
+        }
+        if (! $color && ! empty($item['color'])) {
+            $color = trim($item['color']);
+        }
+
+        if ((! $size || ! $color) && ! empty($item['variation'])) {
+            $vStr = (string) $item['variation'];
+            if (! $size && preg_match('/size:\s*([^,;]+)/i', $vStr, $sm)) {
+                $size = trim($sm[1]);
+            }
+            if (! $color && preg_match('/colou?r:\s*([^,;]+)/i', $vStr, $cm)) {
+                $color = trim($cm[1]);
+            }
+        }
+
+        if (! $size && $order && ! empty($order->size)) {
+            $size = trim($order->size);
+        }
+        if (! $color && $order && ! empty($order->color)) {
+            $color = trim($order->color);
+        }
+        if (! $size && ! $color && $order && $order->variant) {
+            if ($order->variant->size) $size = $order->variant->size;
+            if ($order->variant->color) $color = $order->variant->color;
+        }
+
+        if ($size) {
+            $size = preg_replace_callback('/\b(year|month|yrs|yr)\b/i', function ($m) {
+                return strtoupper($m[1]);
+            }, $size);
+            $size = preg_replace('/-(\b[A-Z]+\b)/', ' $1', $size);
+            $size = trim($size);
+        }
+
+        if ($color) {
+            $color = ucwords(str_replace(['-', '_'], ' ', $color));
+        }
+
+        $cleanName = $rawName;
+        if (str_contains($rawName, ' - ')) {
+            $lastDashPos = strrpos($rawName, ' - ');
+            $baseName = trim(substr($rawName, 0, $lastDashPos));
+            $suffix = trim(substr($rawName, $lastDashPos + 3));
+
+            if ($size || $color || preg_match('/\b(YEAR|MONTH|\d+|Maroon|Blue|Black|Red|White|Pink|Green|Yellow|Orange|Brown)\b/i', $suffix)) {
+                $cleanName = $baseName;
+            }
+        }
+
+        $varParts = [];
+        if (! empty($size)) {
+            $varParts[] = "Size: {$size}";
+        }
+        if (! empty($color)) {
+            $varParts[] = "Color: {$color}";
+        }
+        foreach ($otherVars as $ov) {
+            $varParts[] = $ov;
+        }
+
+        $varParts = array_values(array_unique($varParts));
+        $varText = implode(', ', $varParts);
+
+        $qty = (int) ($item['quantity'] ?? $item['qty'] ?? 1);
+        if ($qty < 1) {
+            $qty = 1;
+        }
+
+        $tokens = [$cleanName];
+        if (! empty($varText)) {
+            $tokens[] = $varText;
+        }
+        if ($qty > 1) {
+            $tokens[] = (string) $qty;
+        }
+
+        return [
+            'item_string' => implode(' | ', $tokens),
+            'quantity' => $qty,
+        ];
+    }
+
+    /**
+     * Resolve customer display name for order.
+     */
+    public function resolveCustomerDisplayName(Order $order): string
+    {
+        $cName = trim((string) ($order->customer_name ?: ''));
+        if (! empty($cName) && ! in_array(strtolower($cName), ['customer', 'guest customer', 'website customer'])) {
+            return $cName;
+        }
+
+        $cRelName = trim((string) ($order->customer?->name ?: ''));
+        if (! empty($cRelName) && ! in_array(strtolower($cRelName), ['customer', 'guest customer', 'website customer'])) {
+            return $cRelName;
+        }
+
+        if (is_array($order->wc_raw_data)) {
+            $bFirst = trim((string) ($order->wc_raw_data['billing']['first_name'] ?? $order->wc_raw_data['shipping']['first_name'] ?? ''));
+            $bLast = trim((string) ($order->wc_raw_data['billing']['last_name'] ?? $order->wc_raw_data['shipping']['last_name'] ?? ''));
+            $bFull = trim("{$bFirst} {$bLast}");
+            if (! empty($bFull) && ! in_array(strtolower($bFull), ['customer', 'guest customer', 'website customer'])) {
+                return $bFull;
+            }
+        }
+
+        return ! empty($cName) ? $cName : (! empty($cRelName) ? $cRelName : 'Customer');
+    }
+
+    /**
+     * Resolve customer address.
+     */
+    public function resolveCustomerAddress(Order $order): string
+    {
+        $addr = trim((string) ($order->customer_address ?: ''));
+        if (! empty($addr)) {
+            return $addr;
+        }
+
+        if (is_array($order->wc_raw_data)) {
+            $bAddr1 = trim((string) ($order->wc_raw_data['billing']['address_1'] ?? $order->wc_raw_data['shipping']['address_1'] ?? ''));
+            $bAddr2 = trim((string) ($order->wc_raw_data['billing']['address_2'] ?? $order->wc_raw_data['shipping']['address_2'] ?? ''));
+            $bCity = trim((string) ($order->wc_raw_data['billing']['city'] ?? $order->wc_raw_data['shipping']['city'] ?? ''));
+            $parts = array_filter([$bAddr1, $bAddr2, $bCity]);
+            if (! empty($parts)) {
+                return implode(', ', $parts);
+            }
+        }
+
+        return '';
     }
 
     /**

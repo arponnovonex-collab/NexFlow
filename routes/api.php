@@ -124,6 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/sync-courier-status', [OrderController::class, 'syncCourierStatus']);
     Route::post('/orders/{order}/return-reason', [OrderController::class, 'updateReturnReason']);
     Route::post('/orders/{order}/sync-courier-status', [OrderController::class, 'checkSingleCourierStatus']);
+    Route::match(['get', 'post'], '/orders/export-problem-free', [OrderController::class, 'exportProblemFree']);
     Route::apiResource('orders', OrderController::class)->only(['index', 'store', 'destroy']);
     Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
     Route::post('/orders/bulk-status', [OrderController::class, 'bulkUpdateStatus']);
