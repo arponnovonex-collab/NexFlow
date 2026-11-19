@@ -38,6 +38,7 @@ import {
     Bot,
     Volume2,
     XCircle,
+    Plus,
 } from 'lucide-react';
 
 /**
@@ -252,6 +253,30 @@ export const WebsiteOrdersPage = () => {
                 return prev;
             }
             const updatedItems = prev.items.filter((_, i) => i !== idx);
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    const handleAddItem = (preset = null) => {
+        setEditForm((prev) => {
+            const newItem = {
+                id: Date.now() + Math.random(),
+                name: preset?.name || '',
+                size: preset?.size || '',
+                color: preset?.color || '',
+                quantity: preset?.quantity || 1,
+                price: preset?.price !== undefined ? parseFloat(preset.price) : 0,
+            };
+            const updatedItems = [...prev.items, newItem];
             const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
             const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
             const delivery = parseFloat(prev.delivery_charge) || 0;
@@ -2165,6 +2190,16 @@ export const WebsiteOrdersPage = () => {
                                         </div>
                                     </div>
                                 ))}
+
+                                {/* + Add Another Item Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddItem()}
+                                    className="w-full py-2.5 px-3 border border-dashed border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-300 hover:text-white rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                                >
+                                    <Plus className="w-4 h-4 text-cyan-400" />
+                                    <span>+ আরেকটি পণ্য যোগ করুন (Add Another Item)</span>
+                                </button>
                             </div>
                         </div>
 

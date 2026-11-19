@@ -32,6 +32,9 @@ import {
     Clock,
     Bot,
     Volume2,
+    Plus,
+    Layers,
+    ArrowDownRight,
 } from 'lucide-react';
 
 /**
@@ -749,6 +752,8 @@ export const CxOperationsPage = () => {
     // Edit Order Modal State
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingOrder, setEditingOrder] = useState(null);
+    const [editSiblingOrders, setEditSiblingOrders] = useState([]);
+    const [availableProducts, setAvailableProducts] = useState([]);
     const [editForm, setEditForm] = useState({
         quantity: 1,
         size: '',
@@ -850,6 +855,20 @@ export const CxOperationsPage = () => {
         }, 4000);
         return () => clearInterval(fastInterval);
     }, [hasActiveAiCalls, activeTab, days, search]);
+
+    // Fetch product catalog for easy item selection during order edits
+    useEffect(() => {
+        const fetchCatalog = async () => {
+            try {
+                const res = await api.get('/products', { params: { per_page: 250 } });
+                const prods = res.data.data?.data || res.data.data || [];
+                setAvailableProducts(prods);
+            } catch (e) {
+                console.error('Failed to load products for CX edit:', e);
+            }
+        };
+        fetchCatalog();
+    }, []);
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
@@ -982,9 +1001,10 @@ export const CxOperationsPage = () => {
         }
     };
 
-    // Open Edit Order Modal
-    const openEditModal = (order) => {
+    // Open Edit Order Modal (supports sibling orders for quick merging)
+    const openEditModal = (order, siblingOrders = []) => {
         setEditingOrder(order);
+        setEditSiblingOrders(siblingOrders || []);
         const parsedItems = extractOrderItems(order);
         const totalQty = parsedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
         const itemsTotal = parsedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
@@ -1004,6 +1024,64 @@ export const CxOperationsPage = () => {
             order_status: order.order_status || 'confirmed',
         });
         setEditModalOpen(true);
+    };
+
+    // Add a new item to the order (blank or preset from catalog)
+    const handleAddItem = (preset = null) => {
+        setEditForm((prev) => {
+            const newItem = {
+                id: Date.now() + Math.random(),
+                product_id: preset?.product_id || preset?.id || null,
+                name: preset?.name || '',
+                size: preset?.size || '',
+                color: preset?.color || '',
+                quantity: preset?.quantity || 1,
+                price: preset?.price !== undefined ? parseFloat(preset.price) : (parseFloat(preset?.selling_price) || 0),
+            };
+            const updatedItems = [...prev.items, newItem];
+            const totalQty = updatedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = updatedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+
+            return {
+                ...prev,
+                items: updatedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+            };
+        });
+    };
+
+    // Merge all items from another duplicate/sibling order into current order
+    const handleMergeSiblingItems = (siblingOrder) => {
+        const siblingItems = extractOrderItems(siblingOrder);
+        if (siblingItems.length === 0) {
+            alert('অন্য অর্ডারে কোনো পণ্য পাওয়া যায়নি।');
+            return;
+        }
+
+        setEditForm((prev) => {
+            const mergedItems = [...prev.items, ...siblingItems.map((it) => ({
+                ...it,
+                id: Date.now() + Math.random(),
+            }))];
+
+            const totalQty = mergedItems.reduce((acc, it) => acc + (parseInt(it.quantity, 10) || 0), 0);
+            const itemsTotal = mergedItems.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
+            const delivery = parseFloat(prev.delivery_charge) || 0;
+            const mergeNote = `[Merged ${siblingItems.length} item(s) from Order #${siblingOrder.order_number}]`;
+            const updatedNotes = prev.notes ? `${prev.notes}\n${mergeNote}` : mergeNote;
+
+            return {
+                ...prev,
+                items: mergedItems,
+                quantity: totalQty,
+                total_amount: itemsTotal + delivery,
+                notes: updatedNotes,
+            };
+        });
+
+        alert(`✅ Order #${siblingOrder.order_number}-এর ${siblingItems.length}টি পণ্য এই অর্ডারে যুক্ত হয়েছে! মোট কোয়ান্টিটি ও মূল্য স্বয়ংক্রিয়ভাবে হিসাব করা হয়েছে।`);
     };
 
     // Update single item attribute in editForm
@@ -1049,7 +1127,7 @@ export const CxOperationsPage = () => {
     // Delivery charge change
     const handleDeliveryChargeChange = (value) => {
         setEditForm((prev) => {
-            const delivery = parseFloat(value) || 0;
+            const delivery = Math.max(0, parseFloat(value) || 0);
             const itemsTotal = prev.items.reduce((acc, it) => acc + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0);
             return {
                 ...prev,
@@ -1523,7 +1601,7 @@ export const CxOperationsPage = () => {
                                                     order={order}
                                                     isDuplicateSubCard={true}
                                                     orderIndex={idx + 1}
-                                                    onEdit={openEditModal}
+                                                    onEdit={(o) => openEditModal(o, group.orders.filter((s) => s.id !== o.id))}
                                                     onCancel={openCancelModal}
                                                     onConfirm={(id) => handleQuickAction(id, 'confirm')}
                                                     onResolve={(id) => handleQuickAction(id, 'resolve')}
@@ -1654,9 +1732,46 @@ export const CxOperationsPage = () => {
                             </div>
                         </div>
 
+                        {/* Sibling Orders Merge Option (Duplicate Problem Resolution) */}
+                        {editSiblingOrders.length > 0 && (
+                            <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-cyan-200 flex items-center gap-1.5">
+                                        <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                                        <span>গ্রাহকের অন্য অর্ডার থেকে পণ্য আনুন (Merge Sibling Order Items)</span>
+                                    </span>
+                                    <span className="text-[10px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded font-mono font-bold">
+                                        {editSiblingOrders.length}টি অন্য অর্ডার
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-slate-300">
+                                    গ্রাহক যদি একটি অর্ডার বাতিল করে সেই পণ্যের আইটেম এই অর্ডারে যুক্ত করতে চান, তবে এক ক্লিকে আইটেম যুক্ত করুন:
+                                </p>
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    {editSiblingOrders.map((sib) => {
+                                        const sibItems = extractOrderItems(sib);
+                                        return (
+                                            <button
+                                                key={sib.id}
+                                                type="button"
+                                                onClick={() => handleMergeSiblingItems(sib)}
+                                                className="px-3 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/60 border border-cyan-500/50 text-cyan-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                                                title={`Order #${sib.order_number}-এর পণ্য এই অর্ডারে যুক্ত করুন`}
+                                            >
+                                                <Plus className="w-3.5 h-3.5 text-cyan-300" />
+                                                <span>
+                                                    Order #{String(sib.order_number || '').replace(/^#+/, '')} থেকে {sibItems.length}টি পণ্য যোগ করুন
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Ordered Products Section */}
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                            <div className="flex items-center justify-between border-b border-slate-850 pb-2">
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                                 <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
                                     <Package className="w-4 h-4 text-cyan-400" />
                                     <span>অর্ডারকৃত পণ্যসমূহ ({editForm.items?.length || 1}টি আইটেম)</span>
@@ -1693,6 +1808,33 @@ export const CxOperationsPage = () => {
                                                 </button>
                                             )}
                                         </div>
+
+                                        {/* Optional Catalog Product Picker */}
+                                        {availableProducts.length > 0 && (
+                                            <div className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80">
+                                                <span className="text-[10px] text-slate-400 shrink-0">ক্যাটালগ থেকে নির্বাচন:</span>
+                                                <select
+                                                    value={item.product_id || ''}
+                                                    onChange={(e) => {
+                                                        const pId = Number(e.target.value);
+                                                        const selectedProd = availableProducts.find((p) => p.id === pId);
+                                                        if (selectedProd) {
+                                                            handleItemChange(idx, 'name', selectedProd.name);
+                                                            handleItemChange(idx, 'price', parseFloat(selectedProd.selling_price) || 0);
+                                                            handleItemChange(idx, 'product_id', selectedProd.id);
+                                                        }
+                                                    }}
+                                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] text-cyan-200 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                                                >
+                                                    <option value="">-- ক্যাটালগ থেকে পণ্য সিলেক্ট করুন (বা নিচে টাইপ করুন) --</option>
+                                                    {availableProducts.map((p) => (
+                                                        <option key={p.id} value={p.id}>
+                                                            {p.name} — ৳{p.selling_price}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
 
                                         {/* Product Name Input */}
                                         <div>
@@ -1752,43 +1894,123 @@ export const CxOperationsPage = () => {
                                         </div>
 
                                         <div className="text-right text-[11px] text-slate-400 font-mono pt-0.5">
-                                            আইটেম সাবটোটাল: <strong className="text-slate-200">৳{((item.quantity || 1) * (item.price || 0)).toFixed(0)}</strong>
+                                            আইটেম সাবটোটাল: <strong className="text-slate-200">৳{((item.quantity || 1) * (item.price || 0)).toFixed(2)}</strong>
                                         </div>
                                     </div>
                                 ))}
+
+                                {/* + Add Another Item Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddItem()}
+                                    className="w-full py-2.5 px-3 border border-dashed border-cyan-500/40 hover:border-cyan-400 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-300 hover:text-white rounded-xl flex items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                                >
+                                    <Plus className="w-4 h-4 text-cyan-400" />
+                                    <span>+ আরেকটি পণ্য যোগ করুন (Add Another Item)</span>
+                                </button>
                             </div>
                         </div>
 
                         {/* Pricing & Calculations */}
-                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5">
-                                <ShoppingBag className="w-3.5 h-3.5 text-indigo-400" /> মূল্য ও ডেলিভারি হিসাব
+                        <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                            <h4 className="font-semibold text-slate-200 flex items-center gap-1.5 border-b border-slate-800 pb-1.5">
+                                <ShoppingBag className="w-3.5 h-3.5 text-indigo-400" /> মূল্য ও ডেলিভারি হিসাব (Pricing & Delivery)
                             </h4>
-                            <div className="grid grid-cols-3 gap-2.5">
+
+                            {/* Delivery Charge Controls */}
+                            <div className="space-y-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[11px] text-slate-300 font-semibold">Delivery Charge (ডেলিভারি চার্জ):</label>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                            editForm.delivery_charge === 80
+                                                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                                : editForm.delivery_charge === 130
+                                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                                    : editForm.delivery_charge === 0
+                                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                        : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                        }`}>
+                                            {editForm.delivery_charge === 80
+                                                ? 'ঢাকার ভেতরে (৳80)'
+                                                : editForm.delivery_charge === 130
+                                                    ? 'ঢাকার বাইরে (৳130)'
+                                                    : editForm.delivery_charge === 0
+                                                        ? 'ফ্রি ডেলিভারি (৳0)'
+                                                        : `কাস্টম চার্জ (৳${editForm.delivery_charge})`}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeliveryChargeChange(80)}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                editForm.delivery_charge === 80
+                                                    ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                                                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700'
+                                            }`}
+                                        >
+                                            ঢাকা ৳৮০
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeliveryChargeChange(130)}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                editForm.delivery_charge === 130
+                                                    ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-400'
+                                                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700'
+                                            }`}
+                                        >
+                                            ঢাকার বাইরে ৳১৩০
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeliveryChargeChange(0)}
+                                            className={`px-2 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                                editForm.delivery_charge === 0
+                                                    ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold'
+                                                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700'
+                                            }`}
+                                        >
+                                            ফ্রি ৳০
+                                        </button>
+                                        <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5" title="প্রয়োজনে কাস্টম ডেলিভারি চার্জ লিখুন">
+                                            <span className="text-slate-400 text-xs font-mono">৳</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={editForm.delivery_charge}
+                                                onChange={(e) => handleDeliveryChargeChange(e.target.value)}
+                                                className="w-14 bg-transparent text-xs font-mono font-bold text-cyan-300 text-right focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-slate-800">
                                 <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">মোট আইটেম কোয়ান্টিটি</label>
+                                    <label className="block text-[11px] text-slate-400 mb-1">মোট আইটেম</label>
                                     <div className="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-cyan-300 font-bold font-mono">
                                         {editForm.quantity} পিস
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1">Delivery Charge (৳)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={editForm.delivery_charge}
-                                        onChange={(e) => handleDeliveryChargeChange(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
-                                    />
+                                    <label className="block text-[11px] text-slate-400 mb-1">পণ্য সাবটোটাল</label>
+                                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono">
+                                        ৳{editForm.items.reduce((sum, it) => sum + ((parseInt(it.quantity, 10) || 0) * (parseFloat(it.price) || 0)), 0).toFixed(2)}
+                                    </div>
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] text-slate-400 mb-1 font-bold text-emerald-400">Total Amount (৳)</label>
+                                    <label className="block text-[11px] text-slate-400 mb-1 font-bold text-emerald-400">সর্বমোট (Total Amount ৳)</label>
                                     <input
                                         type="number"
                                         min="0"
+                                        step="any"
                                         value={editForm.total_amount}
                                         onChange={(e) => setEditForm({ ...editForm, total_amount: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold font-mono"
+                                        className="w-full bg-slate-900 border border-emerald-500/40 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold font-mono focus:border-emerald-400"
                                     />
                                 </div>
                             </div>
