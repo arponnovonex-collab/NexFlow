@@ -75,8 +75,8 @@ export const AutoSmsPage = () => {
         .replace(/{product_name}/g, 'Premium Cotton Panjabi (Size: 42)')
         .replace(/{quantity}/g, '1')
         .replace(/{unit_price}/g, '1850')
-        .replace(/{delivery_charge}/g, '60')
-        .replace(/{total_amount}/g, '1910')
+        .replace(/{delivery_charge}/g, '80')
+        .replace(/{total_amount}/g, '1930')
         .replace(/{phone}/g, '01712345678')
         .replace(/{address}/g, 'House 14, Road 5, Uttara, Dhaka');
 

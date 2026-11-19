@@ -38,8 +38,19 @@ export const CreateOrderModal = ({
     const [customerAddress, setCustomerAddress] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
     const [orderNumber, setOrderNumber] = useState('');
-    const [deliveryCharge, setDeliveryCharge] = useState(60);
+    const [deliveryCharge, setDeliveryCharge] = useState(80);
+    const manualDeliveryRef = useRef(false);
     const [notes, setNotes] = useState('');
+
+    // Helper to detect inside Dhaka (80) vs outside Dhaka (130)
+    const detectDeliveryCharge = (addr) => {
+        if (!addr || !addr.trim()) return 80;
+        const lower = addr.toLowerCase();
+        if (lower.includes('dhaka') || lower.includes('ঢাকা')) {
+            return 80;
+        }
+        return 130;
+    };
 
     // Items list state (multi-product support)
     const [items, setItems] = useState([
@@ -218,16 +229,44 @@ export const CreateOrderModal = ({
         if (isOpen && !prevOpenRef.current) {
             setCustomerName(initialData.customer_name || '');
             setCustomerPhone(initialData.customer_phone || '');
-            setCustomerAddress(initialData.customer_address || '');
+            const initAddr = initialData.customer_address || '';
+            setCustomerAddress(initAddr);
             setCustomerEmail(initialData.customer_email || initialData.email || '');
             setOrderNumber(generateOrderNumber());
-            setDeliveryCharge(60);
+
+            manualDeliveryRef.current = false;
+            if (initialData.delivery_charge !== undefined && initialData.delivery_charge !== null && initialData.delivery_charge !== '') {
+                setDeliveryCharge(Number(initialData.delivery_charge));
+                manualDeliveryRef.current = true;
+            } else if (initAddr.trim()) {
+                setDeliveryCharge(detectDeliveryCharge(initAddr));
+            } else {
+                setDeliveryCharge(80); // Default Inside Dhaka ৳80
+            }
+
             setNotes('');
 
             fetchProducts();
         }
         prevOpenRef.current = isOpen;
     }, [isOpen]);
+
+    const handleAddressChange = (e) => {
+        const val = e.target.value;
+        setCustomerAddress(val);
+        if (!manualDeliveryRef.current) {
+            if (val.trim()) {
+                setDeliveryCharge(detectDeliveryCharge(val));
+            } else {
+                setDeliveryCharge(80);
+            }
+        }
+    };
+
+    const handleSetDelivery = (amount, isManual = true) => {
+        manualDeliveryRef.current = isManual;
+        setDeliveryCharge(amount);
+    };
 
     const fetchProducts = async () => {
         setLoadingProducts(true);
@@ -540,15 +579,26 @@ export const CreateOrderModal = ({
                         </div>
 
                         <div>
-                            <label className="block text-[11px] text-slate-400 mb-1">
-                                Delivery Address (ডেলিভারি ঠিকানা) <span className="text-rose-400">*</span>
-                            </label>
+                            <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] text-slate-400">
+                                    Delivery Address (ডেলিভারি ঠিকানা) <span className="text-rose-400">*</span>
+                                </label>
+                                {customerAddress.trim() && (
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                                        detectDeliveryCharge(customerAddress) === 80
+                                            ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                                            : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                    }`}>
+                                        {detectDeliveryCharge(customerAddress) === 80 ? 'ঢাকার ভেতরে (৳৮০)' : 'ঢাকার বাইরে (৳১৩০)'}
+                                    </span>
+                                )}
+                            </div>
                             <textarea
                                 rows={2}
                                 required
                                 placeholder="House, Road, Area, Thana, District..."
                                 value={customerAddress}
-                                onChange={(e) => setCustomerAddress(e.target.value)}
+                                onChange={handleAddressChange}
                                 className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
                             />
                         </div>
@@ -806,42 +856,74 @@ export const CreateOrderModal = ({
                         </span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
-                        <span className="text-slate-400 text-xs">Delivery Charge:</span>
-                        <div className="flex items-center gap-1.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-400 text-xs font-semibold">Delivery Charge:</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                deliveryCharge === 80
+                                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                    : deliveryCharge === 130
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                        : deliveryCharge === 0
+                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                            : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            }`}>
+                                {deliveryCharge === 80
+                                    ? 'ঢাকার ভেতরে (৳80)'
+                                    : deliveryCharge === 130
+                                        ? 'ঢাকার বাইরে (৳130)'
+                                        : deliveryCharge === 0
+                                            ? 'ফ্রি ডেলিভারি (৳0)'
+                                            : `কাস্টম চার্জ (৳${deliveryCharge})`}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
                             <button
                                 type="button"
-                                onClick={() => setDeliveryCharge(60)}
-                                className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                                    deliveryCharge === 60
-                                        ? 'bg-indigo-600 text-white font-bold'
-                                        : 'bg-slate-800 text-slate-300'
+                                onClick={() => handleSetDelivery(80)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    deliveryCharge === 80
+                                        ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                                 }`}
+                                title="ঢাকার ভেতরে ডেলিভারি চার্জ ৮০ টাকা"
                             >
-                                Dhaka ৳60
+                                ঢাকা ৳৮০
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setDeliveryCharge(120)}
-                                className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
-                                    deliveryCharge === 120
-                                        ? 'bg-indigo-600 text-white font-bold'
-                                        : 'bg-slate-800 text-slate-300'
+                                onClick={() => handleSetDelivery(130)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    deliveryCharge === 130
+                                        ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-400'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                                 }`}
+                                title="ঢাকার বাইরে ডেলিভারি চার্জ ১৩০ টাকা"
                             >
-                                Outside ৳120
+                                ঢাকার বাইরে ৳১৩০
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setDeliveryCharge(0)}
-                                className={`px-2 py-0.5 rounded text-[11px] transition-colors cursor-pointer ${
+                                onClick={() => handleSetDelivery(0)}
+                                className={`px-2 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                                     deliveryCharge === 0
-                                        ? 'bg-emerald-600 text-white font-bold'
-                                        : 'bg-slate-800 text-slate-300'
+                                        ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400 font-bold'
+                                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                                 }`}
+                                title="ফ্রি ডেলিভারি"
                             >
-                                Free ৳0
+                                ফ্রি ৳০
                             </button>
+                            <div className="flex items-center gap-1 ml-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-0.5" title="প্রয়োজনে কাস্টম ডেলিভারি চার্জ লিখুন">
+                                <span className="text-slate-400 text-xs font-mono">৳</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={deliveryCharge}
+                                    onChange={(e) => handleSetDelivery(Math.max(0, Number(e.target.value) || 0))}
+                                    className="w-14 bg-transparent text-xs font-mono font-bold text-cyan-300 text-right focus:outline-none"
+                                />
+                            </div>
                         </div>
                     </div>
 

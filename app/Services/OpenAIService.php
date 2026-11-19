@@ -124,7 +124,7 @@ class OpenAIService
 
         $productName = $firstProduct['name'] ?? 'dress';
         $sellingPrice = $firstProduct['selling_price_bdt'] ?? 1250.00;
-        $deliveryDhaka = $firstProduct['delivery_inside_dhaka_bdt'] ?? 70.00;
+        $deliveryDhaka = $firstProduct['delivery_inside_dhaka_bdt'] ?? 80.00;
         $deliveryOutside = $firstProduct['delivery_outside_dhaka_bdt'] ?? 130.00;
         $variants = $firstProduct['variants'] ?? [];
 

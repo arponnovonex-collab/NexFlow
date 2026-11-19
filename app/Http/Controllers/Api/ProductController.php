@@ -82,7 +82,7 @@ class ProductController extends Controller
         $product = Product::create([
             ...$validated,
             'slug' => Str::slug($validated['name']) . '-' . Str::random(4),
-            'delivery_charge_inside_dhaka' => $validated['delivery_charge_inside_dhaka'] ?? 70.00,
+            'delivery_charge_inside_dhaka' => $validated['delivery_charge_inside_dhaka'] ?? 80.00,
             'delivery_charge_outside_dhaka' => $validated['delivery_charge_outside_dhaka'] ?? 130.00,
             'is_active' => true,
         ]);

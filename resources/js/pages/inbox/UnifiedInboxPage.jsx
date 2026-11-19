@@ -716,7 +716,7 @@ export const UnifiedInboxPage = () => {
     const [orderForm, setOrderForm] = useState({
         quantity: 1,
         unit_price: 1250,
-        delivery_charge: 70,
+        delivery_charge: 80,
         customer_address: '',
         customer_phone: '',
         notes: '',
@@ -969,11 +969,19 @@ export const UnifiedInboxPage = () => {
             // Prefill order modal if customer exists
             const cust = freshConv.customer;
             const lead = freshConv.lead;
+            const prevOrder = cust?.orders?.[0];
+            const address = prevOrder?.shipping_address || prevOrder?.billing_address || '';
+            const lowerAddr = address.toLowerCase();
+            const delivery = address.trim()
+                ? (lowerAddr.includes('dhaka') || lowerAddr.includes('ঢাকা') ? 80 : 130)
+                : 80;
+
             setOrderForm((prev) => ({
                 ...prev,
-                customer_phone: cust?.phone || '',
+                customer_phone: cust?.phone || prevOrder?.customer_phone || '',
+                customer_address: address,
                 unit_price: lead?.related_product?.selling_price || 1250,
-                delivery_charge: 70,
+                delivery_charge: delivery,
             }));
         } catch (err) {
             console.error('Failed to load conversation details:', err);
@@ -2681,13 +2689,25 @@ export const UnifiedInboxPage = () => {
             <CreateOrderModal
                 isOpen={orderModal}
                 onClose={() => setOrderModal(false)}
-                initialData={React.useMemo(() => ({
-                    customer_id: activeConversation?.customer_id,
-                    customer_name: activeConversation?.customer?.name?.startsWith('Facebook Customer') ? '' : (activeConversation?.customer?.name || ''),
-                    customer_phone: activeConversation?.customer?.phone || '',
-                    customer_address: '',
-                    conversation_id: activeConversation?.id,
-                }), [orderModal, activeConversation?.id, activeConversation?.customer?.name, activeConversation?.customer?.phone])}
+                initialData={React.useMemo(() => {
+                    const cust = activeConversation?.customer;
+                    const prevOrder = cust?.orders?.[0];
+                    const address = prevOrder?.shipping_address || prevOrder?.billing_address || '';
+                    const phone = cust?.phone || prevOrder?.customer_phone || '';
+                    const lowerAddr = address.toLowerCase();
+                    const delivery = address.trim()
+                        ? (lowerAddr.includes('dhaka') || lowerAddr.includes('ঢাকা') ? 80 : 130)
+                        : 80;
+
+                    return {
+                        customer_id: activeConversation?.customer_id,
+                        customer_name: activeConversation?.customer?.name?.startsWith('Facebook Customer') ? '' : (activeConversation?.customer?.name || prevOrder?.customer_name || ''),
+                        customer_phone: phone,
+                        customer_address: address,
+                        delivery_charge: delivery,
+                        conversation_id: activeConversation?.id,
+                    };
+                }, [orderModal, activeConversation?.id, activeConversation?.customer?.name, activeConversation?.customer?.phone, activeConversation?.customer?.orders])}
                 onOrderCreated={(newOrder) => {
                     if (activeConversation) {
                         loadConversationDetails(activeConversation.id);
